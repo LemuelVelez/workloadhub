@@ -38,7 +38,7 @@ function AnchorLink({ href, label }: { href: string; label: string }) {
 export default function Header() {
     return (
         <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/70 backdrop-blur">
-            <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+            <div className="mx-auto flex h-16 items-center justify-between px-4">
                 <div className="flex items-center gap-3">
                     <Link to="/" className="flex items-center gap-2">
                         <img

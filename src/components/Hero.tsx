@@ -9,7 +9,7 @@ import { Separator } from "./ui/separator";
 
 export default function Hero() {
     return (
-        <div className="w-full">
+        <div className="w-full pt-4">
             <Section
                 id="top"
                 eyebrow="Faculty workload + scheduling platform"

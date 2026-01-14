@@ -30,7 +30,7 @@ export default function Section({
 }: SectionProps) {
     return (
         <section id={id} className={cx("scroll-mt-24", className)}>
-            <div className={cx("mx-auto w-full max-w-6xl px-4", containerClassName)}>
+            <div className={cx("mx-auto w-full px-6", containerClassName)}>
                 {(eyebrow || title || description || actions) ? (
                     <div className="mb-8 space-y-3">
                         {eyebrow ? (
