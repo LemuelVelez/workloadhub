@@ -13,4 +13,31 @@ export const databases = new Databases(appwriteClient);
 
 export const DATABASE_ID = publicEnv.APPWRITE_DATABASE;
 
+export const COLLECTIONS = {
+    DEPARTMENTS: "departments",
+    PROGRAMS: "programs",
+    SUBJECTS: "subjects",
+    ROOMS: "rooms",
+    ACADEMIC_TERMS: "academic_terms",
+    TIME_BLOCKS: "time_blocks",
+    SYSTEM_POLICIES: "system_policies",
+    SETTINGS: "settings",
+
+    USER_PROFILES: "user_profiles",
+    FACULTY_PROFILES: "faculty_profiles",
+
+    SECTIONS: "sections",
+    SCHEDULE_VERSIONS: "schedule_versions",
+    CLASSES: "classes",
+    CLASS_MEETINGS: "class_meetings",
+
+    FACULTY_AVAILABILITY: "faculty_availability",
+    CHANGE_REQUESTS: "change_requests",
+
+    NOTIFICATIONS: "notifications",
+    NOTIFICATION_RECIPIENTS: "notification_recipients",
+
+    AUDIT_LOGS: "audit_logs",
+} as const;
+
 export { ID, Query };
