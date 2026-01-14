@@ -8,16 +8,18 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-
     "db:migrate": "node database/script/migrate.mjs",
     "db:seed": "node database/script/seed.mjs",
     "db:reset": "npm run db:migrate && npm run db:seed"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@vitejs/plugin-react": "^5.1.2",
     "appwrite": "^21.5.0",
     "node-appwrite": "^21.1.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
