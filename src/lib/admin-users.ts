@@ -4,8 +4,7 @@ import { ID, Query, TablesDB } from "appwrite"
 import { appwriteClient } from "@/lib/db"
 import { publicEnv } from "@/lib/env"
 import { COLLECTIONS, ATTR } from "@/model/schemaModel"
-import { createUserAccount } from "@/lib/auth"
-import { generateTempPassword, sendInviteEmail } from "@/lib/authverification"
+import { createAuthUserAndSendCredentials } from "@/lib/functions/admin-create-user"
 
 export type AdminUserRole = "ADMIN" | "CHAIR" | "FACULTY"
 
@@ -72,7 +71,6 @@ export async function listDepartmentsLite(opts?: { activeOnly?: boolean }) {
     const dbId = getDatabaseId()
 
     const queries: string[] = [Query.limit(200), Query.orderAsc(ATTR.DEPARTMENTS.name)]
-
     if (activeOnly) queries.push(Query.equal(ATTR.DEPARTMENTS.isActive, true))
 
     const res = await tablesDB.listRows({
@@ -90,7 +88,6 @@ export async function listUserProfiles(opts?: { includeInactive?: boolean; limit
     const dbId = getDatabaseId()
 
     const queries: string[] = [Query.limit(limit), Query.orderDesc("$createdAt")]
-
     if (!includeInactive) queries.push(Query.equal(ATTR.USER_PROFILES.isActive, true))
 
     const res = await tablesDB.listRows({
@@ -103,10 +100,9 @@ export async function listUserProfiles(opts?: { includeInactive?: boolean; limit
 }
 
 /**
- * ✅ NEW: Create user with auto userId + email invite
- * - Creates Appwrite Auth User
- * - Creates User Profile row
- * - Sends recovery/setup email to the user
+ * ✅ Create user + send credentials email (via Appwrite Function)
+ * - Function creates the AUTH user + sends email using Messaging provider
+ * - Client creates the USER_PROFILES row (your existing flow)
  */
 export async function createUserWithInvite(input: AdminUserCreateInput) {
     const dbId = getDatabaseId()
@@ -120,21 +116,18 @@ export async function createUserWithInvite(input: AdminUserCreateInput) {
     if (!email) throw new Error("Email is required.")
     if (!role) throw new Error("Role is required.")
 
-    // ✅ 1) Create Auth account with auto-generated userId and temp password
-    const tempPassword = generateTempPassword(14)
-
-    const created = await createUserAccount({
+    // ✅ 1) Create AUTH user + send credentials email (server-side Function)
+    const created = await createAuthUserAndSendCredentials({
         email,
-        password: tempPassword,
-        name: name || undefined,
+        name: name || null,
     })
 
-    const userId = (created as any)?.$id || (created as any)?.id
+    const userId = String(created.userId || "").trim()
     if (!userId) throw new Error("Failed to create Appwrite user (missing userId).")
 
     // ✅ 2) Create User Profile row
     const basePayload: any = {
-        userId: String(userId).trim(),
+        userId,
         email,
         name,
         role,
@@ -142,14 +135,13 @@ export async function createUserWithInvite(input: AdminUserCreateInput) {
         isActive,
     }
 
-    // Optional flags if your collection has them
     const extendedPayload: any = {
         ...basePayload,
         mustChangePassword: true,
         isVerified: false,
     }
 
-    // Try create with extended fields, fallback to base if schema doesn't support it.
+    // Try create with extended fields, fallback if schema doesn't support it.
     let row: any = null
     try {
         row = await tablesDB.createRow({
@@ -166,10 +158,6 @@ export async function createUserWithInvite(input: AdminUserCreateInput) {
             data: basePayload,
         })
     }
-
-    // ✅ 3) Send "setup password" email (Appwrite Recovery Email)
-    // This is client-safe and will email the user automatically.
-    await sendInviteEmail(email)
 
     return row as AdminUserProfileDoc
 }
@@ -237,4 +225,53 @@ export async function deleteUserProfile(docId: string) {
     })
 
     return true
+}
+
+/**
+ * ✅ NEW: Resend credentials
+ * - Resets password (server-side)
+ * - Sends credentials email again (same function)
+ * - Best-effort updates user profile flags (mustChangePassword + isVerified)
+ */
+export async function resendUserCredentials(opts: {
+    docId: string
+    userId: string
+    email: string
+    name?: string | null
+}) {
+    const dbId = getDatabaseId()
+
+    const docId = String(opts.docId || "").trim()
+    const userId = String(opts.userId || "").trim()
+    const email = String(opts.email || "").trim().toLowerCase()
+    const name = typeof opts.name === "string" ? opts.name : null
+
+    if (!docId) throw new Error("Missing profile docId.")
+    if (!userId) throw new Error("Missing userId.")
+    if (!email) throw new Error("Missing email.")
+
+    // ✅ Call SAME function, but in resend mode
+    const result = await createAuthUserAndSendCredentials({
+        userId,
+        email,
+        name,
+        resend: true,
+    })
+
+    // ✅ Best-effort: update flags in USER_PROFILES table if schema supports it
+    try {
+        await tablesDB.updateRow({
+            databaseId: dbId,
+            tableId: COLLECTIONS.USER_PROFILES,
+            rowId: docId,
+            data: {
+                mustChangePassword: true,
+                isVerified: false,
+            },
+        })
+    } catch {
+        // ignore if fields do not exist in schema
+    }
+
+    return result
 }

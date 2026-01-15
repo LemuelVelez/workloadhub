@@ -3,7 +3,18 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { MoreHorizontal, Plus, RefreshCw, ShieldCheck, UserMinus, UserPlus2, Trash2 } from "lucide-react"
+import {
+    CheckCircle2,
+    Clock,
+    Mail,
+    MoreHorizontal,
+    Plus,
+    RefreshCw,
+    ShieldCheck,
+    Trash2,
+    UserMinus,
+    UserPlus2,
+} from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
 import { adminApi } from "@/api/admin"
@@ -105,6 +116,9 @@ function emptyForm(): UserFormState {
     }
 }
 
+const RESEND_COOLDOWN_MS = 30_000
+const RESEND_SUCCESS_BADGE_MS = 5_000
+
 export default function AdminUsersPage() {
     const [loading, setLoading] = React.useState(true)
     const [saving, setSaving] = React.useState(false)
@@ -124,6 +138,26 @@ export default function AdminUsersPage() {
 
     const [rolePickerOpen, setRolePickerOpen] = React.useState(false)
     const [deptPickerOpen, setDeptPickerOpen] = React.useState(false)
+
+    // ✅ per-row resend loading state
+    const [resending, setResending] = React.useState<Record<string, boolean>>({})
+
+    // ✅ confirmation dialog state for resend
+    const [openResend, setOpenResend] = React.useState(false)
+    const [resendTarget, setResendTarget] = React.useState<UserDoc | null>(null)
+
+    // ✅ NEW: cooldown per row (until timestamp)
+    const [cooldowns, setCooldowns] = React.useState<Record<string, number>>({})
+
+    // ✅ NEW: show "Sent" badge after resend (timestamp)
+    const [sentBadgeAt, setSentBadgeAt] = React.useState<Record<string, number>>({})
+
+    // ✅ tick for countdown UI
+    const [now, setNow] = React.useState(() => Date.now())
+    React.useEffect(() => {
+        const t = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(t)
+    }, [])
 
     const deptMap = React.useMemo(() => {
         const m = new Map<string, DepartmentLite>()
@@ -227,7 +261,6 @@ export default function AdminUsersPage() {
 
         try {
             if (form.$id) {
-                // ✅ update existing profile
                 await adminApi.users.update(form.$id, {
                     userId: form.userId || "",
                     email,
@@ -238,7 +271,6 @@ export default function AdminUsersPage() {
                 })
                 toast.success("User updated.")
             } else {
-                // ✅ create new user + auto userId + invite email
                 await adminApi.users.create({
                     email,
                     name: name || null,
@@ -281,6 +313,97 @@ export default function AdminUsersPage() {
         } catch (e: any) {
             toast.error(e?.message || "Failed to delete user.")
         }
+    }
+
+    function getCooldownRemainingSeconds(rowId: string) {
+        const until = cooldowns[rowId] || 0
+        const remaining = Math.max(0, Math.ceil((until - now) / 1000))
+        return remaining
+    }
+
+    function openResendConfirm(it: UserDoc) {
+        // ✅ Disabled for inactive users
+        if (!it.isActive) {
+            toast.error("Cannot resend credentials for an inactive user.")
+            return
+        }
+
+        const remaining = getCooldownRemainingSeconds(it.$id)
+        if (remaining > 0) {
+            toast.info(`Please wait ${remaining}s before resending again.`)
+            return
+        }
+
+        setResendTarget(it)
+        setOpenResend(true)
+    }
+
+    function closeResendConfirm() {
+        setOpenResend(false)
+        setResendTarget(null)
+    }
+
+    function showSentBadge(rowId: string) {
+        const ts = Date.now()
+        setSentBadgeAt((p) => ({ ...p, [rowId]: ts }))
+
+        window.setTimeout(() => {
+            setSentBadgeAt((prev) => {
+                const next = { ...prev }
+                // only clear if still same/older badge
+                if ((next[rowId] ?? 0) <= ts) {
+                    delete next[rowId]
+                }
+                return next
+            })
+        }, RESEND_SUCCESS_BADGE_MS)
+    }
+
+    async function resendCredentialsNow(it: UserDoc) {
+        const key = it.$id
+
+        // ✅ guard
+        if (!it.isActive) {
+            toast.error("Cannot resend credentials for an inactive user.")
+            return false
+        }
+
+        const remaining = getCooldownRemainingSeconds(key)
+        if (remaining > 0) {
+            toast.info(`Please wait ${remaining}s before resending again.`)
+            return false
+        }
+
+        setResending((p) => ({ ...p, [key]: true }))
+
+        try {
+            await adminApi.users.resendCredentials({
+                docId: it.$id,
+                userId: it.userId,
+                email: it.email,
+                name: it.name || null,
+            })
+
+            // ✅ start cooldown
+            setCooldowns((p) => ({ ...p, [key]: Date.now() + RESEND_COOLDOWN_MS }))
+
+            // ✅ show "Sent" badge
+            showSentBadge(key)
+
+            toast.success("Credentials resent. A new temporary password was emailed to the user.")
+            return true
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to resend credentials.")
+            return false
+        } finally {
+            setResending((p) => ({ ...p, [key]: false }))
+        }
+    }
+
+    async function confirmResend() {
+        if (!resendTarget) return
+        const ok = await resendCredentialsNow(resendTarget)
+        if (ok) closeResendConfirm()
     }
 
     const headerActions = (
@@ -381,9 +504,19 @@ export default function AdminUsersPage() {
                                         <tbody>
                                             {filtered.map((it) => {
                                                 const dept = it.departmentId ? deptMap.get(it.departmentId) : null
+                                                const isResending = Boolean(resending[it.$id])
+
+                                                const cooldownRemaining = getCooldownRemainingSeconds(it.$id)
+                                                const cooldownActive = cooldownRemaining > 0
+
+                                                const showSent = Boolean(sentBadgeAt[it.$id])
+                                                const resendDisabled = isResending || !it.isActive || cooldownActive
 
                                                 return (
-                                                    <tr key={it.$id} className="border-t border-border/60 hover:bg-muted/20">
+                                                    <tr
+                                                        key={it.$id}
+                                                        className="border-t border-border/60 hover:bg-muted/20"
+                                                    >
                                                         <td className="px-4 py-3">
                                                             <div className="flex min-w-0 items-center gap-3">
                                                                 <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-background text-xs font-semibold">
@@ -401,7 +534,9 @@ export default function AdminUsersPage() {
                                                         </td>
 
                                                         <td className="px-4 py-3">
-                                                            <Badge variant={roleBadgeVariant(it.role)}>{roleLabel(it.role)}</Badge>
+                                                            <Badge variant={roleBadgeVariant(it.role)}>
+                                                                {roleLabel(it.role)}
+                                                            </Badge>
                                                         </td>
 
                                                         <td className="px-4 py-3">
@@ -430,31 +565,73 @@ export default function AdminUsersPage() {
                                                         </td>
 
                                                         <td className="px-4 py-3 text-right">
-                                                            <DropdownMenu>
-                                                                <DropdownMenuTrigger asChild>
-                                                                    <Button variant="ghost" size="icon">
-                                                                        <MoreHorizontal className="h-4 w-4" />
-                                                                    </Button>
-                                                                </DropdownMenuTrigger>
-
-                                                                <DropdownMenuContent align="end" className="min-w-44">
-                                                                    <DropdownMenuItem onClick={() => openEdit(it)}>Edit</DropdownMenuItem>
-
-                                                                    <DropdownMenuItem onClick={() => toggleActive(it)}>
-                                                                        {it.isActive ? "Deactivate" : "Activate"}
-                                                                    </DropdownMenuItem>
-
-                                                                    <DropdownMenuSeparator />
-
-                                                                    <DropdownMenuItem
-                                                                        className="text-destructive focus:text-destructive"
-                                                                        onClick={() => openDeleteConfirm(it)}
+                                                            <div className="flex flex-col items-end gap-2">
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    {/* ✅ Resend Credentials */}
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-8 whitespace-nowrap"
+                                                                        onClick={() => openResendConfirm(it)}
+                                                                        disabled={resendDisabled}
                                                                     >
-                                                                        <Trash2 className="mr-2 h-4 w-4" />
-                                                                        Delete
-                                                                    </DropdownMenuItem>
-                                                                </DropdownMenuContent>
-                                                            </DropdownMenu>
+                                                                        {isResending ? (
+                                                                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                                                                        ) : cooldownActive ? (
+                                                                            <Clock className="mr-2 h-4 w-4" />
+                                                                        ) : (
+                                                                            <Mail className="mr-2 h-4 w-4" />
+                                                                        )}
+
+                                                                        {cooldownActive
+                                                                            ? `Resend in ${cooldownRemaining}s`
+                                                                            : "Resend Credentials"}
+                                                                    </Button>
+
+                                                                    <DropdownMenu>
+                                                                        <DropdownMenuTrigger asChild>
+                                                                            <Button variant="ghost" size="icon">
+                                                                                <MoreHorizontal className="h-4 w-4" />
+                                                                            </Button>
+                                                                        </DropdownMenuTrigger>
+
+                                                                        <DropdownMenuContent align="end" className="min-w-44">
+                                                                            <DropdownMenuItem onClick={() => openEdit(it)}>
+                                                                                Edit
+                                                                            </DropdownMenuItem>
+
+                                                                            <DropdownMenuItem onClick={() => toggleActive(it)}>
+                                                                                {it.isActive ? "Deactivate" : "Activate"}
+                                                                            </DropdownMenuItem>
+
+                                                                            <DropdownMenuSeparator />
+
+                                                                            <DropdownMenuItem
+                                                                                className="text-destructive focus:text-destructive"
+                                                                                onClick={() => openDeleteConfirm(it)}
+                                                                            >
+                                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                                Delete
+                                                                            </DropdownMenuItem>
+                                                                        </DropdownMenuContent>
+                                                                    </DropdownMenu>
+                                                                </div>
+
+                                                                {/* ✅ Inline "Sent" banner inside row */}
+                                                                {showSent ? (
+                                                                    <Badge variant="secondary" className="gap-1">
+                                                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                                                        Sent
+                                                                    </Badge>
+                                                                ) : null}
+
+                                                                {/* ✅ helper note for inactive */}
+                                                                {!it.isActive ? (
+                                                                    <span className="text-xs text-muted-foreground">
+                                                                        Resend disabled for inactive users
+                                                                    </span>
+                                                                ) : null}
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 )
@@ -467,6 +644,55 @@ export default function AdminUsersPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* ✅ Resend Confirmation Dialog */}
+            <Dialog open={openResend} onOpenChange={setOpenResend}>
+                <DialogContent className="max-w-full sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Resend credentials?</DialogTitle>
+                    </DialogHeader>
+
+                    <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                            This will generate a <span className="font-medium">NEW temporary password</span> and email it
+                            to the user again.
+                        </p>
+
+                        <div className="rounded-lg border border-border/70 p-3">
+                            <div className="text-sm font-medium">{resendTarget?.name || "—"}</div>
+                            <div className="text-xs text-muted-foreground">{resendTarget?.email || ""}</div>
+                            <div className="text-xs text-muted-foreground">ID: {resendTarget?.userId || ""}</div>
+                        </div>
+
+                        <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
+                            ✅ The user will be forced to change password on next login.
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={closeResendConfirm}>
+                                Cancel
+                            </Button>
+
+                            <Button
+                                onClick={confirmResend}
+                                disabled={!resendTarget || Boolean(resendTarget && resending[resendTarget.$id])}
+                            >
+                                {resendTarget && resending[resendTarget.$id] ? (
+                                    <>
+                                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                                        Sending…
+                                    </>
+                                ) : (
+                                    <>
+                                        <Mail className="mr-2 h-4 w-4" />
+                                        Resend
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Create/Edit Dialog */}
             <Dialog open={openForm} onOpenChange={setOpenForm}>

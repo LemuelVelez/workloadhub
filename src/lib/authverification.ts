@@ -9,18 +9,9 @@ import { COLLECTIONS, ATTR } from "@/model/schemaModel"
 /**
  * ✅ Auth Verification Rules (Your requirement)
  * - When admin adds user: userId auto-generated
- * - Invite/login setup email is sent to user
+ * - Login credentials sent to user's email
  * - On first login: must change password
  * - After first password change: account becomes verified
- *
- * Implementation approach:
- * ✅ We track status using Appwrite account.prefs (best, user can update after password change).
- * ✅ We ALSO try to mirror it to USER_PROFILES table IF attributes exist (optional).
- *
- * NOTE: For email sending from client:
- * Appwrite Messaging "createEmail" requires Server SDK + API Key.
- * So client-safe approach is:
- * ✅ Send Appwrite Recovery Email (Password Setup Link)
  */
 
 const tablesDB = new TablesDB(appwriteClient)
@@ -73,6 +64,15 @@ export function generateTempPassword(length = 14) {
     return base.join("")
 }
 
+function escapeHtml(s: string) {
+    return (s || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;")
+}
+
 /**
  * ✅ Read current logged-in user "verification state"
  */
@@ -87,6 +87,7 @@ export async function getAuthGateState(): Promise<AuthGateState | null> {
     let mustChangePassword = Boolean(prefs?.mustChangePassword)
     let isVerified = Boolean(prefs?.isVerified)
 
+    // ✅ fallback to USER_PROFILES if available
     if (!("mustChangePassword" in prefs) || !("isVerified" in prefs)) {
         try {
             const dbId = getDatabaseId()
@@ -98,12 +99,8 @@ export async function getAuthGateState(): Promise<AuthGateState | null> {
 
             const row = ((res as any)?.rows ?? [])[0]
             if (row) {
-                if (typeof row?.mustChangePassword === "boolean") {
-                    mustChangePassword = row.mustChangePassword
-                }
-                if (typeof row?.isVerified === "boolean") {
-                    isVerified = row.isVerified
-                }
+                if (typeof row?.mustChangePassword === "boolean") mustChangePassword = row.mustChangePassword
+                if (typeof row?.isVerified === "boolean") isVerified = row.isVerified
             }
         } catch {
             // ignore
@@ -155,6 +152,7 @@ export async function completeFirstLoginPasswordChange(opts: {
         verifiedAt: new Date().toISOString(),
     })
 
+    // Optional mirror in USER_PROFILES table
     try {
         const me = await account.get()
         const userId = (me as any).$id
@@ -186,14 +184,85 @@ export async function completeFirstLoginPasswordChange(opts: {
 }
 
 /**
- * ✅ Admin helper: send setup password email using Appwrite Recovery email
+ * ✅ Client-safe fallback: send setup password email using Appwrite Recovery email
  */
 export async function sendInviteEmail(email: string) {
     if (!email?.trim()) throw new Error("Email is required.")
 
     const redirect = `${publicEnv.APP_ORIGIN}/auth/reset-password`
-
     await requestPasswordRecovery(email.trim().toLowerCase(), redirect)
+
+    return true
+}
+
+/**
+ * ✅ NEW: Send login credentials email to NEW user
+ * - Server-side: uses Appwrite Messaging (SMTP Provider = WORKLOADHUB_GMAIL_SMTP)
+ * - Browser fallback: uses Appwrite recovery email
+ */
+export async function sendNewUserCredentialsEmail(opts: {
+    userId: string
+    email: string
+    tempPassword: string
+    name?: string | null
+}) {
+    const email = opts.email?.trim().toLowerCase()
+    const userId = opts.userId?.trim()
+    const tempPassword = opts.tempPassword?.trim()
+    const name = (opts.name || "").trim()
+
+    if (!userId) throw new Error("Missing userId.")
+    if (!email) throw new Error("Missing email.")
+    if (!tempPassword) throw new Error("Missing temp password.")
+
+    // ✅ If running in the browser, we cannot send custom email (needs API KEY)
+    if (typeof window !== "undefined") {
+        // Fallback: send reset/setup link instead
+        await sendInviteEmail(email)
+        return true
+    }
+
+    const origin = publicEnv.APP_ORIGIN || "http://localhost:5173"
+    const loginUrl = `${origin}/auth/login`
+
+    const subject = "Your WorkloadHub Login Credentials"
+
+    const content = `
+<div style="font-family:Arial,sans-serif;line-height:1.6">
+  <h2 style="margin:0 0 12px">Welcome to WorkloadHub</h2>
+  <p>Hello${name ? ` ${escapeHtml(name)}` : ""},</p>
+
+  <p>Your account has been created by the administrator.</p>
+
+  <div style="background:#f7f7f7;border:1px solid #e5e5e5;padding:12px;border-radius:8px">
+    <p style="margin:0 0 8px"><b>Login URL:</b> <a href="${escapeHtml(loginUrl)}">${escapeHtml(loginUrl)}</a></p>
+    <p style="margin:0 0 8px"><b>Email:</b> ${escapeHtml(email)}</p>
+    <p style="margin:0"><b>Temporary Password:</b> <code>${escapeHtml(tempPassword)}</code></p>
+  </div>
+
+  <p style="margin-top:12px">
+    ✅ On your first login, you must change your password.<br/>
+    ✅ After changing your password, your account will be verified automatically.
+  </p>
+
+  <p style="color:#666;font-size:12px">
+    If you did not expect this email, you may ignore it.
+  </p>
+</div>
+`
+
+    // ✅ Server-side send using Messaging provider from .env
+    const { createTargetAndSendEmail } = await import("./email")
+
+    await createTargetAndSendEmail({
+        userId,
+        email,
+        subject,
+        content,
+        html: true,
+        name: "WorkloadHub Email",
+    })
+
     return true
 }
 

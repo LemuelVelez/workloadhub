@@ -33,8 +33,13 @@ function normalizeUrl(name: string, value: string): string {
 
 const isBrowser = typeof window !== "undefined"
 
-// ✅ Use a safe accessor for Vite env (prevents TS errors if keys aren't typed)
-const metaEnv = (import.meta as any).env as Record<string, string | undefined>
+/**
+ * ✅ Vite: import.meta.env
+ * ✅ Node/Appwrite Functions: process.env
+ */
+const metaEnv =
+    ((import.meta as any)?.env ??
+        ((globalThis as any)?.process?.env ?? {})) as Record<string, string | undefined>
 
 /**
  * Public env (safe to use in browser)
@@ -57,7 +62,7 @@ export const publicEnv = Object.freeze({
     ),
 
     /**
-     * ✅ FIX: Your .env uses VITE_PUBLIC_APPWRITE_DATABASE_ID (not VITE_PUBLIC_APPWRITE_DATABASE)
+     * ✅ Your .env uses VITE_PUBLIC_APPWRITE_DATABASE_ID
      * We support BOTH for backward compatibility.
      */
     APPWRITE_DATABASE: required(
@@ -71,8 +76,19 @@ export const publicEnv = Object.freeze({
     ),
 
     /**
+     * ✅ Appwrite Function ID for Admin Create User + Invite (client-safe)
+     * Add this to .env:
+     * VITE_PUBLIC_APPWRITE_ADMIN_CREATE_USER_FUNCTION_ID=xxxx
+     */
+    APPWRITE_ADMIN_CREATE_USER_FUNCTION_ID: optional(
+        "VITE_PUBLIC_APPWRITE_ADMIN_CREATE_USER_FUNCTION_ID",
+        metaEnv.VITE_PUBLIC_APPWRITE_ADMIN_CREATE_USER_FUNCTION_ID ??
+        metaEnv.VITE_PUBLIC_APPWRITE_FUNCTION_ID ??
+        metaEnv.VITE_PUBLIC_APPWRITE_FUNCTION_KEY
+    ),
+
+    /**
      * Optional. If blank, we default to the current origin in the browser.
-     * On the server (no window), it remains undefined unless set.
      */
     APP_ORIGIN:
         optional("VITE_PUBLIC_APP_ORIGIN", metaEnv.VITE_PUBLIC_APP_ORIGIN) ??
@@ -83,11 +99,7 @@ export type PublicEnv = typeof publicEnv
 
 /**
  * Server-only env (secrets)
- * Call this ONLY from server/runtime code (Node).
- *
- * NOTE:
- * - In Vite client bundles, process.env is not reliable and may not exist.
- * - This function guards against browser usage.
+ * Call this ONLY from server/runtime code (Node / Appwrite Functions).
  */
 export function getServerEnv() {
     if (isBrowser) {
@@ -98,9 +110,29 @@ export function getServerEnv() {
         (globalThis as any)?.process?.env ?? {}
 
     return Object.freeze({
-        GMAIL_USER: required("GMAIL_USER", procEnv.GMAIL_USER),
-        GMAIL_APP_PASSWORD: required("GMAIL_APP_PASSWORD", procEnv.GMAIL_APP_PASSWORD),
         APPWRITE_API_KEY: required("APPWRITE_API_KEY", procEnv.APPWRITE_API_KEY),
+
+        /**
+         * ✅ Your Appwrite Messaging Email Provider ID (Gmail SMTP provider)
+         * This MUST exist in Appwrite Console -> Messaging -> Providers
+         *
+         * env key you provided:
+         * WorkloadHub_Gmail_SMTP=xxxx
+         */
+        APPWRITE_EMAIL_PROVIDER_ID: required(
+            "WorkloadHub_Gmail_SMTP",
+            procEnv.WorkloadHub_Gmail_SMTP ?? procEnv.APPWRITE_EMAIL_PROVIDER_ID
+        ),
+
+        /**
+         * Optional “shared secret” if you want internal calls to verify a header.
+         * (Not required for normal client execution.)
+         */
+        APPWRITE_FUNCTION_KEY: optional("APPWRITE_FUNCTION_KEY", procEnv.APPWRITE_FUNCTION_KEY),
+
+        // Optional (kept only if you still want them for other use cases)
+        GMAIL_USER: optional("GMAIL_USER", procEnv.GMAIL_USER),
+        GMAIL_APP_PASSWORD: optional("GMAIL_APP_PASSWORD", procEnv.GMAIL_APP_PASSWORD),
     } as const)
 }
 

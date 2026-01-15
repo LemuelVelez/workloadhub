@@ -3,6 +3,7 @@ import {
     deleteUserProfile,
     listDepartmentsLite,
     listUserProfiles,
+    resendUserCredentials,
     setUserActive,
     updateUserProfile,
 } from "@/lib/admin-users"
@@ -20,5 +21,8 @@ export const adminApi = {
         update: updateUserProfile,
         setActive: setUserActive,
         remove: deleteUserProfile,
+
+        // ✅ NEW: resend credentials email + reset temp password
+        resendCredentials: resendUserCredentials,
     },
 }
