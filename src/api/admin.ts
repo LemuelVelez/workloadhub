@@ -1,5 +1,5 @@
 import {
-    createUserProfile,
+    createUserWithInvite,
     deleteUserProfile,
     listDepartmentsLite,
     listUserProfiles,
@@ -13,7 +13,10 @@ export const adminApi = {
     },
     users: {
         list: listUserProfiles,
-        create: createUserProfile,
+
+        // ✅ Create user with auto userId + invite email
+        create: createUserWithInvite,
+
         update: updateUserProfile,
         setActive: setUserActive,
         remove: deleteUserProfile,

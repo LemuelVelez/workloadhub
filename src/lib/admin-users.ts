@@ -4,8 +4,18 @@ import { ID, Query, TablesDB } from "appwrite"
 import { appwriteClient } from "@/lib/db"
 import { publicEnv } from "@/lib/env"
 import { COLLECTIONS, ATTR } from "@/model/schemaModel"
+import { createUserAccount } from "@/lib/auth"
+import { generateTempPassword, sendInviteEmail } from "@/lib/authverification"
 
 export type AdminUserRole = "ADMIN" | "CHAIR" | "FACULTY"
+
+export type AdminUserCreateInput = {
+    email: string
+    name?: string | null
+    role: AdminUserRole
+    departmentId?: string | null
+    isActive: boolean
+}
 
 export type AdminUserProfileInput = {
     userId: string
@@ -26,6 +36,10 @@ export type AdminUserProfileDoc = {
     role: string
     departmentId?: string | null
     isActive: boolean
+
+    // ✅ Optional (if you added these attributes in Appwrite):
+    mustChangePassword?: boolean
+    isVerified?: boolean
 }
 
 export type DepartmentDocLite = {
@@ -35,16 +49,9 @@ export type DepartmentDocLite = {
     isActive: boolean
 }
 
-/**
- * ✅ FIXED:
- * Your env.ts exports DB id as publicEnv.APPWRITE_DATABASE
- * This function previously looked for APPWRITE_DATABASE_ID / DATABASE_ID / DB_ID (wrong keys),
- * so it always threw "Missing Appwrite Database ID in env."
- */
 function getDatabaseId(): string {
     const anyEnv = publicEnv as any
 
-    // ✅ Correct key (from src/lib/env.ts)
     const dbId =
         anyEnv?.APPWRITE_DATABASE ||
         anyEnv?.APPWRITE_DATABASE_ID ||
@@ -54,10 +61,7 @@ function getDatabaseId(): string {
         (import.meta as any)?.env?.VITE_PUBLIC_APPWRITE_DATABASE ||
         null
 
-    if (!dbId) {
-        throw new Error("Missing Appwrite Database ID in env.")
-    }
-
+    if (!dbId) throw new Error("Missing Appwrite Database ID in env.")
     return String(dbId)
 }
 
@@ -69,9 +73,7 @@ export async function listDepartmentsLite(opts?: { activeOnly?: boolean }) {
 
     const queries: string[] = [Query.limit(200), Query.orderAsc(ATTR.DEPARTMENTS.name)]
 
-    if (activeOnly) {
-        queries.push(Query.equal(ATTR.DEPARTMENTS.isActive, true))
-    }
+    if (activeOnly) queries.push(Query.equal(ATTR.DEPARTMENTS.isActive, true))
 
     const res = await tablesDB.listRows({
         databaseId: dbId,
@@ -89,9 +91,7 @@ export async function listUserProfiles(opts?: { includeInactive?: boolean; limit
 
     const queries: string[] = [Query.limit(limit), Query.orderDesc("$createdAt")]
 
-    if (!includeInactive) {
-        queries.push(Query.equal(ATTR.USER_PROFILES.isActive, true))
-    }
+    if (!includeInactive) queries.push(Query.equal(ATTR.USER_PROFILES.isActive, true))
 
     const res = await tablesDB.listRows({
         databaseId: dbId,
@@ -100,6 +100,78 @@ export async function listUserProfiles(opts?: { includeInactive?: boolean; limit
     })
 
     return ((res as any)?.rows ?? []) as AdminUserProfileDoc[]
+}
+
+/**
+ * ✅ NEW: Create user with auto userId + email invite
+ * - Creates Appwrite Auth User
+ * - Creates User Profile row
+ * - Sends recovery/setup email to the user
+ */
+export async function createUserWithInvite(input: AdminUserCreateInput) {
+    const dbId = getDatabaseId()
+
+    const email = input.email.trim().toLowerCase()
+    const name = input.name?.trim() || null
+    const role = input.role
+    const departmentId = input.departmentId?.trim() || null
+    const isActive = Boolean(input.isActive)
+
+    if (!email) throw new Error("Email is required.")
+    if (!role) throw new Error("Role is required.")
+
+    // ✅ 1) Create Auth account with auto-generated userId and temp password
+    const tempPassword = generateTempPassword(14)
+
+    const created = await createUserAccount({
+        email,
+        password: tempPassword,
+        name: name || undefined,
+    })
+
+    const userId = (created as any)?.$id || (created as any)?.id
+    if (!userId) throw new Error("Failed to create Appwrite user (missing userId).")
+
+    // ✅ 2) Create User Profile row
+    const basePayload: any = {
+        userId: String(userId).trim(),
+        email,
+        name,
+        role,
+        departmentId,
+        isActive,
+    }
+
+    // Optional flags if your collection has them
+    const extendedPayload: any = {
+        ...basePayload,
+        mustChangePassword: true,
+        isVerified: false,
+    }
+
+    // Try create with extended fields, fallback to base if schema doesn't support it.
+    let row: any = null
+    try {
+        row = await tablesDB.createRow({
+            databaseId: dbId,
+            tableId: COLLECTIONS.USER_PROFILES,
+            rowId: ID.unique(),
+            data: extendedPayload,
+        })
+    } catch {
+        row = await tablesDB.createRow({
+            databaseId: dbId,
+            tableId: COLLECTIONS.USER_PROFILES,
+            rowId: ID.unique(),
+            data: basePayload,
+        })
+    }
+
+    // ✅ 3) Send "setup password" email (Appwrite Recovery Email)
+    // This is client-safe and will email the user automatically.
+    await sendInviteEmail(email)
+
+    return row as AdminUserProfileDoc
 }
 
 export async function createUserProfile(input: AdminUserProfileInput) {

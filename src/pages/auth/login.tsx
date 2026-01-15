@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { authApi } from "@/api/auth"
 import { useSession } from "@/hooks/use-session"
+import { getPostLoginRedirectPath } from "@/lib/authverification"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -40,7 +41,6 @@ export default function LoginPage() {
     const [loading, setLoading] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
 
-    // ✅ If already logged in, go directly to dashboard
     React.useEffect(() => {
         if (sessionLoading) return
         if (isAuthenticated) {
@@ -56,14 +56,20 @@ export default function LoginPage() {
         try {
             await authApi.login(email, password)
 
-            // “remember” is primarily UX here—Appwrite session persistence is handled by Appwrite.
             if (!remember) {
-                // If you want strict “session-only”, you can implement your own behavior here.
+                // optional: session-only handling
+            }
+
+            // ✅ First-login enforcement
+            const redirect = await getPostLoginRedirectPath()
+            if (redirect) {
+                toast.info("For security, you must change your password first.")
+                navigate(redirect, { replace: true })
+                return
             }
 
             toast.success("Welcome back!")
 
-            // ✅ Redirect user back to where they came from (if protected route redirected them)
             const from =
                 (location.state as any)?.from && typeof (location.state as any).from === "string"
                     ? (location.state as any).from
@@ -105,9 +111,7 @@ export default function LoginPage() {
                                         autoComplete="email"
                                         placeholder="you@example.com"
                                         value={email}
-                                        onChange={(e: { target: { value: React.SetStateAction<string> } }) =>
-                                            setEmail(e.target.value)
-                                        }
+                                        onChange={(e: any) => setEmail(e.target.value)}
                                         className="pl-9"
                                         disabled={loading || sessionLoading}
                                         required
@@ -134,9 +138,7 @@ export default function LoginPage() {
                                         autoComplete="current-password"
                                         placeholder="••••••••"
                                         value={password}
-                                        onChange={(e: { target: { value: React.SetStateAction<string> } }) =>
-                                            setPassword(e.target.value)
-                                        }
+                                        onChange={(e: any) => setPassword(e.target.value)}
                                         className="pl-9 pr-10"
                                         disabled={loading || sessionLoading}
                                         required
@@ -150,11 +152,7 @@ export default function LoginPage() {
                                         disabled={loading || sessionLoading}
                                         aria-label={showPassword ? "Hide password" : "Show password"}
                                     >
-                                        {showPassword ? (
-                                            <EyeOff className="h-4 w-4" />
-                                        ) : (
-                                            <Eye className="h-4 w-4" />
-                                        )}
+                                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                     </Button>
                                 </div>
                             </div>

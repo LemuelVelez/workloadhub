@@ -53,7 +53,7 @@ type UserDoc = {
 
 type UserFormState = {
     $id?: string
-    userId: string
+    userId?: string // ✅ auto-generated on create
     email: string
     name: string
     role: AdminUserRole
@@ -97,7 +97,6 @@ function canHaveDepartment(role: AdminUserRole) {
 
 function emptyForm(): UserFormState {
     return {
-        userId: "",
         email: "",
         name: "",
         role: "FACULTY",
@@ -203,17 +202,12 @@ export default function AdminUsersPage() {
     }
 
     async function saveForm() {
-        const userId = form.userId.trim()
         const email = form.email.trim().toLowerCase()
         const name = form.name.trim()
         const role = form.role
         const departmentId = form.departmentId.trim()
         const isActive = Boolean(form.isActive)
 
-        if (!userId) {
-            toast.error("User ID is required.")
-            return
-        }
         if (!email) {
             toast.error("Email is required.")
             return
@@ -233,8 +227,9 @@ export default function AdminUsersPage() {
 
         try {
             if (form.$id) {
+                // ✅ update existing profile
                 await adminApi.users.update(form.$id, {
-                    userId,
+                    userId: form.userId || "",
                     email,
                     name: name || null,
                     role,
@@ -243,15 +238,16 @@ export default function AdminUsersPage() {
                 })
                 toast.success("User updated.")
             } else {
+                // ✅ create new user + auto userId + invite email
                 await adminApi.users.create({
-                    userId,
                     email,
                     name: name || null,
                     role,
                     departmentId: deptNeeded ? departmentId : null,
                     isActive,
-                })
-                toast.success("User created.")
+                } as any)
+
+                toast.success("User created. Invite email was sent to the user.")
             }
 
             setOpenForm(false)
@@ -307,7 +303,6 @@ export default function AdminUsersPage() {
             subtitle="Add / edit / deactivate accounts and assign roles (Admin, Dept Head, Faculty)."
             actions={headerActions}
         >
-            {/* ✅ Prevent extra blank/overflow spacing */}
             <div className="mx-auto w-full max-w-none p-4 sm:p-6 lg:p-8">
                 {error ? (
                     <Alert variant="destructive" className="mb-4">
@@ -388,10 +383,7 @@ export default function AdminUsersPage() {
                                                 const dept = it.departmentId ? deptMap.get(it.departmentId) : null
 
                                                 return (
-                                                    <tr
-                                                        key={it.$id}
-                                                        className="border-t border-border/60 hover:bg-muted/20"
-                                                    >
+                                                    <tr key={it.$id} className="border-t border-border/60 hover:bg-muted/20">
                                                         <td className="px-4 py-3">
                                                             <div className="flex min-w-0 items-center gap-3">
                                                                 <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-background text-xs font-semibold">
@@ -399,12 +391,8 @@ export default function AdminUsersPage() {
                                                                 </div>
 
                                                                 <div className="min-w-0">
-                                                                    <div className="truncate font-medium">
-                                                                        {it.name || "—"}
-                                                                    </div>
-                                                                    <div className="truncate text-xs text-muted-foreground">
-                                                                        {it.email}
-                                                                    </div>
+                                                                    <div className="truncate font-medium">{it.name || "—"}</div>
+                                                                    <div className="truncate text-xs text-muted-foreground">{it.email}</div>
                                                                     <div className="truncate text-[11px] text-muted-foreground">
                                                                         ID: {it.userId}
                                                                     </div>
@@ -413,18 +401,14 @@ export default function AdminUsersPage() {
                                                         </td>
 
                                                         <td className="px-4 py-3">
-                                                            <Badge variant={roleBadgeVariant(it.role)}>
-                                                                {roleLabel(it.role)}
-                                                            </Badge>
+                                                            <Badge variant={roleBadgeVariant(it.role)}>{roleLabel(it.role)}</Badge>
                                                         </td>
 
                                                         <td className="px-4 py-3">
                                                             {dept ? (
                                                                 <div className="min-w-0">
                                                                     <div className="truncate font-medium">{dept.name}</div>
-                                                                    <div className="truncate text-xs text-muted-foreground">
-                                                                        {dept.code}
-                                                                    </div>
+                                                                    <div className="truncate text-xs text-muted-foreground">{dept.code}</div>
                                                                 </div>
                                                             ) : (
                                                                 <span className="text-muted-foreground">—</span>
@@ -454,9 +438,7 @@ export default function AdminUsersPage() {
                                                                 </DropdownMenuTrigger>
 
                                                                 <DropdownMenuContent align="end" className="min-w-44">
-                                                                    <DropdownMenuItem onClick={() => openEdit(it)}>
-                                                                        Edit
-                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem onClick={() => openEdit(it)}>Edit</DropdownMenuItem>
 
                                                                     <DropdownMenuItem onClick={() => toggleActive(it)}>
                                                                         {it.isActive ? "Deactivate" : "Activate"}
@@ -494,19 +476,16 @@ export default function AdminUsersPage() {
                     </DialogHeader>
 
                     <div className="space-y-4">
-                        <div className="grid gap-2">
-                            <Label htmlFor="userId">User ID (Appwrite)</Label>
-                            <Input
-                                id="userId"
-                                value={form.userId}
-                                onChange={(e) => setForm((p) => ({ ...p, userId: e.target.value }))}
-                                placeholder="e.g. 65f2c9b2a0..."
-                                disabled={saving}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                Use the Appwrite account ID of the user (required).
-                            </p>
-                        </div>
+                        {form.$id ? (
+                            <div className="grid gap-2">
+                                <Label>User ID</Label>
+                                <Input value={form.userId || ""} disabled />
+                            </div>
+                        ) : (
+                            <div className="rounded-lg border border-border/70 p-3 text-sm text-muted-foreground">
+                                ✅ User ID will be automatically generated and login setup email will be sent to the user.
+                            </div>
+                        )}
 
                         <div className="grid gap-2">
                             <Label htmlFor="email">Email</Label>
@@ -536,11 +515,7 @@ export default function AdminUsersPage() {
 
                             <Popover open={rolePickerOpen} onOpenChange={setRolePickerOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className="w-full justify-between"
-                                        disabled={saving}
-                                    >
+                                    <Button variant="outline" className="w-full justify-between" disabled={saving}>
                                         <span>{roleLabel(form.role)}</span>
                                         <UserPlus2 className="h-4 w-4 opacity-70" />
                                     </Button>
@@ -581,20 +556,14 @@ export default function AdminUsersPage() {
 
                                 <Popover open={deptPickerOpen} onOpenChange={setDeptPickerOpen}>
                                     <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            className="w-full justify-between"
-                                            disabled={saving}
-                                        >
+                                        <Button variant="outline" className="w-full justify-between" disabled={saving}>
                                             <span className="truncate">
                                                 {form.departmentId
                                                     ? deptMap.get(form.departmentId)?.name || "Select department"
                                                     : "Select department"}
                                             </span>
                                             <span className="text-xs text-muted-foreground">
-                                                {form.departmentId
-                                                    ? deptMap.get(form.departmentId)?.code || ""
-                                                    : ""}
+                                                {form.departmentId ? deptMap.get(form.departmentId)?.code || "" : ""}
                                             </span>
                                         </Button>
                                     </PopoverTrigger>

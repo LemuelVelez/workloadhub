@@ -191,7 +191,8 @@ export function NavUser({
                                 aria-label="Open user menu"
                                 className={cn(
                                     "flex h-12 w-12 items-center justify-center rounded-xl",
-                                    "border border-sidebar-border bg-sidebar/40",
+                                    // ✅ REMOVED BORDER here ✅
+                                    "bg-transparent",
                                     "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                                     "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                                 )}
