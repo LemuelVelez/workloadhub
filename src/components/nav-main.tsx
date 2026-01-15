@@ -8,7 +8,6 @@ import {
     CalendarDays,
     ClipboardList,
     Users,
-    ShieldCheck,
     Settings,
     Clock,
 } from "lucide-react"
@@ -105,10 +104,37 @@ function getRole(user: any): RoleKey {
     return "user"
 }
 
+/**
+ * ✅ Overview route matcher
+ * We want Overview active ONLY on actual overview screens:
+ * - /dashboard (index redirect)
+ * - /dashboard/admin/overview
+ * - /dashboard/chair/overview
+ * - /dashboard/faculty/overview
+ * - etc.
+ */
+function isOverviewRoute(pathname: string) {
+    if (!pathname) return false
+    if (pathname === "/dashboard") return true
+
+    return /^\/dashboard\/(admin|chair|faculty|scheduler|reviewer|uploader)\/overview\/?$/.test(
+        pathname
+    )
+}
+
+/**
+ * ✅ Active path logic
+ * - Overview (/dashboard) should NOT be active everywhere
+ * - Other routes can use startsWith
+ */
 function isActivePath(currentPath: string, href: string) {
     if (!currentPath) return false
-    if (href === "/dashboard") return currentPath === "/dashboard" || currentPath.startsWith("/dashboard/")
-    return currentPath.startsWith(href)
+
+    // Overview special-case
+    if (href === "/dashboard") return isOverviewRoute(currentPath)
+
+    // Normal behavior
+    return currentPath === href || currentPath.startsWith(href + "/")
 }
 
 export default function NavMain({ className }: { className?: string }) {
@@ -120,16 +146,17 @@ export default function NavMain({ className }: { className?: string }) {
     // ✅ If you're in admin routes, keep admin menu visible (even if role detection fails)
     const inAdminArea = pathname.startsWith("/dashboard/admin")
 
-    // ✅ smart dashboard link
-    const dashboardHome = role === "admin" ? "/dashboard/admin/overview" : "/dashboard"
-
     /**
      * ✅ MAIN NAV
+     * IMPORTANT:
+     * - "Overview" is the only home link now
+     * - It points to /dashboard, App.tsx redirects by role
+     * - This removes duplicate Dashboard/Overview indicators
      */
     const primary: NavItem[] = [
         {
-            title: "Dashboard",
-            href: dashboardHome,
+            title: "Overview",
+            href: "/dashboard",
             icon: LayoutDashboard,
         },
         {
@@ -154,14 +181,9 @@ export default function NavMain({ className }: { className?: string }) {
 
     /**
      * ✅ ADMIN MENU (matches App.tsx)
+     * Removed "Overview" here to avoid duplication
      */
     const adminMenu: NavItem[] = [
-        {
-            title: "Overview",
-            href: "/dashboard/admin/overview",
-            icon: ShieldCheck,
-            roles: ["admin"],
-        },
         {
             title: "Users",
             href: "/dashboard/admin/users",
@@ -210,9 +232,9 @@ export default function NavMain({ className }: { className?: string }) {
 
     return (
         <div className={cn("min-w-0", className)}>
-            {/* ✅ Overview */}
+            {/* ✅ Main */}
             <SidebarGroup>
-                <SidebarGroupLabel>Overview</SidebarGroupLabel>
+                <SidebarGroupLabel>Main</SidebarGroupLabel>
                 <SidebarGroupContent>
                     <SidebarMenu>{primary.filter(visible).map(renderItem)}</SidebarMenu>
                 </SidebarGroupContent>
