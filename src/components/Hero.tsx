@@ -1,13 +1,26 @@
-import { ArrowRight, CalendarCheck2, ShieldCheck, Sparkles, Users } from "lucide-react";
-import { Link } from "react-router-dom";
+import {
+    ArrowRight,
+    CalendarCheck2,
+    ShieldCheck,
+    Sparkles,
+    Users,
+} from "lucide-react"
+import { Link } from "react-router-dom"
 
-import Section from "./Section";
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Separator } from "./ui/separator";
+import Section from "./Section"
+import { Badge } from "./ui/badge"
+import { Button } from "./ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
+import { Separator } from "./ui/separator"
+
+import { useSession } from "@/hooks/use-session"
 
 export default function Hero() {
+    const { isAuthenticated } = useSession()
+
+    const actionHref = isAuthenticated ? "/dashboard" : "/auth/login"
+    const actionLabel = isAuthenticated ? "Dashboard" : "Sign in"
+
     return (
         <div className="w-full pt-4">
             <Section
@@ -15,13 +28,15 @@ export default function Hero() {
                 eyebrow="Faculty workload + scheduling platform"
                 title={
                     <>
-                        Plan schedules faster. <span className="text-muted-foreground">Stay audit-ready.</span>
+                        Plan schedules faster.{" "}
+                        <span className="text-muted-foreground">Stay audit-ready.</span>
                     </>
                 }
                 description={
                     <>
-                        WorkloadHub helps admins, department heads, and faculty coordinate class schedules,
-                        workloads, availability, approvals, and change requests—without spreadsheets chaos.
+                        WorkloadHub helps admins, department heads, and faculty coordinate
+                        class schedules, workloads, availability, approvals, and change
+                        requests—without spreadsheets chaos.
                     </>
                 }
                 actions={
@@ -31,9 +46,11 @@ export default function Hero() {
                                 Get started <ArrowRight className="ml-2 h-4 w-4" />
                             </a>
                         </Button>
+
                         <Button asChild variant="secondary">
-                            <Link to="/auth/login">Sign in</Link>
+                            <Link to={actionHref}>{actionLabel}</Link>
                         </Button>
+
                         <div className="flex flex-wrap items-center gap-2 pt-2 sm:pt-0">
                             <Badge variant="secondary">Role-based</Badge>
                             <Badge variant="secondary">Versioned schedules</Badge>
@@ -86,8 +103,9 @@ export default function Hero() {
                                 <div className="flex items-start gap-2">
                                     <Sparkles className="mt-0.5 h-4 w-4 text-muted-foreground" />
                                     <p className="text-sm text-muted-foreground">
-                                        Designed for universities with clear master data, term setup, versioning, approvals,
-                                        and notifications—so schedules don’t break at the last minute.
+                                        Designed for universities with clear master data, term setup,
+                                        versioning, approvals, and notifications—so schedules don’t
+                                        break at the last minute.
                                     </p>
                                 </div>
                             </CardContent>
@@ -107,5 +125,5 @@ export default function Hero() {
                 </div>
             </Section>
         </div>
-    );
+    )
 }

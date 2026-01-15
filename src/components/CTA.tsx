@@ -1,10 +1,18 @@
-import { Rocket } from "lucide-react";
+import { Rocket } from "lucide-react"
+import { Link } from "react-router-dom"
 
-import Section from "./Section";
-import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import Section from "./Section"
+import { Button } from "./ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
+
+import { useSession } from "@/hooks/use-session"
 
 export default function CTA() {
+    const { isAuthenticated } = useSession()
+
+    const actionHref = isAuthenticated ? "/dashboard" : "/auth/login"
+    const actionLabel = isAuthenticated ? "Dashboard" : "Sign in"
+
     return (
         <Section
             id="cta"
@@ -28,11 +36,11 @@ export default function CTA() {
 
                     <div className="flex flex-col gap-2 sm:flex-row">
                         <Button asChild variant="secondary">
-                            <a href="/auth/login">Sign in</a>
+                            <Link to={actionHref}>{actionLabel}</Link>
                         </Button>
                     </div>
                 </CardContent>
             </Card>
         </Section>
-    );
+    )
 }

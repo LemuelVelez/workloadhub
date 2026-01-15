@@ -1,28 +1,30 @@
-import { Link } from "react-router-dom";
-import { Menu } from "lucide-react";
+import { Link } from "react-router-dom"
+import { Menu } from "lucide-react"
 
-import { Button } from "./ui/button";
-import { Separator } from "./ui/separator";
+import { Button } from "./ui/button"
+import { Separator } from "./ui/separator"
 import {
     NavigationMenu,
     NavigationMenuItem,
     NavigationMenuLink,
     NavigationMenuList,
-} from "./ui/navigation-menu";
+} from "./ui/navigation-menu"
 import {
     Sheet,
     SheetContent,
     SheetHeader,
     SheetTitle,
     SheetTrigger,
-} from "./ui/sheet";
+} from "./ui/sheet"
+
+import { useSession } from "@/hooks/use-session"
 
 const links = [
     { label: "Features", href: "#features" },
     { label: "How it works", href: "#how-it-works" },
     { label: "Roles", href: "#roles" },
     { label: "Get started", href: "#cta" },
-];
+]
 
 function AnchorLink({ href, label }: { href: string; label: string }) {
     return (
@@ -32,10 +34,15 @@ function AnchorLink({ href, label }: { href: string; label: string }) {
         >
             {label}
         </a>
-    );
+    )
 }
 
 export default function Header() {
+    const { isAuthenticated } = useSession()
+
+    const actionHref = isAuthenticated ? "/dashboard" : "/auth/login"
+    const actionLabel = isAuthenticated ? "Dashboard" : "Sign in"
+
     return (
         <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/70 backdrop-blur">
             <div className="mx-auto flex h-16 items-center justify-between px-4">
@@ -74,7 +81,7 @@ export default function Header() {
 
                 <div className="flex items-center gap-2">
                     <Button asChild variant="secondary" className="hidden md:inline-flex">
-                        <Link to="/auth/login">Sign in</Link>
+                        <Link to={actionHref}>{actionLabel}</Link>
                     </Button>
 
                     {/* Mobile */}
@@ -85,6 +92,7 @@ export default function Header() {
                                     <Menu className="h-5 w-5" />
                                 </Button>
                             </SheetTrigger>
+
                             <SheetContent side="right" className="w-80">
                                 <SheetHeader>
                                     <SheetTitle className="flex items-center gap-2">
@@ -106,7 +114,7 @@ export default function Header() {
                                     <Separator className="my-2" />
 
                                     <Button asChild variant="secondary">
-                                        <Link to="/auth/login">Sign in</Link>
+                                        <Link to={actionHref}>{actionLabel}</Link>
                                     </Button>
                                 </div>
                             </SheetContent>
@@ -115,5 +123,5 @@ export default function Header() {
                 </div>
             </div>
         </header>
-    );
+    )
 }
