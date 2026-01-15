@@ -49,11 +49,6 @@ export default function Footer() {
 
                 <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                     <div>© {new Date().getFullYear()} WorkloadHub</div>
-                    <div className="flex items-center gap-4">
-                        <span>Midnight theme</span>
-                        <span>•</span>
-                        <span>Built with Shadcn UI</span>
-                    </div>
                 </div>
             </Section>
         </footer>

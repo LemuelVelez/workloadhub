@@ -77,10 +77,6 @@ export default function Header() {
                         <Link to="/auth/login">Sign in</Link>
                     </Button>
 
-                    <Button asChild className="hidden md:inline-flex">
-                        <a href="#cta">Request demo</a>
-                    </Button>
-
                     {/* Mobile */}
                     <div className="md:hidden">
                         <Sheet>
@@ -111,9 +107,6 @@ export default function Header() {
 
                                     <Button asChild variant="secondary">
                                         <Link to="/auth/login">Sign in</Link>
-                                    </Button>
-                                    <Button asChild>
-                                        <a href="#cta">Request demo</a>
                                     </Button>
                                 </div>
                             </SheetContent>
