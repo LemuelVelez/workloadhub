@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as React from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useLocation } from "react-router-dom"
 import { Loader2, Eye, EyeOff, Lock, Mail } from "lucide-react"
 import { toast } from "sonner"
 
 import { authApi } from "@/api/auth"
+import { useSession } from "@/hooks/use-session"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -27,6 +28,9 @@ function errorToText(err: any) {
 
 export default function LoginPage() {
     const navigate = useNavigate()
+    const location = useLocation()
+
+    const { loading: sessionLoading, isAuthenticated } = useSession()
 
     const [email, setEmail] = React.useState("")
     const [password, setPassword] = React.useState("")
@@ -35,6 +39,14 @@ export default function LoginPage() {
 
     const [loading, setLoading] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
+
+    // ✅ If already logged in, go directly to dashboard
+    React.useEffect(() => {
+        if (sessionLoading) return
+        if (isAuthenticated) {
+            navigate("/dashboard", { replace: true })
+        }
+    }, [sessionLoading, isAuthenticated, navigate])
 
     async function onSubmit(e: React.FormEvent) {
         e.preventDefault()
@@ -50,7 +62,14 @@ export default function LoginPage() {
             }
 
             toast.success("Welcome back!")
-            navigate("/", { replace: true })
+
+            // ✅ Redirect user back to where they came from (if protected route redirected them)
+            const from =
+                (location.state as any)?.from && typeof (location.state as any).from === "string"
+                    ? (location.state as any).from
+                    : "/dashboard"
+
+            navigate(from, { replace: true })
         } catch (err: any) {
             setError(errorToText(err))
         } finally {
@@ -60,7 +79,7 @@ export default function LoginPage() {
 
     return (
         <div className="min-h-screen w-full bg-background">
-            <div className="mx-auto flex min-h-screen max-w-md items-center px-4 py-10">
+            <div className="mx-auto flex min-h-screen max-w-md items-center py-10">
                 <Card className="w-full">
                     <CardHeader className="space-y-2">
                         <CardTitle className="text-2xl">Sign in</CardTitle>
@@ -90,7 +109,7 @@ export default function LoginPage() {
                                             setEmail(e.target.value)
                                         }
                                         className="pl-9"
-                                        disabled={loading}
+                                        disabled={loading || sessionLoading}
                                         required
                                     />
                                 </div>
@@ -119,7 +138,7 @@ export default function LoginPage() {
                                             setPassword(e.target.value)
                                         }
                                         className="pl-9 pr-10"
-                                        disabled={loading}
+                                        disabled={loading || sessionLoading}
                                         required
                                     />
                                     <Button
@@ -128,7 +147,7 @@ export default function LoginPage() {
                                         size="icon"
                                         className="absolute right-1 top-1 h-8 w-8"
                                         onClick={() => setShowPassword((v) => !v)}
-                                        disabled={loading}
+                                        disabled={loading || sessionLoading}
                                         aria-label={showPassword ? "Hide password" : "Show password"}
                                     >
                                         {showPassword ? (
@@ -146,7 +165,7 @@ export default function LoginPage() {
                                         id="remember"
                                         checked={remember}
                                         onCheckedChange={(v: any) => setRemember(Boolean(v))}
-                                        disabled={loading}
+                                        disabled={loading || sessionLoading}
                                     />
                                     <Label htmlFor="remember" className="text-sm text-muted-foreground">
                                         Remember me
@@ -154,7 +173,7 @@ export default function LoginPage() {
                                 </div>
                             </div>
 
-                            <Button type="submit" className="w-full" disabled={loading}>
+                            <Button type="submit" className="w-full" disabled={loading || sessionLoading}>
                                 {loading ? (
                                     <>
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

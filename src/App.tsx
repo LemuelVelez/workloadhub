@@ -13,14 +13,14 @@ import ResetPasswordPage from "./pages/auth/reset-password"
 
 import { useSession } from "@/hooks/use-session"
 
-// ✅ Lazy load dashboard so it works smoothly with Suspense + Loading
-// const DashboardPage = React.lazy(() => import("./pages/dashboard"))
+// ✅ Lazy-load dashboard pages
+const AdminOverviewPage = React.lazy(() => import("./pages/dashboard/admin/overview"))
+const AdminUsersPage = React.lazy(() => import("./pages/dashboard/admin/users"))
 
 function RequireAuth() {
   const location = useLocation()
   const { loading, isAuthenticated } = useSession()
 
-  // ✅ Show loading while checking session
   if (loading) {
     return (
       <Loading
@@ -31,18 +31,16 @@ function RequireAuth() {
     )
   }
 
-  // ❌ Not logged in → redirect to login
   if (!isAuthenticated) {
     return (
       <Navigate
         to="/auth/login"
         replace
-        state={{ from: location.pathname }}
+        state={{ from: `${location.pathname}${location.search}` }}
       />
     )
   }
 
-  // ✅ Logged in → allow access
   return <Outlet />
 }
 
@@ -58,7 +56,20 @@ export default function App() {
 
           {/* ✅ Protected Dashboard */}
           <Route element={<RequireAuth />}>
-            {/* <Route path="/dashboard/*" element={<DashboardPage />} /> */}
+            <Route path="/dashboard" element={<Outlet />}>
+              {/* Default dashboard route */}
+              <Route index element={<Navigate to="admin/overview" replace />} />
+
+              {/* ✅ Aliases (fix blank white space routes) */}
+              <Route path="users" element={<Navigate to="admin/users" replace />} />
+
+              {/* Admin pages */}
+              <Route path="admin/overview" element={<AdminOverviewPage />} />
+              <Route path="admin/users" element={<AdminUsersPage />} />
+
+              {/* Dashboard catch-all */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Route>
           </Route>
 
           {/* Auth */}

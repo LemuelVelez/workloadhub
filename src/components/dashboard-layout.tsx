@@ -1,4 +1,4 @@
-
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
 import * as React from "react"
@@ -38,26 +38,31 @@ export default function DashboardLayout({
     const navigate = useNavigate()
     const { user, loading } = useSession()
 
-    // ✅ Remove the global/body scrollbar on dashboard routes (prevents double scrollbar)
+    /**
+     * ✅ HIDE GLOBAL SCROLLBAR (html/body)
+     * ✅ NO padding-right added
+     */
     React.useEffect(() => {
         if (typeof window === "undefined") return
 
-        const el = document.documentElement
+        const html = document.documentElement
         const body = document.body
 
-        const prevPaddingRight = body.style.paddingRight
-        const scrollbarWidth = window.innerWidth - el.clientWidth
+        const prevHtmlOverflow = html.style.overflow
+        const prevBodyOverflow = body.style.overflow
+        const prevBodyPaddingRight = body.style.paddingRight
+        const prevBodyOverscroll = (body.style as any).overscrollBehavior
 
-        el.classList.add("dashboard-scroll-lock")
-        body.classList.add("dashboard-scroll-lock")
-
-        // prevent layout shift when body scrollbar disappears
-        if (scrollbarWidth > 0) body.style.paddingRight = `${scrollbarWidth}px`
+        html.style.overflow = "hidden"
+        body.style.overflow = "hidden"
+        body.style.paddingRight = "0px"
+            ; (body.style as any).overscrollBehavior = "none"
 
         return () => {
-            el.classList.remove("dashboard-scroll-lock")
-            body.classList.remove("dashboard-scroll-lock")
-            body.style.paddingRight = prevPaddingRight
+            html.style.overflow = prevHtmlOverflow
+            body.style.overflow = prevBodyOverflow
+            body.style.paddingRight = prevBodyPaddingRight
+                ; (body.style as any).overscrollBehavior = prevBodyOverscroll
         }
     }, [])
 
@@ -86,31 +91,38 @@ export default function DashboardLayout({
 
     return (
         <SidebarProvider defaultOpen>
-            <Sidebar variant="inset" collapsible="icon" className="min-w-0">
-                <SidebarHeader className="border-none border-b min-w-0">
-                    <SidebarHeaderBrand />
-                </SidebarHeader>
+            {/* ✅ More space LEFT, less space RIGHT + sidebar shorter */}
+            <div className="flex min-h-dvh w-full min-w-0 overflow-hidden gap-3 pl-5 pr-2 py-2">
+                {/* ✅ Sidebar card: shorter height + rounded */}
+                <Sidebar
+                    variant="inset"
+                    collapsible="icon"
+                    className="min-w-0 m-4 shrink-0 rounded-2xl border border-sidebar-border bg-sidebar shadow-sm overflow-hidden h-[calc(100dvh-2rem)]"
+                >
+                    <SidebarHeader className="border-none border-b min-w-0">
+                        <SidebarHeaderBrand />
+                    </SidebarHeader>
 
-                <SidebarContent className="min-w-0">
-                    <NavMain />
-                </SidebarContent>
+                    <SidebarContent className="min-w-0">
+                        <NavMain />
+                    </SidebarContent>
 
-                {/* ✅ Mobile: show name + role in sidebar footer */}
-                <SidebarFooter className="relative z-50 border-t pointer-events-auto min-w-0">
-                    <div className="p-2 min-w-0">
-                        <NavUser className="w-full" showDetailsOnMobile />
-                    </div>
-                </SidebarFooter>
+                    <SidebarFooter className="relative z-50 border-t pointer-events-auto min-w-0">
+                        <div className="p-2 min-w-0">
+                            <NavUser className="w-full" showDetailsOnMobile />
+                        </div>
+                    </SidebarFooter>
 
-                <SidebarRail />
-            </Sidebar>
+                    <SidebarRail />
+                </Sidebar>
 
-            {/* ✅ ONLY scrollbar you will see: this one (dashboard inset) */}
-            <SidebarInset className="relative h-dvh min-w-0 overflow-y-auto overflow-x-hidden">
-                <DashboardHeader title={title} subtitle={subtitle} actions={actions} />
+                {/* ✅ Main content card also shorter (matches sidebar height) */}
+                <SidebarInset className="relative min-w-0 flex-1 rounded-2xl border border-border bg-background shadow-sm overflow-y-auto overflow-x-hidden h-[calc(100dvh-2rem)]">
+                    <DashboardHeader title={title} subtitle={subtitle} actions={actions} />
 
-                <div className="min-w-0">{children}</div>
-            </SidebarInset>
+                    <div className="min-w-0">{children}</div>
+                </SidebarInset>
+            </div>
         </SidebarProvider>
     )
 }

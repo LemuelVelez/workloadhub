@@ -2,11 +2,7 @@
 "use client"
 
 import { useNavigate } from "react-router-dom"
-import {
-    IconDotsVertical,
-    IconLogout,
-    IconUserCircle,
-} from "@tabler/icons-react"
+import { IconDotsVertical, IconLogout, IconUserCircle } from "@tabler/icons-react"
 import { toast } from "sonner"
 
 import { authApi } from "@/api/auth"
@@ -31,9 +27,12 @@ import {
     useSidebar,
 } from "@/components/ui/sidebar"
 
+type NavUserPlacement = "sidebar" | "header"
+
 type NavUserProps = {
     className?: string
     showDetailsOnMobile?: boolean
+    placement?: NavUserPlacement
 }
 
 function initialsFromName(name: string) {
@@ -43,7 +42,11 @@ function initialsFromName(name: string) {
     return (first + second).toUpperCase()
 }
 
-export function NavUser({ className, showDetailsOnMobile }: NavUserProps) {
+export function NavUser({
+    className,
+    showDetailsOnMobile,
+    placement = "sidebar",
+}: NavUserProps) {
     const navigate = useNavigate()
     const { isMobile, state } = useSidebar()
     const { user } = useSession()
@@ -51,13 +54,36 @@ export function NavUser({ className, showDetailsOnMobile }: NavUserProps) {
     const displayName = user?.name || user?.email || "User"
     const email = user?.email || "—"
 
-    // Simple avatar (DiceBear) fallback if you don't store avatar URLs
     const avatar =
         (user as any)?.avatar ||
         `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`
 
-    const showDetails =
-        showDetailsOnMobile === true ? true : !(state === "collapsed" && !isMobile)
+    const inHeader = placement === "header"
+
+    /**
+     * ✅ Sidebar collapsed logic should NOT affect header usage
+     */
+    const collapsed = !inHeader && state === "collapsed"
+
+    /**
+     * ✅ Header: show details on desktop, hide on mobile (unless forced)
+     * ✅ Sidebar: show details when not collapsed (unless forced)
+     */
+    const showDetails = inHeader
+        ? showDetailsOnMobile === true
+            ? true
+            : !isMobile
+        : showDetailsOnMobile === true
+            ? true
+            : !collapsed
+
+    /**
+     * ✅ Fix dropdown direction
+     * Header should open downward
+     */
+    const contentSide = inHeader ? "bottom" : isMobile ? "bottom" : "right"
+
+    const contentAlign = inHeader ? "end" : collapsed ? "center" : "end"
 
     async function onLogout() {
         try {
@@ -70,46 +96,154 @@ export function NavUser({ className, showDetailsOnMobile }: NavUserProps) {
         }
     }
 
-    return (
-        <SidebarMenu className={cn(className)}>
-            <SidebarMenuItem>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <SidebarMenuButton
-                            size="lg"
-                            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                        >
-                            <Avatar className="h-8 w-8 rounded-lg">
+    /**
+     * ✅ HEADER VERSION (used in dashboard-header)
+     */
+    if (inHeader) {
+        return (
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <button
+                        type="button"
+                        aria-label="Open user menu"
+                        className={cn(
+                            "flex items-center gap-2 rounded-xl px-2 py-1",
+                            "hover:bg-muted transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            className
+                        )}
+                    >
+                        <Avatar className="h-9 w-9 rounded-xl shrink-0">
+                            <AvatarImage src={avatar} alt={displayName} />
+                            <AvatarFallback className="rounded-xl">
+                                {initialsFromName(displayName)}
+                            </AvatarFallback>
+                        </Avatar>
+
+                        {showDetails ? (
+                            <div className="hidden sm:grid text-left text-sm leading-tight min-w-0">
+                                <span className="truncate font-medium max-w-40">{displayName}</span>
+                                <span className="truncate text-xs text-muted-foreground max-w-40">
+                                    {email}
+                                </span>
+                            </div>
+                        ) : null}
+                    </button>
+                </DropdownMenuTrigger>
+
+                <DropdownMenuContent
+                    className="min-w-56 rounded-lg"
+                    side={contentSide}
+                    align={contentAlign}
+                    sideOffset={10}
+                    avoidCollisions
+                >
+                    <DropdownMenuLabel className="p-0 font-normal">
+                        <div className="flex items-center gap-2 px-2 py-2 text-left text-sm">
+                            <Avatar className="h-8 w-8 rounded-lg shrink-0">
                                 <AvatarImage src={avatar} alt={displayName} />
                                 <AvatarFallback className="rounded-lg">
                                     {initialsFromName(displayName)}
                                 </AvatarFallback>
                             </Avatar>
+                            <div className="grid flex-1 text-left text-sm leading-tight min-w-0">
+                                <span className="truncate font-medium">{displayName}</span>
+                                <span className="text-muted-foreground truncate text-xs">{email}</span>
+                            </div>
+                        </div>
+                    </DropdownMenuLabel>
 
-                            {showDetails ? (
-                                <div className="grid flex-1 text-left text-sm leading-tight min-w-0">
-                                    <span className="truncate font-medium">{displayName}</span>
-                                    <span className="text-muted-foreground truncate text-xs">
-                                        {email}
-                                    </span>
-                                </div>
-                            ) : (
-                                <span className="sr-only">Open user menu</span>
-                            )}
+                    <DropdownMenuSeparator />
 
-                            <IconDotsVertical className="ml-auto size-4" />
-                        </SidebarMenuButton>
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem
+                            onClick={() => {
+                                toast.message("Account page is not available yet.")
+                            }}
+                        >
+                            <IconUserCircle className="mr-2 size-4" />
+                            Account
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+
+                    <DropdownMenuSeparator />
+
+                    <DropdownMenuItem onClick={onLogout}>
+                        <IconLogout className="mr-2 size-4" />
+                        Log out
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    }
+
+    /**
+     * ✅ SIDEBAR VERSION (default)
+     */
+    return (
+        <SidebarMenu className={cn("w-full", collapsed && "flex items-center justify-center", className)}>
+            <SidebarMenuItem className={cn("w-full", collapsed && "flex justify-center")}>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        {collapsed ? (
+                            <button
+                                type="button"
+                                aria-label="Open user menu"
+                                className={cn(
+                                    "flex h-12 w-12 items-center justify-center rounded-xl",
+                                    "border border-sidebar-border bg-sidebar/40",
+                                    "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                                    "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                                )}
+                            >
+                                <Avatar className="h-9 w-9 rounded-xl shrink-0">
+                                    <AvatarImage src={avatar} alt={displayName} />
+                                    <AvatarFallback className="rounded-xl">
+                                        {initialsFromName(displayName)}
+                                    </AvatarFallback>
+                                </Avatar>
+                            </button>
+                        ) : (
+                            <SidebarMenuButton
+                                size="lg"
+                                className="w-full data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                            >
+                                <Avatar className="h-8 w-8 rounded-lg shrink-0">
+                                    <AvatarImage src={avatar} alt={displayName} />
+                                    <AvatarFallback className="rounded-lg">
+                                        {initialsFromName(displayName)}
+                                    </AvatarFallback>
+                                </Avatar>
+
+                                {showDetails ? (
+                                    <>
+                                        <div className="grid flex-1 text-left text-sm leading-tight min-w-0">
+                                            <span className="truncate font-medium">{displayName}</span>
+                                            <span className="text-muted-foreground truncate text-xs">
+                                                {email}
+                                            </span>
+                                        </div>
+
+                                        {/* ✅ dots icon stays ONLY for sidebar */}
+                                        <IconDotsVertical className="ml-auto size-4" />
+                                    </>
+                                ) : (
+                                    <span className="sr-only">Open user menu</span>
+                                )}
+                            </SidebarMenuButton>
+                        )}
                     </DropdownMenuTrigger>
 
                     <DropdownMenuContent
                         className="min-w-56 rounded-lg"
-                        side={isMobile ? "bottom" : "right"}
-                        align="end"
-                        sideOffset={4}
+                        side={contentSide}
+                        align={contentAlign}
+                        sideOffset={8}
+                        avoidCollisions
                     >
                         <DropdownMenuLabel className="p-0 font-normal">
                             <div className="flex items-center gap-2 px-2 py-2 text-left text-sm">
-                                <Avatar className="h-8 w-8 rounded-lg">
+                                <Avatar className="h-8 w-8 rounded-lg shrink-0">
                                     <AvatarImage src={avatar} alt={displayName} />
                                     <AvatarFallback className="rounded-lg">
                                         {initialsFromName(displayName)}
@@ -117,9 +251,7 @@ export function NavUser({ className, showDetailsOnMobile }: NavUserProps) {
                                 </Avatar>
                                 <div className="grid flex-1 text-left text-sm leading-tight min-w-0">
                                     <span className="truncate font-medium">{displayName}</span>
-                                    <span className="text-muted-foreground truncate text-xs">
-                                        {email}
-                                    </span>
+                                    <span className="text-muted-foreground truncate text-xs">{email}</span>
                                 </div>
                             </div>
                         </DropdownMenuLabel>

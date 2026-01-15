@@ -1,54 +1,65 @@
-
 "use client"
 
 import { Link } from "react-router-dom"
-import { LayoutDashboard } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { useSidebar } from "@/components/ui/sidebar"
 
 export type SidebarHeaderBrandProps = {
     className?: string
 }
 
 export default function SidebarHeaderBrand({ className }: SidebarHeaderBrandProps) {
+    const { state, isMobile } = useSidebar()
+
+    // ✅ "icon" collapsed mode only applies on desktop
+    const collapsed = state === "collapsed" && !isMobile
+
     return (
-        <div className={cn("flex min-w-0 items-center justify-between gap-2 px-3 py-3", className)}>
-            <div className="flex min-w-0 items-center gap-2">
-                <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
+        <div
+            className={cn(
+                "relative flex min-w-0 items-center",
+                collapsed ? "justify-center px-0 py-3" : "justify-between px-3 py-3",
+                className
+            )}
+        >
+            <Link
+                to="/dashboard"
+                aria-label="WorkloadHub"
+                className={cn(
+                    "flex items-center min-w-0",
+                    collapsed ? "w-full justify-center" : "gap-2"
+                )}
+            >
+                {/* ✅ Fixed-size logo container so the SVG never looks tiny */}
+                <div
+                    className={cn(
+                        "flex items-center justify-center shrink-0",
+                        collapsed ? "h-10 w-10" : "h-10 w-10"
+                    )}
+                >
                     <img
                         src="/logo.svg"
                         alt="WorkloadHub"
-                        className="h-8 w-8"
                         draggable={false}
+                        className="h-full w-full object-contain"
                     />
+                </div>
+
+                {/* ✅ Hide text when collapsed so logo stays centered + big */}
+                {!collapsed ? (
                     <div className="min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <span className="truncate text-sm font-semibold">
-                                WorkloadHub
-                            </span>
-                            <Badge variant="secondary" className="shrink-0 text-[10px]">
-                                Beta
-                            </Badge>
+                        <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-sm font-semibold">WorkloadHub</span>
                         </div>
                         <div className="truncate text-xs text-muted-foreground">
                             Faculty workload platform
                         </div>
                     </div>
-                </Link>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2">
-                <Button asChild size="icon" variant="ghost" className="h-8 w-8">
-                    <Link to="/dashboard" aria-label="Dashboard home">
-                        <LayoutDashboard className="h-4 w-4" />
-                    </Link>
-                </Button>
-            </div>
-
-            <Separator className="absolute left-0 right-0 bottom-0" />
+                ) : (
+                    <span className="sr-only">WorkloadHub</span>
+                )}
+            </Link>
         </div>
     )
 }

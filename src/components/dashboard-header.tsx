@@ -334,7 +334,8 @@ export default function DashboardHeader({
                         <Search className="h-4 w-4" />
                     </Button>
 
-                    <NavUser />
+                    {/* ✅ FIX: dropdown opens downward + removed dots icon */}
+                    <NavUser placement="header" />
                 </div>
             </div>
 

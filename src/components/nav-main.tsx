@@ -8,9 +8,6 @@ import {
     CalendarDays,
     ClipboardList,
     Users,
-    Building2,
-    Layers,
-    FileText,
     ShieldCheck,
     Settings,
     Clock,
@@ -38,26 +35,68 @@ type NavItem = {
     roles?: RoleKey[] // if omitted => shown to everyone
 }
 
+/**
+ * ✅ Very tolerant role resolver
+ * - supports: user.prefs.role, user.role, user.userRole, user.profile.role
+ * - supports: prefs stored as JSON string
+ * - supports: roles as string OR array
+ * - supports uppercase like "ADMIN"
+ */
 function getRole(user: any): RoleKey {
-    // ✅ Try common places where role might exist (Appwrite prefs, labels, etc.)
-    const prefRole =
-        user?.prefs?.role ||
-        user?.prefs?.userRole ||
-        user?.role ||
-        user?.userRole ||
-        null
+    if (!user) return "user"
 
-    const labels: string[] = Array.isArray(user?.labels) ? user.labels : []
-    const roles: string[] = Array.isArray(user?.prefs?.roles) ? user.prefs.roles : []
+    // prefs can sometimes be JSON string depending on how session is built
+    let prefs: any = user?.prefs ?? {}
+    if (typeof prefs === "string") {
+        try {
+            prefs = JSON.parse(prefs)
+        } catch {
+            prefs = {}
+        }
+    }
 
-    const haystack = String(prefRole || "").toLowerCase()
+    const candidates: string[] = []
 
-    // ✅ Look through roles/labels for known role keywords
-    const all = [haystack, ...labels.map(String), ...roles.map(String)]
-        .join(" ")
-        .toLowerCase()
+    const pushIfString = (v: any) => {
+        if (typeof v === "string" && v.trim()) candidates.push(v.trim())
+    }
 
-    if (all.includes("admin")) return "admin"
+    // common fields
+    pushIfString(prefs?.role)
+    pushIfString(prefs?.userRole)
+    pushIfString(user?.role)
+    pushIfString(user?.userRole)
+    pushIfString(user?.profile?.role)
+    pushIfString(user?.profile?.userRole)
+    pushIfString(user?.prefs?.role)
+    pushIfString(user?.prefs?.userRole)
+
+    // roles can be array OR string
+    const rolesFromPrefs = prefs?.roles
+    if (Array.isArray(rolesFromPrefs)) {
+        rolesFromPrefs.forEach((r: any) => pushIfString(r))
+    } else if (typeof rolesFromPrefs === "string") {
+        rolesFromPrefs
+            .split(/[,\s]+/g)
+            .filter(Boolean)
+            .forEach((r) => candidates.push(r))
+    }
+
+    // labels can be array OR string
+    const labels = user?.labels
+    if (Array.isArray(labels)) {
+        labels.forEach((l: any) => pushIfString(l))
+    } else if (typeof labels === "string") {
+        labels
+            .split(/[,\s]+/g)
+            .filter(Boolean)
+            .forEach((l) => candidates.push(l))
+    }
+
+    const all = candidates.join(" ").toLowerCase()
+
+    // ✅ normalize matching (supports ADMIN, superadmin, etc.)
+    if (all.includes("superadmin") || all.includes("admin")) return "admin"
     if (all.includes("scheduler")) return "scheduler"
     if (all.includes("faculty")) return "faculty"
     if (all.includes("reviewer")) return "reviewer"
@@ -68,7 +107,7 @@ function getRole(user: any): RoleKey {
 
 function isActivePath(currentPath: string, href: string) {
     if (!currentPath) return false
-    if (href === "/dashboard") return currentPath === "/dashboard"
+    if (href === "/dashboard") return currentPath === "/dashboard" || currentPath.startsWith("/dashboard/")
     return currentPath.startsWith(href)
 }
 
@@ -78,11 +117,26 @@ export default function NavMain({ className }: { className?: string }) {
 
     const role = getRole(user)
 
+    // ✅ If you're in admin routes, keep admin menu visible (even if role detection fails)
+    const inAdminArea = pathname.startsWith("/dashboard/admin")
+
+    // ✅ smart dashboard link
+    const dashboardHome = role === "admin" ? "/dashboard/admin/overview" : "/dashboard"
+
+    /**
+     * ✅ MAIN NAV
+     */
     const primary: NavItem[] = [
         {
             title: "Dashboard",
-            href: "/dashboard",
+            href: dashboardHome,
             icon: LayoutDashboard,
+        },
+        {
+            title: "Requests",
+            href: "/dashboard/requests",
+            icon: Clock,
+            roles: ["admin", "scheduler", "faculty"],
         },
         {
             title: "Schedules",
@@ -96,43 +150,22 @@ export default function NavMain({ className }: { className?: string }) {
             icon: ClipboardList,
             roles: ["faculty"],
         },
-        {
-            title: "Requests",
-            href: "/dashboard/requests",
-            icon: Clock,
-            roles: ["admin", "scheduler", "faculty"],
-        },
     ]
 
-    const management: NavItem[] = [
+    /**
+     * ✅ ADMIN MENU (matches App.tsx)
+     */
+    const adminMenu: NavItem[] = [
         {
-            title: "Departments",
-            href: "/dashboard/departments",
-            icon: Building2,
+            title: "Overview",
+            href: "/dashboard/admin/overview",
+            icon: ShieldCheck,
             roles: ["admin"],
         },
         {
             title: "Users",
-            href: "/dashboard/users",
+            href: "/dashboard/admin/users",
             icon: Users,
-            roles: ["admin"],
-        },
-        {
-            title: "Templates",
-            href: "/dashboard/templates",
-            icon: Layers,
-            roles: ["admin", "reviewer"],
-        },
-        {
-            title: "Reports",
-            href: "/dashboard/reports",
-            icon: FileText,
-            roles: ["admin", "scheduler"],
-        },
-        {
-            title: "Audit Logs",
-            href: "/dashboard/audit",
-            icon: ShieldCheck,
             roles: ["admin"],
         },
     ]
@@ -147,6 +180,10 @@ export default function NavMain({ className }: { className?: string }) {
 
     const visible = (it: NavItem) => {
         if (!it.roles || it.roles.length === 0) return true
+
+        // ✅ Force admin group to appear if currently inside /dashboard/admin/*
+        if (inAdminArea && it.roles.includes("admin")) return true
+
         return it.roles.includes(role)
     }
 
@@ -173,34 +210,35 @@ export default function NavMain({ className }: { className?: string }) {
 
     return (
         <div className={cn("min-w-0", className)}>
+            {/* ✅ Overview */}
             <SidebarGroup>
                 <SidebarGroupLabel>Overview</SidebarGroupLabel>
                 <SidebarGroupContent>
-                    <SidebarMenu>
-                        {primary.filter(visible).map(renderItem)}
-                    </SidebarMenu>
+                    <SidebarMenu>{primary.filter(visible).map(renderItem)}</SidebarMenu>
                 </SidebarGroupContent>
             </SidebarGroup>
 
             <SidebarSeparator />
 
-            <SidebarGroup>
-                <SidebarGroupLabel>Management</SidebarGroupLabel>
-                <SidebarGroupContent>
-                    <SidebarMenu>
-                        {management.filter(visible).map(renderItem)}
-                    </SidebarMenu>
-                </SidebarGroupContent>
-            </SidebarGroup>
+            {/* ✅ Admin */}
+            {adminMenu.filter(visible).length > 0 ? (
+                <>
+                    <SidebarGroup>
+                        <SidebarGroupLabel>Admin</SidebarGroupLabel>
+                        <SidebarGroupContent>
+                            <SidebarMenu>{adminMenu.filter(visible).map(renderItem)}</SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
 
-            <SidebarSeparator />
+                    <SidebarSeparator />
+                </>
+            ) : null}
 
+            {/* ✅ Preferences */}
             <SidebarGroup>
                 <SidebarGroupLabel>Preferences</SidebarGroupLabel>
                 <SidebarGroupContent>
-                    <SidebarMenu>
-                        {settings.filter(visible).map(renderItem)}
-                    </SidebarMenu>
+                    <SidebarMenu>{settings.filter(visible).map(renderItem)}</SidebarMenu>
                 </SidebarGroupContent>
             </SidebarGroup>
         </div>
