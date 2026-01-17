@@ -45,6 +45,11 @@ const AdminRoomsAndFacilitiesPage = React.lazy(
   () => import("./pages/dashboard/admin/rooms-and-facilities")
 )
 
+// ✅ NEW: Academic Term Setup page
+const AdminAcademicTermSetupPage = React.lazy(
+  () => import("./pages/dashboard/admin/academic-term-setup")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -341,6 +346,12 @@ export default function App() {
                   <Route
                     path="rooms-and-facilities"
                     element={<AdminRoomsAndFacilitiesPage />}
+                  />
+
+                  {/* ✅ NEW: Academic Term Setup */}
+                  <Route
+                    path="academic-term-setup"
+                    element={<AdminAcademicTermSetupPage />}
                   />
                 </Route>
 

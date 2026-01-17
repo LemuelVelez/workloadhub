@@ -152,6 +152,14 @@ export default function NavMain({ className }: { className?: string }) {
             roles: ["admin"],
         },
 
+        // ✅ NEW: Academic Term Setup
+        {
+            title: "Academic Term Setup",
+            href: "/dashboard/admin/academic-term-setup",
+            icon: CalendarDays,
+            roles: ["admin"],
+        },
+
         // ✅ NEW: Rooms & Facilities
         {
             title: "Rooms & Facilities",
