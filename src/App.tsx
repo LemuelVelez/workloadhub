@@ -16,7 +16,6 @@ import ChangePasswordPage from "./pages/auth/change-password"
 import { useSession } from "@/hooks/use-session"
 import { authApi } from "@/api/auth"
 
-// ✅ NEW
 import { needsFirstLoginPasswordChange } from "@/lib/first-login"
 
 const AUTH_PENDING_KEY = "workloadhub:auth:pendingAt"
@@ -35,13 +34,15 @@ function getAuthPendingAgeMs(): number | null {
   }
 }
 
-// ✅ Lazy-load dashboard pages
 const AdminOverviewPage = React.lazy(() => import("./pages/dashboard/admin/overview"))
 const AdminUsersPage = React.lazy(() => import("./pages/dashboard/admin/users"))
-
-// ✅ NEW: Master Data Management Page
 const AdminMasterDataManagementPage = React.lazy(
   () => import("./pages/dashboard/admin/master-data-management")
+)
+
+// ✅ NEW: Rooms & Facilities page
+const AdminRoomsAndFacilitiesPage = React.lazy(
+  () => import("./pages/dashboard/admin/rooms-and-facilities")
 )
 
 function readBool(v: any) {
@@ -80,11 +81,6 @@ function getMustChangePasswordFromPrefs(user: any) {
   return readBool(prefs?.mustChangePassword ?? user?.mustChangePassword)
 }
 
-/**
- * ✅ FIXED: Smart session snapshot
- * - Has fallback to authApi.me()
- * - Has hard timeout protection (no infinite loading)
- */
 function useAuthSnapshot() {
   const { loading: sessionLoading, isAuthenticated, user } = useSession()
 
@@ -94,7 +90,6 @@ function useAuthSnapshot() {
 
   const [sessionStuck, setSessionStuck] = React.useState(false)
 
-  // ✅ Prevent infinite spinner if useSession.loading is stuck forever
   React.useEffect(() => {
     if (!sessionLoading) {
       setSessionStuck(false)
@@ -113,7 +108,6 @@ function useAuthSnapshot() {
   }, [sessionLoading, isAuthenticated, user])
 
   React.useEffect(() => {
-    // already authenticated => no fallback needed
     if (isAuthenticated || user) return
     if (triedRef.current) return
 
@@ -137,13 +131,11 @@ function useAuthSnapshot() {
         })
     }
 
-    // ✅ If session is not loading anymore -> run immediately
     if (!sessionLoading) {
       void runFallback()
       return
     }
 
-    // ✅ If session is "loading" for too long -> fallback anyway
     const timeout = window.setTimeout(() => {
       void runFallback()
     }, 1200)
@@ -157,7 +149,6 @@ function useAuthSnapshot() {
   const authed = Boolean(isAuthenticated || user || fallbackUser)
   const effectiveUser = user || fallbackUser
 
-  // ✅ hard stop loading if hook is stuck too long
   const loading = !authed && !sessionStuck && (sessionLoading || fallbackLoading)
 
   return {
@@ -227,7 +218,6 @@ function RequireAuth() {
     }
   }, [snap.authed])
 
-  // ✅ Only show loading if NOT authed
   if (!snap.authed && (snap.loading || isAuthPending)) {
     return (
       <Loading
@@ -317,22 +307,18 @@ export default function App() {
 
       <React.Suspense fallback={<Loading />}>
         <Routes>
-          {/* Landing */}
           <Route path="/" element={<LandingPage />} />
 
-          {/* Auth */}
           <Route path="/auth/login" element={<LoginPage />} />
           <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
 
-          {/* ✅ Change password (protected + only when needed) */}
           <Route element={<RequireAuth />}>
             <Route element={<RequireNeedsPasswordChange />}>
               <Route path="/auth/change-password" element={<ChangePasswordPage />} />
             </Route>
           </Route>
 
-          {/* ✅ Dashboard (protected + gated) */}
           <Route element={<RequireAuth />}>
             <Route element={<RequireGatePass />}>
               <Route path="/dashboard" element={<Outlet />}>
@@ -346,10 +332,15 @@ export default function App() {
                   <Route path="overview" element={<AdminOverviewPage />} />
                   <Route path="users" element={<AdminUsersPage />} />
 
-                  {/* ✅ NEW: Master Data Management */}
                   <Route
                     path="master-data-management"
                     element={<AdminMasterDataManagementPage />}
+                  />
+
+                  {/* ✅ NEW: Rooms & Facilities */}
+                  <Route
+                    path="rooms-and-facilities"
+                    element={<AdminRoomsAndFacilitiesPage />}
                   />
                 </Route>
 
@@ -358,13 +349,11 @@ export default function App() {
             </Route>
           </Route>
 
-          {/* Friendly aliases */}
           <Route path="/login" element={<Navigate to="/auth/login" replace />} />
           <Route path="/forgot-password" element={<Navigate to="/auth/forgot-password" replace />} />
           <Route path="/reset-password" element={<Navigate to="/auth/reset-password" replace />} />
           <Route path="/change-password" element={<Navigate to="/auth/change-password" replace />} />
 
-          {/* Catch-all */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </React.Suspense>

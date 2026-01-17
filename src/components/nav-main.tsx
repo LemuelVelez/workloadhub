@@ -11,6 +11,7 @@ import {
     Settings,
     Clock,
     Database,
+    DoorOpen,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -35,17 +36,9 @@ type NavItem = {
     roles?: RoleKey[] // if omitted => shown to everyone
 }
 
-/**
- * ✅ Very tolerant role resolver
- * - supports: user.prefs.role, user.role, user.userRole, user.profile.role
- * - supports: prefs stored as JSON string
- * - supports: roles as string OR array
- * - supports uppercase like "ADMIN"
- */
 function getRole(user: any): RoleKey {
     if (!user) return "user"
 
-    // prefs can sometimes be JSON string depending on how session is built
     let prefs: any = user?.prefs ?? {}
     if (typeof prefs === "string") {
         try {
@@ -61,7 +54,6 @@ function getRole(user: any): RoleKey {
         if (typeof v === "string" && v.trim()) candidates.push(v.trim())
     }
 
-    // common fields
     pushIfString(prefs?.role)
     pushIfString(prefs?.userRole)
     pushIfString(user?.role)
@@ -71,7 +63,6 @@ function getRole(user: any): RoleKey {
     pushIfString(user?.prefs?.role)
     pushIfString(user?.prefs?.userRole)
 
-    // roles can be array OR string
     const rolesFromPrefs = prefs?.roles
     if (Array.isArray(rolesFromPrefs)) {
         rolesFromPrefs.forEach((r: any) => pushIfString(r))
@@ -82,7 +73,6 @@ function getRole(user: any): RoleKey {
             .forEach((r) => candidates.push(r))
     }
 
-    // labels can be array OR string
     const labels = user?.labels
     if (Array.isArray(labels)) {
         labels.forEach((l: any) => pushIfString(l))
@@ -95,7 +85,6 @@ function getRole(user: any): RoleKey {
 
     const all = candidates.join(" ").toLowerCase()
 
-    // ✅ normalize matching (supports ADMIN, superadmin, etc.)
     if (all.includes("superadmin") || all.includes("admin")) return "admin"
     if (all.includes("scheduler")) return "scheduler"
     if (all.includes("faculty")) return "faculty"
@@ -105,15 +94,6 @@ function getRole(user: any): RoleKey {
     return "user"
 }
 
-/**
- * ✅ Overview route matcher
- * We want Overview active ONLY on actual overview screens:
- * - /dashboard (index redirect)
- * - /dashboard/admin/overview
- * - /dashboard/chair/overview
- * - /dashboard/faculty/overview
- * - etc.
- */
 function isOverviewRoute(pathname: string) {
     if (!pathname) return false
     if (pathname === "/dashboard") return true
@@ -123,18 +103,11 @@ function isOverviewRoute(pathname: string) {
     )
 }
 
-/**
- * ✅ Active path logic
- * - Overview (/dashboard) should NOT be active everywhere
- * - Other routes can use startsWith
- */
 function isActivePath(currentPath: string, href: string) {
     if (!currentPath) return false
 
-    // Overview special-case
     if (href === "/dashboard") return isOverviewRoute(currentPath)
 
-    // Normal behavior
     return currentPath === href || currentPath.startsWith(href + "/")
 }
 
@@ -143,17 +116,8 @@ export default function NavMain({ className }: { className?: string }) {
     const { user } = useSession()
 
     const role = getRole(user)
-
-    // ✅ If you're in admin routes, keep admin menu visible (even if role detection fails)
     const inAdminArea = pathname.startsWith("/dashboard/admin")
 
-    /**
-     * ✅ MAIN NAV
-     * IMPORTANT:
-     * - "Overview" is the only home link now
-     * - It points to /dashboard, App.tsx redirects by role
-     * - This removes duplicate Dashboard/Overview indicators
-     */
     const primary: NavItem[] = [
         {
             title: "Overview",
@@ -180,9 +144,6 @@ export default function NavMain({ className }: { className?: string }) {
         },
     ]
 
-    /**
-     * ✅ ADMIN MENU (matches App.tsx)
-     */
     const adminMenu: NavItem[] = [
         {
             title: "Master Data",
@@ -190,6 +151,15 @@ export default function NavMain({ className }: { className?: string }) {
             icon: Database,
             roles: ["admin"],
         },
+
+        // ✅ NEW: Rooms & Facilities
+        {
+            title: "Rooms & Facilities",
+            href: "/dashboard/admin/rooms-and-facilities",
+            icon: DoorOpen,
+            roles: ["admin"],
+        },
+
         {
             title: "Users",
             href: "/dashboard/admin/users",
@@ -208,10 +178,7 @@ export default function NavMain({ className }: { className?: string }) {
 
     const visible = (it: NavItem) => {
         if (!it.roles || it.roles.length === 0) return true
-
-        // ✅ Force admin group to appear if currently inside /dashboard/admin/*
         if (inAdminArea && it.roles.includes("admin")) return true
-
         return it.roles.includes(role)
     }
 
@@ -238,7 +205,6 @@ export default function NavMain({ className }: { className?: string }) {
 
     return (
         <div className={cn("min-w-0", className)}>
-            {/* ✅ Main */}
             <SidebarGroup>
                 <SidebarGroupLabel>Main</SidebarGroupLabel>
                 <SidebarGroupContent>
@@ -248,7 +214,6 @@ export default function NavMain({ className }: { className?: string }) {
 
             <SidebarSeparator />
 
-            {/* ✅ Admin */}
             {adminMenu.filter(visible).length > 0 ? (
                 <>
                     <SidebarGroup>
@@ -262,7 +227,6 @@ export default function NavMain({ className }: { className?: string }) {
                 </>
             ) : null}
 
-            {/* ✅ Preferences */}
             <SidebarGroup>
                 <SidebarGroupLabel>Preferences</SidebarGroupLabel>
                 <SidebarGroupContent>

@@ -121,6 +121,9 @@ type DeleteIntent =
 
 const FACULTY_ROLES = ["FACULTY", "CHAIR", "DEAN"] as const
 
+// ✅ Shorter dialog + vertical scroll
+const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
+
 function str(v: any) {
     return String(v ?? "").trim()
 }
@@ -778,7 +781,7 @@ export default function AdminMasterDataManagementPage() {
 
                                 {/* Department Dialog */}
                                 <Dialog open={deptOpen} onOpenChange={setDeptOpen}>
-                                    <DialogContent className="sm:max-w-2xl">
+                                    <DialogContent className={DIALOG_CONTENT_CLASS}>
                                         <DialogHeader>
                                             <DialogTitle>{deptEditing ? "Edit Department" : "Add Department"}</DialogTitle>
                                             <DialogDescription>
@@ -910,7 +913,7 @@ export default function AdminMasterDataManagementPage() {
 
                                 {/* Program Dialog */}
                                 <Dialog open={progOpen} onOpenChange={setProgOpen}>
-                                    <DialogContent className="sm:max-w-2xl">
+                                    <DialogContent className={DIALOG_CONTENT_CLASS}>
                                         <DialogHeader>
                                             <DialogTitle>{progEditing ? "Edit Program" : "Add Program"}</DialogTitle>
                                             <DialogDescription>Programs/Courses belong to a department.</DialogDescription>
@@ -1067,7 +1070,7 @@ export default function AdminMasterDataManagementPage() {
 
                                 {/* Subject Dialog */}
                                 <Dialog open={subOpen} onOpenChange={setSubOpen}>
-                                    <DialogContent className="sm:max-w-2xl">
+                                    <DialogContent className={DIALOG_CONTENT_CLASS}>
                                         <DialogHeader>
                                             <DialogTitle>{subEditing ? "Edit Subject" : "Add Subject"}</DialogTitle>
                                             <DialogDescription>Subjects include units and lecture/lab hour breakdown.</DialogDescription>
@@ -1240,7 +1243,7 @@ export default function AdminMasterDataManagementPage() {
 
                                 {/* Faculty Dialog */}
                                 <Dialog open={facOpen} onOpenChange={setFacOpen}>
-                                    <DialogContent className="sm:max-w-2xl">
+                                    <DialogContent className={DIALOG_CONTENT_CLASS}>
                                         <DialogHeader>
                                             <DialogTitle>{facEditing ? "Edit Faculty Profile" : "Add Faculty Profile"}</DialogTitle>
                                             <DialogDescription>
