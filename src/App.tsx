@@ -55,6 +55,11 @@ const AdminRulesAndPoliciesPage = React.lazy(
   () => import("./pages/dashboard/admin/rules-and-policies")
 )
 
+// ✅ NEW: Audit Logs page
+const AdminAuditLogsPage = React.lazy(
+  () => import("./pages/dashboard/admin/audit-logs")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -363,6 +368,12 @@ export default function App() {
                   <Route
                     path="rules-and-policies"
                     element={<AdminRulesAndPoliciesPage />}
+                  />
+
+                  {/* ✅ NEW: Audit Logs */}
+                  <Route
+                    path="audit-logs"
+                    element={<AdminAuditLogsPage />}
                   />
                 </Route>
 

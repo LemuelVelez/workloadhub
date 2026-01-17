@@ -13,6 +13,7 @@ import {
     Database,
     DoorOpen,
     Scale,
+    FileClock, // ✅ NEW
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -181,6 +182,14 @@ export default function NavMain({ className }: { className?: string }) {
             title: "Users",
             href: "/dashboard/admin/users",
             icon: Users,
+            roles: ["admin"],
+        },
+
+        // ✅ NEW: Audit Logs
+        {
+            title: "Audit Logs",
+            href: "/dashboard/admin/audit-logs",
+            icon: FileClock,
             roles: ["admin"],
         },
     ]
