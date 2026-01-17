@@ -6,7 +6,6 @@ import { Link, useLocation } from "react-router-dom"
 import {
     LayoutDashboard,
     CalendarDays,
-    ClipboardList,
     Users,
     Settings,
     Clock,
@@ -120,70 +119,59 @@ export default function NavMain({ className }: { className?: string }) {
     const role = getRole(user)
     const inAdminArea = pathname.startsWith("/dashboard/admin")
 
-    const primary: NavItem[] = [
+    /**
+     * ✅ MAIN NAVIGATION REMOVED
+     * ✅ Overview is now under Admin
+     */
+    const adminMenu: NavItem[] = [
         {
             title: "Overview",
-            href: "/dashboard",
+            href: "/dashboard/admin/overview",
             icon: LayoutDashboard,
+            roles: ["admin"],
         },
         {
             title: "Schedules",
-            href: "/dashboard/schedules",
+            href: "/dashboard/admin/schedules",
             icon: CalendarDays,
-            roles: ["admin", "scheduler"],
+            roles: ["admin"],
         },
-        {
-            title: "My Workload",
-            href: "/dashboard/workload",
-            icon: ClipboardList,
-            roles: ["faculty"],
-        },
-    ]
-
-    const adminMenu: NavItem[] = [
-        // ✅ ADMIN Requests (Admin perspective)
         {
             title: "Requests",
             href: "/dashboard/admin/requests",
             icon: Clock,
             roles: ["admin"],
         },
-
         {
             title: "Master Data",
             href: "/dashboard/admin/master-data-management",
             icon: Database,
             roles: ["admin"],
         },
-
         {
             title: "Academic Term Setup",
             href: "/dashboard/admin/academic-term-setup",
             icon: CalendarDays,
             roles: ["admin"],
         },
-
         {
             title: "Rooms & Facilities",
             href: "/dashboard/admin/rooms-and-facilities",
             icon: DoorOpen,
             roles: ["admin"],
         },
-
         {
             title: "Rules & Policies",
             href: "/dashboard/admin/rules-and-policies",
             icon: Scale,
             roles: ["admin"],
         },
-
         {
             title: "Users",
             href: "/dashboard/admin/users",
             icon: Users,
             roles: ["admin"],
         },
-
         {
             title: "Audit Logs",
             href: "/dashboard/admin/audit-logs",
@@ -229,15 +217,6 @@ export default function NavMain({ className }: { className?: string }) {
 
     return (
         <div className={cn("min-w-0", className)}>
-            <SidebarGroup>
-                <SidebarGroupLabel>Main</SidebarGroupLabel>
-                <SidebarGroupContent>
-                    <SidebarMenu>{primary.filter(visible).map(renderItem)}</SidebarMenu>
-                </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarSeparator />
-
             {adminMenu.filter(visible).length > 0 ? (
                 <>
                     <SidebarGroup>
