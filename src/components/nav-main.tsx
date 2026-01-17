@@ -12,6 +12,7 @@ import {
     Clock,
     Database,
     DoorOpen,
+    Scale,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -165,6 +166,14 @@ export default function NavMain({ className }: { className?: string }) {
             title: "Rooms & Facilities",
             href: "/dashboard/admin/rooms-and-facilities",
             icon: DoorOpen,
+            roles: ["admin"],
+        },
+
+        // ✅ NEW: Rules & Policies
+        {
+            title: "Rules & Policies",
+            href: "/dashboard/admin/rules-and-policies",
+            icon: Scale,
             roles: ["admin"],
         },
 
