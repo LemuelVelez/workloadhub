@@ -1,9 +1,9 @@
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
 import * as React from "react"
 import { toast } from "sonner"
+import { useNavigate } from "react-router-dom"
 import {
     CheckCircle2,
     Clock,
@@ -19,6 +19,8 @@ import {
 
 import DashboardLayout from "@/components/dashboard-layout"
 import { adminApi } from "@/api/admin"
+import { authApi } from "@/api/auth"
+import { clearSessionCache, useSession } from "@/hooks/use-session"
 
 import { cn } from "@/lib/utils"
 
@@ -121,6 +123,9 @@ const RESEND_COOLDOWN_MS = 30_000
 const RESEND_SUCCESS_BADGE_MS = 5_000
 
 export default function AdminUsersPage() {
+    const navigate = useNavigate()
+    const { user: currentUser } = useSession()
+
     const [loading, setLoading] = React.useState(true)
     const [saving, setSaving] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
@@ -155,10 +160,6 @@ export default function AdminUsersPage() {
 
     /**
      * ✅ First Login Status from Appwrite table: first_login_users
-     * Map format:
-     * {
-     *   [userId]: { completed: boolean, mustChangePassword: boolean, rowId?: string }
-     * }
      */
     const [firstLoginMap, setFirstLoginMap] = React.useState<
         Record<string, { completed: boolean; mustChangePassword: boolean; rowId?: string }>
@@ -222,7 +223,6 @@ export default function AdminUsersPage() {
             setDepartments(deps || [])
             setRows(users || [])
 
-            // ✅ Fetch first-login status ONLY for the listed users (fast + correct)
             const userIds = Array.from(
                 new Set(
                     (users || [])
@@ -259,7 +259,7 @@ export default function AdminUsersPage() {
         setTarget(it)
         setForm({
             $id: it.$id,
-            userId: it.userId || it.$id || "",
+            userId: it.userId || "",
             email: it.email || "",
             name: it.name || "",
             role: (it.role as AdminUserRole) || "FACULTY",
@@ -337,9 +337,9 @@ export default function AdminUsersPage() {
      * - Appwrite Auth status (blocks/allow login)
      */
     async function toggleActive(it: UserDoc) {
-        const safeUserId = String(it.userId || it.$id || "").trim()
+        const safeUserId = String(it.userId || "").trim()
         if (!safeUserId) {
-            toast.error("Missing userId. Please refresh and try again.")
+            toast.error("This profile is missing Appwrite Auth userId. Fix the user record and try again.")
             return
         }
 
@@ -361,13 +361,17 @@ export default function AdminUsersPage() {
      * ✅ deleting removes BOTH:
      * - USER_PROFILES row
      * - Appwrite Auth user
+     * ✅ also cleans first_login_users record
+     *
+     * ✅ NEW:
+     * If the deleted user is the CURRENT logged-in user -> logout + redirect to login
      */
     async function deleteNow() {
         if (!target) return
 
-        const safeUserId = String(target.userId || target.$id || "").trim()
+        const safeUserId = String(target.userId || "").trim()
         if (!safeUserId) {
-            toast.error("Missing userId. Please refresh and try again.")
+            toast.error("This profile is missing Appwrite Auth userId. Fix the user record and try again.")
             return
         }
 
@@ -377,9 +381,30 @@ export default function AdminUsersPage() {
                 userId: safeUserId,
             })
 
-            toast.success("User deleted (Profile + Appwrite Auth).")
             setOpenDelete(false)
             setTarget(null)
+
+            // ✅ If admin deleted their OWN account -> redirect to login
+            const currentId = String(
+                (currentUser as any)?.$id || (currentUser as any)?.id || (currentUser as any)?.userId || ""
+            ).trim()
+
+            if (currentId && currentId === safeUserId) {
+                toast.success("Your account was deleted. Redirecting to login…")
+
+                // best-effort logout
+                const logoutFn = (authApi as any)?.logout?.bind(authApi)
+                if (logoutFn) {
+                    await logoutFn().catch(() => null)
+                }
+
+                clearSessionCache()
+
+                navigate("/auth/login", { replace: true })
+                return
+            }
+
+            toast.success("User deleted (Profile + Appwrite Auth).")
             await loadAll()
         } catch (e: any) {
             toast.error(e?.message || "Failed to delete user.")
@@ -393,6 +418,12 @@ export default function AdminUsersPage() {
     }
 
     function openResendConfirm(it: UserDoc) {
+        const safeUserId = String(it.userId || "").trim()
+        if (!safeUserId) {
+            toast.error("This profile is missing Appwrite Auth userId. Cannot resend credentials.")
+            return
+        }
+
         if (!it.isActive) {
             toast.error("Cannot resend credentials for an inactive user.")
             return
@@ -431,6 +462,12 @@ export default function AdminUsersPage() {
     async function resendCredentialsNow(it: UserDoc) {
         const key = it.$id
 
+        const safeUserId = String(it.userId || "").trim()
+        if (!safeUserId) {
+            toast.error("This profile is missing Appwrite Auth userId. Cannot resend credentials.")
+            return false
+        }
+
         if (!it.isActive) {
             toast.error("Cannot resend credentials for an inactive user.")
             return false
@@ -439,12 +476,6 @@ export default function AdminUsersPage() {
         const remaining = getCooldownRemainingSeconds(key)
         if (remaining > 0) {
             toast.info(`Please wait ${remaining}s before resending again.`)
-            return false
-        }
-
-        const safeUserId = String(it.userId || it.$id || "").trim()
-        if (!safeUserId) {
-            toast.error("Missing userId for this row. Please refresh or re-create user profile.")
             return false
         }
 
@@ -537,7 +568,6 @@ export default function AdminUsersPage() {
                             </div>
                         </div>
 
-                        {/* ✅ Tiny Admin UI: First Login Summary */}
                         {!loading ? (
                             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 p-3">
                                 <Badge variant="secondary" className="gap-1">
@@ -597,20 +627,20 @@ export default function AdminUsersPage() {
                                                 const cooldownActive = cooldownRemaining > 0
 
                                                 const showSent = Boolean(sentBadgeAt[it.$id])
-                                                const resendDisabled = isResending || !it.isActive || cooldownActive
 
-                                                const safeDisplayId = it.userId || it.$id || "—"
-                                                const safeUserId = String(it.userId || "").trim()
+                                                const authUserId = String(it.userId || "").trim()
+                                                const missingAuthUserId = !authUserId
 
-                                                // ✅ TRUE source: first_login_users table in Appwrite
-                                                const st = safeUserId ? firstLoginMap[safeUserId] : undefined
+                                                const resendDisabled =
+                                                    missingAuthUserId || isResending || !it.isActive || cooldownActive
+
+                                                const safeDisplayId = authUserId || "—"
+
+                                                const st = authUserId ? firstLoginMap[authUserId] : undefined
                                                 const isFirstLoginPending = st ? (!st.completed || st.mustChangePassword) : false
 
                                                 return (
-                                                    <tr
-                                                        key={it.$id}
-                                                        className="border-t border-border/60 hover:bg-muted/20"
-                                                    >
+                                                    <tr key={it.$id} className="border-t border-border/60 hover:bg-muted/20">
                                                         <td className="px-4 py-3">
                                                             <div className="flex min-w-0 items-center gap-3">
                                                                 <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-background text-xs font-semibold">
@@ -625,6 +655,12 @@ export default function AdminUsersPage() {
                                                                     <div className="truncate text-xs text-muted-foreground">
                                                                         ID: {safeDisplayId}
                                                                     </div>
+
+                                                                    {missingAuthUserId ? (
+                                                                        <div className="mt-1 text-xs text-destructive">
+                                                                            ⚠ Missing Appwrite Auth userId (actions disabled)
+                                                                        </div>
+                                                                    ) : null}
                                                                 </div>
                                                             </div>
                                                         </td>
@@ -662,7 +698,6 @@ export default function AdminUsersPage() {
                                                             )}
                                                         </td>
 
-                                                        {/* ✅ First Login Status */}
                                                         <td className="px-4 py-3">
                                                             {isFirstLoginPending ? (
                                                                 <Badge variant="secondary" className="gap-1">
@@ -712,7 +747,10 @@ export default function AdminUsersPage() {
                                                                                 Edit
                                                                             </DropdownMenuItem>
 
-                                                                            <DropdownMenuItem onClick={() => toggleActive(it)}>
+                                                                            <DropdownMenuItem
+                                                                                onClick={() => toggleActive(it)}
+                                                                                disabled={missingAuthUserId}
+                                                                            >
                                                                                 {it.isActive ? "Deactivate" : "Activate"}
                                                                             </DropdownMenuItem>
 
@@ -721,6 +759,7 @@ export default function AdminUsersPage() {
                                                                             <DropdownMenuItem
                                                                                 className="text-destructive focus:text-destructive"
                                                                                 onClick={() => openDeleteConfirm(it)}
+                                                                                disabled={missingAuthUserId}
                                                                             >
                                                                                 <Trash2 className="mr-2 h-4 w-4" />
                                                                                 Delete
@@ -755,7 +794,6 @@ export default function AdminUsersPage() {
                 </Card>
             </div>
 
-            {/* ✅ Resend Confirmation Dialog */}
             <Dialog open={openResend} onOpenChange={setOpenResend}>
                 <DialogContent className="max-w-full sm:max-w-md">
                     <DialogHeader>
@@ -771,9 +809,7 @@ export default function AdminUsersPage() {
                         <div className="rounded-lg border border-border/70 p-3">
                             <div className="text-sm font-medium">{resendTarget?.name || "—"}</div>
                             <div className="text-xs text-muted-foreground">{resendTarget?.email || ""}</div>
-                            <div className="text-xs text-muted-foreground">
-                                ID: {resendTarget?.userId || resendTarget?.$id || ""}
-                            </div>
+                            <div className="text-xs text-muted-foreground">ID: {resendTarget?.userId || "—"}</div>
                         </div>
 
                         <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -806,7 +842,6 @@ export default function AdminUsersPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Create/Edit Dialog */}
             <Dialog open={openForm} onOpenChange={setOpenForm}>
                 <DialogContent className="max-w-full sm:max-w-lg">
                     <DialogHeader>
@@ -847,7 +882,6 @@ export default function AdminUsersPage() {
                             />
                         </div>
 
-                        {/* Role Picker */}
                         <div className="grid gap-2">
                             <Label>Role</Label>
 
@@ -889,7 +923,6 @@ export default function AdminUsersPage() {
                             </Popover>
                         </div>
 
-                        {/* Department Picker */}
                         {canHaveDepartment(form.role) ? (
                             <div className="grid gap-2">
                                 <Label>Department</Label>
@@ -938,7 +971,6 @@ export default function AdminUsersPage() {
                             </div>
                         ) : null}
 
-                        {/* Active */}
                         <div className="flex items-center gap-2">
                             <Checkbox
                                 id="active"
@@ -965,7 +997,6 @@ export default function AdminUsersPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Delete Dialog */}
             <Dialog open={openDelete} onOpenChange={setOpenDelete}>
                 <DialogContent className="max-w-full sm:max-w-md">
                     <DialogHeader>
@@ -984,9 +1015,7 @@ export default function AdminUsersPage() {
                             <div className="rounded-lg border border-border/70 p-3">
                                 <div className="text-sm font-medium">{target.name || "—"}</div>
                                 <div className="text-xs text-muted-foreground">{target.email}</div>
-                                <div className="text-xs text-muted-foreground">
-                                    ID: {target.userId || target.$id || "—"}
-                                </div>
+                                <div className="text-xs text-muted-foreground">ID: {target.userId || "—"}</div>
                             </div>
                         ) : null}
 

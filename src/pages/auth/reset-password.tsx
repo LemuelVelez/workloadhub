@@ -51,8 +51,8 @@ export default function ResetPasswordPage() {
         e.preventDefault()
         setError(null)
 
-        if (!valid || !params.userId || !params.secret) {
-            setError("This reset link is missing required parameters. Please request a new reset email.")
+        if (!valid) {
+            setError("This reset link is invalid or missing required parameters. Please request a new reset email.")
             return
         }
 
@@ -75,25 +75,37 @@ export default function ResetPasswordPage() {
         setLoading(true)
 
         try {
+            // ✅ Supports BOTH reset styles:
+            // - token reset (Express)
+            // - userId+secret reset (Appwrite)
             await authApi.resetPassword({
+                token: params.token,
                 userId: params.userId,
                 secret: params.secret,
                 password,
                 passwordConfirm,
-            })
+            } as any)
 
+            // ✅ Login immediately after reset
             await authApi.login(cleanEmail, password)
 
+            // ✅ Mark verified internally
             await updateMyPrefs({
                 mustChangePassword: false,
                 isVerified: true,
                 verifiedAt: new Date().toISOString(),
             })
 
-            await verifyAuthUserOnServer(params.userId)
+            // ✅ Get actual logged-in userId (more secure)
+            const me = await authApi.me().catch(() => null)
+            const actualUserId = String((me as any)?.$id || (me as any)?.id || "").trim()
 
-            // ✅ NEW: If this user was a first-time gated user, complete it
-            await markFirstLoginCompleted(params.userId).catch(() => null)
+            // ✅ Verify server-side (best effort)
+            const verifyId = actualUserId || String(params.userId || "").trim()
+            if (verifyId) {
+                await verifyAuthUserOnServer(verifyId).catch(() => null)
+                await markFirstLoginCompleted(verifyId).catch(() => null)
+            }
 
             try {
                 window.localStorage.setItem("workloadhub:lastEmail", cleanEmail)

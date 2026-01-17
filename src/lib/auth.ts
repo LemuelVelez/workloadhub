@@ -277,60 +277,115 @@ export async function updateMyPrefs(prefs: Record<string, any>) {
 }
 
 /**
- * ✅ Sends Appwrite recovery email (Password Setup / Reset)
- * ✅ Uses NEW object-parameter overload (non-deprecated)
+ * ✅ Helper: post JSON to Express backend
+ */
+async function postJson<T>(url: string, body: any): Promise<T> {
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body ?? {}),
+    })
+
+    const data = await res.json().catch(() => null)
+
+    if (!res.ok || !data?.ok) {
+        throw new Error(data?.message || `Request failed (${res.status})`)
+    }
+
+    return data as T
+}
+
+/**
+ * ✅ Sends Password Reset Email (TOKEN-based via Express)
+ * ✅ Supports optional redirectUrl override (no eslint unused warning)
  */
 export async function requestPasswordRecovery(email: string, redirectUrl?: string) {
     if (!email?.trim()) throw new Error("Email is required.")
 
-    const url = redirectUrl?.trim() || `${publicEnv.APP_ORIGIN}/auth/reset-password`
+    const apiBase = String(publicEnv.API_WORKLOADHUB_ORIGIN || "").replace(/\/$/, "")
+    const finalRedirectUrl = String(redirectUrl || "").trim() || `${publicEnv.APP_ORIGIN}/auth/reset-password`
 
+    /**
+     * ✅ PRIMARY: Express reset email (token)
+     */
     try {
-        const fn = (account as any)["createRecovery"]?.bind(account)
-        if (!fn) throw new Error("Account.createRecovery() is not available in this SDK version.")
-
-        return await fn({ email: email.trim(), url })
+        return await postJson<{ ok: boolean; message: string }>(`${apiBase}/api/auth/forgot-password`, {
+            email: email.trim().toLowerCase(),
+            redirectUrl: finalRedirectUrl, // ✅ used (and future-proof)
+        })
     } catch (err: any) {
-        throw new Error(formatAppwriteError(err))
+        /**
+         * ✅ FALLBACK: Appwrite built-in recovery (secret/userId)
+         */
+        try {
+            const fn = (account as any)["createRecovery"]?.bind(account)
+            if (!fn) throw new Error("Account.createRecovery() is not available in this SDK version.")
+            return await fn({ email: email.trim(), url: finalRedirectUrl })
+        } catch (e: any) {
+            throw new Error(err?.message || e?.message || "Failed to send recovery email.")
+        }
     }
 }
 
 /**
- * ✅ Completes the password recovery flow (NO deprecated updateRecovery signature)
- * ✅ Uses NEW object-parameter overload:
- * account.updateRecovery({ userId, secret, password })
+ * ✅ Completes reset password:
  *
- * ✅ NEW BEHAVIOR:
- * After success, we set a one-time local flag.
- * On next login, the system will auto-verify that user.
+ * Supports BOTH:
+ * 1) TOKEN-based reset (Express): token
+ * 2) Appwrite recovery reset: userId + secret
  */
 export async function confirmPasswordRecovery(opts: {
-    userId: string
-    secret: string
+    token?: string | null
+    userId?: string | null
+    secret?: string | null
     password: string
     passwordConfirm: string
 }) {
-    const { userId, secret, password, passwordConfirm } = opts
+    const token = String(opts.token || "").trim()
+    const userId = String(opts.userId || "").trim()
+    const secret = String(opts.secret || "").trim()
+    const password = String(opts.password || "").trim()
+    const passwordConfirm = String(opts.passwordConfirm || "").trim()
 
-    if (!userId?.trim()) throw new Error("Missing userId.")
-    if (!secret?.trim()) throw new Error("Missing secret.")
-    if (!password?.trim()) throw new Error("New password is required.")
+    if (!password) throw new Error("New password is required.")
     if (password.length < 8) throw new Error("Password must be at least 8 characters.")
     if (password !== passwordConfirm) throw new Error("Passwords do not match.")
+
+    /**
+     * ✅ TOKEN FLOW (Express)
+     */
+    if (token) {
+        const apiBase = String(publicEnv.API_WORKLOADHUB_ORIGIN || "").replace(/\/$/, "")
+        await postJson<{ ok: boolean; message?: string }>(`${apiBase}/api/auth/password-reset`, {
+            token,
+            password,
+            passwordConfirm,
+        })
+
+        // ✅ if caller knows userId, auto-verify on next login
+        if (userId) setPasswordResetDoneFlag(userId)
+
+        return { ok: true }
+    }
+
+    /**
+     * ✅ APPWRITE FLOW (userId + secret)
+     */
+    if (!userId) throw new Error("Missing userId.")
+    if (!secret) throw new Error("Missing secret.")
 
     try {
         const fn = (account as any)["updateRecovery"]?.bind(account)
         if (!fn) throw new Error("Account.updateRecovery() is not available in this SDK version.")
 
         const result = await fn({
-            userId: userId.trim(),
-            secret: secret.trim(),
-            password: password.trim(),
+            userId,
+            secret,
+            password,
         })
 
-        // ✅ mark this user for auto-verify on next login
-        setPasswordResetDoneFlag(userId.trim())
-
+        setPasswordResetDoneFlag(userId)
         return result
     } catch (err: any) {
         throw new Error(formatAppwriteError(err))
