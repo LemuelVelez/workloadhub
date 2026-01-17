@@ -40,24 +40,25 @@ const AdminMasterDataManagementPage = React.lazy(
   () => import("./pages/dashboard/admin/master-data-management")
 )
 
-// ✅ NEW: Rooms & Facilities page
 const AdminRoomsAndFacilitiesPage = React.lazy(
   () => import("./pages/dashboard/admin/rooms-and-facilities")
 )
 
-// ✅ NEW: Academic Term Setup page
 const AdminAcademicTermSetupPage = React.lazy(
   () => import("./pages/dashboard/admin/academic-term-setup")
 )
 
-// ✅ NEW: Rules & Policies page
 const AdminRulesAndPoliciesPage = React.lazy(
   () => import("./pages/dashboard/admin/rules-and-policies")
 )
 
-// ✅ NEW: Audit Logs page
 const AdminAuditLogsPage = React.lazy(
   () => import("./pages/dashboard/admin/audit-logs")
+)
+
+// ✅ Admin Requests Page
+const AdminRequestsPage = React.lazy(
+  () => import("./pages/dashboard/admin/requests")
 )
 
 function readBool(v: any) {
@@ -342,6 +343,9 @@ export default function App() {
 
                 <Route path="users" element={<Navigate to="admin/users" replace />} />
 
+                {/* ✅ FIX: Requests is ADMIN perspective, so redirect */}
+                <Route path="requests" element={<Navigate to="admin/requests" replace />} />
+
                 <Route path="admin" element={<Outlet />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AdminOverviewPage />} />
@@ -352,29 +356,28 @@ export default function App() {
                     element={<AdminMasterDataManagementPage />}
                   />
 
-                  {/* ✅ NEW: Rooms & Facilities */}
                   <Route
                     path="rooms-and-facilities"
                     element={<AdminRoomsAndFacilitiesPage />}
                   />
 
-                  {/* ✅ NEW: Academic Term Setup */}
                   <Route
                     path="academic-term-setup"
                     element={<AdminAcademicTermSetupPage />}
                   />
 
-                  {/* ✅ NEW: Rules & Policies */}
                   <Route
                     path="rules-and-policies"
                     element={<AdminRulesAndPoliciesPage />}
                   />
 
-                  {/* ✅ NEW: Audit Logs */}
                   <Route
                     path="audit-logs"
                     element={<AdminAuditLogsPage />}
                   />
+
+                  {/* ✅ REAL ADMIN Requests route */}
+                  <Route path="requests" element={<AdminRequestsPage />} />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />

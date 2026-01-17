@@ -13,7 +13,7 @@ import {
     Database,
     DoorOpen,
     Scale,
-    FileClock, // ✅ NEW
+    FileClock,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -127,12 +127,6 @@ export default function NavMain({ className }: { className?: string }) {
             icon: LayoutDashboard,
         },
         {
-            title: "Requests",
-            href: "/dashboard/requests",
-            icon: Clock,
-            roles: ["admin", "scheduler", "faculty"],
-        },
-        {
             title: "Schedules",
             href: "/dashboard/schedules",
             icon: CalendarDays,
@@ -147,6 +141,14 @@ export default function NavMain({ className }: { className?: string }) {
     ]
 
     const adminMenu: NavItem[] = [
+        // ✅ ADMIN Requests (Admin perspective)
+        {
+            title: "Requests",
+            href: "/dashboard/admin/requests",
+            icon: Clock,
+            roles: ["admin"],
+        },
+
         {
             title: "Master Data",
             href: "/dashboard/admin/master-data-management",
@@ -154,7 +156,6 @@ export default function NavMain({ className }: { className?: string }) {
             roles: ["admin"],
         },
 
-        // ✅ NEW: Academic Term Setup
         {
             title: "Academic Term Setup",
             href: "/dashboard/admin/academic-term-setup",
@@ -162,7 +163,6 @@ export default function NavMain({ className }: { className?: string }) {
             roles: ["admin"],
         },
 
-        // ✅ NEW: Rooms & Facilities
         {
             title: "Rooms & Facilities",
             href: "/dashboard/admin/rooms-and-facilities",
@@ -170,7 +170,6 @@ export default function NavMain({ className }: { className?: string }) {
             roles: ["admin"],
         },
 
-        // ✅ NEW: Rules & Policies
         {
             title: "Rules & Policies",
             href: "/dashboard/admin/rules-and-policies",
@@ -185,7 +184,6 @@ export default function NavMain({ className }: { className?: string }) {
             roles: ["admin"],
         },
 
-        // ✅ NEW: Audit Logs
         {
             title: "Audit Logs",
             href: "/dashboard/admin/audit-logs",
