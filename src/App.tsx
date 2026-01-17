@@ -39,6 +39,11 @@ function getAuthPendingAgeMs(): number | null {
 const AdminOverviewPage = React.lazy(() => import("./pages/dashboard/admin/overview"))
 const AdminUsersPage = React.lazy(() => import("./pages/dashboard/admin/users"))
 
+// ✅ NEW: Master Data Management Page
+const AdminMasterDataManagementPage = React.lazy(
+  () => import("./pages/dashboard/admin/master-data-management")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -340,6 +345,12 @@ export default function App() {
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AdminOverviewPage />} />
                   <Route path="users" element={<AdminUsersPage />} />
+
+                  {/* ✅ NEW: Master Data Management */}
+                  <Route
+                    path="master-data-management"
+                    element={<AdminMasterDataManagementPage />}
+                  />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />

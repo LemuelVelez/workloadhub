@@ -10,6 +10,7 @@ import {
     Users,
     Settings,
     Clock,
+    Database,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -181,9 +182,14 @@ export default function NavMain({ className }: { className?: string }) {
 
     /**
      * ✅ ADMIN MENU (matches App.tsx)
-     * Removed "Overview" here to avoid duplication
      */
     const adminMenu: NavItem[] = [
+        {
+            title: "Master Data",
+            href: "/dashboard/admin/master-data-management",
+            icon: Database,
+            roles: ["admin"],
+        },
         {
             title: "Users",
             href: "/dashboard/admin/users",
