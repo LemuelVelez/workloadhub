@@ -1,8 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { authApi } from "@/api/auth"
-import { updateMyPrefs, logoutAllSessions } from "@/lib/auth"
+
+// ✅ IMPORTANT: real Appwrite password change + prefs + session revoke
+import { logoutAllSessions, updateMyPrefs } from "@/lib/auth"
 
 // ✅ NEW
+import { publicEnv } from "@/lib/env"
 import { markFirstLoginCompleted } from "@/lib/first-login"
 
 const FORCE_RELOGIN_KEY = "workloadhub:forceReLoginAt"
@@ -24,66 +27,43 @@ function requestSessionRefresh() {
     }
 }
 
+function apiBase(): string {
+    const raw = String((publicEnv as any)?.API_WORKLOADHUB_ORIGIN || "").trim()
+    return raw.replace(/\/$/, "") || "http://127.0.0.1:4000"
+}
+
 /**
- * ✅ Safe method invoker for different authApi signatures
+ * ✅ Safe getMe
  */
-async function safeCall(fn: any, args1: any, args2?: any[]) {
-    if (typeof fn !== "function") return null
-
+async function safeGetMe() {
     try {
-        return await fn(args1)
+        return await authApi.me()
     } catch {
-        if (Array.isArray(args2)) {
-            return await fn(...args2)
-        }
-        throw new Error("Request failed.")
+        return null
     }
 }
 
-async function safeGetMe() {
-    const candidates = [
-        (authApi as any).me,
-        (authApi as any).getMe,
-        (authApi as any).getAccount,
-        (authApi as any).account,
-    ]
-
-    for (const fn of candidates) {
-        try {
-            const r = await safeCall(fn, undefined, [])
-            if (r) return r
-        } catch {
-            // try next
-        }
-    }
-
-    return null
+function resolveUserId(me: any) {
+    return String(me?.$id || me?.id || me?.userId || me?.data?.$id || me?.data?.id || "").trim()
 }
 
 /**
- * ✅ Tries multiple possible backend endpoints to mark Appwrite auth verified
+ * ✅ Verifies the Appwrite Auth user using Express + APPWRITE_API_KEY
+ *
+ * CRITICAL FIX:
+ * - Always call the Express backend base URL, NOT "/api/..." relative to Vite.
  */
 export async function verifyAuthUserOnServer(userId: string) {
     const clean = String(userId || "").trim()
     if (!clean) return false
 
-    const apiCandidates = [
-        (authApi as any).verifyAuthUserOnServer,
-        (authApi as any).verifyUserOnServer,
-        (authApi as any).verifyAuthUser,
-        (authApi as any).verifyUser,
+    const base = apiBase()
+
+    const endpoints = [
+        `${base}/api/auth/verify-user`,
+        `${base}/api/auth/verify-auth-user`,
+        `${base}/api/auth/verify`,
     ]
-
-    for (const fn of apiCandidates) {
-        try {
-            const r = await safeCall(fn, { userId: clean }, [clean])
-            if (r) return true
-        } catch {
-            // try next
-        }
-    }
-
-    const endpoints = ["/api/auth/verify-auth-user", "/api/auth/verify-user", "/api/auth/verify"]
 
     for (const url of endpoints) {
         try {
@@ -93,7 +73,9 @@ export async function verifyAuthUserOnServer(userId: string) {
                 credentials: "include",
                 body: JSON.stringify({ userId: clean }),
             })
-            if (res.ok) return true
+
+            const data = await res.json().catch(() => null)
+            if (res.ok && data?.ok) return true
         } catch {
             // try next
         }
@@ -103,7 +85,14 @@ export async function verifyAuthUserOnServer(userId: string) {
 }
 
 /**
- * ✅ First-login password change handler (UPDATED)
+ * ✅ First-login password change handler (FIXED)
+ *
+ * What it does now:
+ * 1) REAL Appwrite password update using authApi.changePassword (account.updatePassword)
+ * 2) update prefs in current session (mustChangePassword=false)
+ * 3) verify Auth user on server (emailVerification=true) using APPWRITE_API_KEY
+ * 4) mark first-login table as completed
+ * 5) revoke all sessions (force re-login)
  */
 export async function completeFirstLoginPasswordChange(input: {
     oldPassword: string
@@ -111,75 +100,56 @@ export async function completeFirstLoginPasswordChange(input: {
     confirmPassword: string
 }) {
     const oldPassword = String(input?.oldPassword || "")
-    const newPassword = String(input?.newPassword || "").trim()
-    const confirmPassword = String(input?.confirmPassword || "").trim()
+    const newPassword = String(input?.newPassword || "")
+    const confirmPassword = String(input?.confirmPassword || "")
 
     if (!oldPassword) throw new Error("Current password is required.")
     if (!newPassword || newPassword.length < 8) throw new Error("New password must be at least 8 characters.")
     if (newPassword !== confirmPassword) throw new Error("Passwords do not match.")
     if (newPassword === oldPassword) throw new Error("New password must be different from the current password.")
 
-    const changeCandidates = [
-        (authApi as any).changePassword,
-        (authApi as any).updatePassword,
-        (authApi as any).setPassword,
-        (authApi as any).completeFirstLoginPasswordChange,
-    ]
-
-    let changed = false
-
-    for (const fn of changeCandidates) {
-        try {
-            await safeCall(
-                fn,
-                {
-                    oldPassword,
-                    newPassword,
-                    confirmPassword,
-                    password: newPassword,
-                    passwordConfirm: confirmPassword,
-                },
-                [oldPassword, newPassword, confirmPassword]
-            )
-            changed = true
-            break
-        } catch {
-            // try next
-        }
+    // ✅ STEP 1: Change password in Appwrite Auth (this is the REAL fix)
+    const changeFn = (authApi as any).changePassword
+    if (typeof changeFn !== "function") {
+        throw new Error("authApi.changePassword() missing. Please check src/api/auth.ts export.")
     }
 
-    if (!changed) {
-        throw new Error("Password change endpoint is not available. Please check authApi implementation.")
-    }
+    await changeFn(oldPassword, newPassword)
 
+    // ✅ STEP 2: Update prefs (internal flags)
     await updateMyPrefs({
         mustChangePassword: false,
         isVerified: true,
         verifiedAt: new Date().toISOString(),
-    })
+    }).catch(() => null)
 
+    // ✅ STEP 3: Resolve userId
     const me: any = await safeGetMe()
-    const resolvedUserId =
-        String(me?.$id || me?.id || me?.userId || me?.data?.$id || me?.data?.id || "").trim() || ""
+    const userId = resolveUserId(me)
 
-    if (resolvedUserId) {
-        await verifyAuthUserOnServer(resolvedUserId).catch(() => null)
-        await markFirstLoginCompleted(resolvedUserId).catch(() => null)
+    // ✅ STEP 4: Verify auth user using APPWRITE_API_KEY (emailVerification=true)
+    if (userId) {
+        await verifyAuthUserOnServer(userId).catch(() => null)
+
+        // ✅ STEP 5: mark first-login table completed
+        await markFirstLoginCompleted(userId).catch(() => null)
     }
 
+    // ✅ Force a clean re-login (prevents session glitch + stale cache)
     try {
         window.localStorage.setItem(FORCE_RELOGIN_KEY, String(Date.now()))
     } catch {
         // ignore
     }
 
+    // ✅ revoke sessions
     await logoutAllSessions().catch(() => null)
 
     requestSessionRefresh()
 
     return {
         ok: true,
-        userId: resolvedUserId || null,
+        userId: userId || null,
         loggedOut: true,
     }
 }

@@ -229,6 +229,11 @@ export async function createUserAccount(opts: {
 
 /**
  * ✅ Change password while logged-in
+ *
+ * ✅ FIXED HARD:
+ * Appwrite SDK versions differ:
+ * - updatePassword(password, oldPassword)
+ * - updatePassword({ password, oldPassword })
  */
 export async function updateMyPassword(oldPassword: string, newPassword: string) {
     if (!oldPassword?.trim()) throw new Error("Current password is required.")
@@ -239,7 +244,19 @@ export async function updateMyPassword(oldPassword: string, newPassword: string)
         const fn = (account as any)["updatePassword"]?.bind(account)
         if (!fn) throw new Error("Account.updatePassword() is not available in this SDK version.")
 
-        return await fn(newPassword.trim(), oldPassword.trim())
+        const cleanOld = oldPassword.trim()
+        const cleanNew = newPassword.trim()
+
+        // ✅ Try common signature: (newPassword, oldPassword)
+        try {
+            return await fn(cleanNew, cleanOld)
+        } catch {
+            // ✅ Try object signature
+            return await fn({
+                password: cleanNew,
+                oldPassword: cleanOld,
+            })
+        }
     } catch (err: any) {
         throw new Error(formatAppwriteError(err))
     }

@@ -4,7 +4,8 @@ import {
     loginWithEmailPassword,
     logoutCurrentSession,
     requestPasswordRecovery,
-} from "@/lib/auth";
+    updateMyPassword, // ✅ NEW
+} from "@/lib/auth"
 
 export const authApi = {
     me: getCurrentAccount,
@@ -12,4 +13,7 @@ export const authApi = {
     logout: logoutCurrentSession,
     forgotPassword: requestPasswordRecovery,
     resetPassword: confirmPasswordRecovery,
-};
+
+    // ✅ NEW: required by first-login flow
+    changePassword: updateMyPassword,
+}
