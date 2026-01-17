@@ -1,150 +1,156 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Query, TablesDB } from "appwrite"
+import { authApi } from "@/api/auth"
+import { updateMyPrefs, logoutAllSessions } from "@/lib/auth"
 
-import { appwriteClient } from "@/lib/db"
-import { publicEnv } from "@/lib/env"
-import { account, requestPasswordRecovery, updateMyPassword, updateMyPrefs } from "@/lib/auth"
-import { COLLECTIONS, ATTR } from "@/model/schemaModel"
+// ✅ NEW
+import { markFirstLoginCompleted } from "@/lib/first-login"
+
+const FORCE_RELOGIN_KEY = "workloadhub:forceReLoginAt"
 
 /**
- * ✅ Auth Verification Rules (Your requirement)
- * - When admin adds user: userId auto-generated
- * - Login credentials sent to user's email
- * - On first login: must change password
- * - After first password change: account becomes verified
+ * ✅ Triggers a session refresh signal (for apps that cache session/user state).
  */
+function requestSessionRefresh() {
+    try {
+        window.localStorage.setItem("workloadhub:sessionRefreshAt", String(Date.now()))
+    } catch {
+        // ignore
+    }
 
-const tablesDB = new TablesDB(appwriteClient)
-
-function getDatabaseId(): string {
-    const anyEnv = publicEnv as any
-
-    const dbId =
-        anyEnv?.APPWRITE_DATABASE ||
-        anyEnv?.APPWRITE_DATABASE_ID ||
-        anyEnv?.DATABASE_ID ||
-        anyEnv?.DB_ID ||
-        (import.meta as any)?.env?.VITE_PUBLIC_APPWRITE_DATABASE_ID ||
-        (import.meta as any)?.env?.VITE_PUBLIC_APPWRITE_DATABASE ||
-        null
-
-    if (!dbId) throw new Error("Missing Appwrite Database ID in env.")
-    return String(dbId)
+    try {
+        window.dispatchEvent(new CustomEvent("workloadhub:session-refresh"))
+    } catch {
+        // ignore
+    }
 }
 
-export type AuthGateState = {
-    userId: string
-    email?: string
-    mustChangePassword: boolean
-    isVerified: boolean
+/**
+ * ✅ Safe method invoker for different authApi signatures
+ */
+async function safeCall(fn: any, args1: any, args2?: any[]) {
+    if (typeof fn !== "function") return null
+
+    try {
+        return await fn(args1)
+    } catch {
+        if (Array.isArray(args2)) {
+            return await fn(...args2)
+        }
+        throw new Error("Request failed.")
+    }
 }
 
-export function generateTempPassword(length = 14) {
-    const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-    const lower = "abcdefghijkmnopqrstuvwxyz"
-    const nums = "23456789"
-    const sym = "!@#$%^&*_-+=?"
-
-    const all = upper + lower + nums + sym
-    const pick = (set: string) => set[Math.floor(Math.random() * set.length)]
-
-    const base = [
-        pick(upper),
-        pick(lower),
-        pick(nums),
-        pick(sym),
-        ...Array.from({ length: Math.max(8, length) - 4 }, () => pick(all)),
+async function safeGetMe() {
+    const candidates = [
+        (authApi as any).me,
+        (authApi as any).getMe,
+        (authApi as any).getAccount,
+        (authApi as any).account,
     ]
 
-    for (let i = base.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1))
-            ;[base[i], base[j]] = [base[j], base[i]]
-    }
-
-    return base.join("")
-}
-
-function escapeHtml(s: string) {
-    return (s || "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;")
-}
-
-/**
- * ✅ Read current logged-in user "verification state"
- */
-export async function getAuthGateState(): Promise<AuthGateState | null> {
-    const me = await account.get().catch(() => null)
-    if (!me) return null
-
-    const userId = (me as any).$id || (me as any).id
-    const email = (me as any).email
-    const prefs = ((me as any).prefs || {}) as any
-
-    let mustChangePassword = Boolean(prefs?.mustChangePassword)
-    let isVerified = Boolean(prefs?.isVerified)
-
-    // ✅ fallback to USER_PROFILES if available
-    if (!("mustChangePassword" in prefs) || !("isVerified" in prefs)) {
+    for (const fn of candidates) {
         try {
-            const dbId = getDatabaseId()
-            const res = await tablesDB.listRows({
-                databaseId: dbId,
-                tableId: COLLECTIONS.USER_PROFILES,
-                queries: [Query.equal(ATTR.USER_PROFILES.userId, userId), Query.limit(1)],
-            })
-
-            const row = ((res as any)?.rows ?? [])[0]
-            if (row) {
-                if (typeof row?.mustChangePassword === "boolean") mustChangePassword = row.mustChangePassword
-                if (typeof row?.isVerified === "boolean") isVerified = row.isVerified
-            }
+            const r = await safeCall(fn, undefined, [])
+            if (r) return r
         } catch {
-            // ignore
+            // try next
         }
-    }
-
-    return {
-        userId,
-        email,
-        mustChangePassword,
-        isVerified,
-    }
-}
-
-/**
- * ✅ Post-login redirect helper
- */
-export async function getPostLoginRedirectPath() {
-    const state = await getAuthGateState()
-    if (!state) return null
-
-    if (state.mustChangePassword || !state.isVerified) {
-        return "/auth/change-password"
     }
 
     return null
 }
 
 /**
- * ✅ First login password change completion
+ * ✅ Tries multiple possible backend endpoints to mark Appwrite auth verified
  */
-export async function completeFirstLoginPasswordChange(opts: {
+export async function verifyAuthUserOnServer(userId: string) {
+    const clean = String(userId || "").trim()
+    if (!clean) return false
+
+    const apiCandidates = [
+        (authApi as any).verifyAuthUserOnServer,
+        (authApi as any).verifyUserOnServer,
+        (authApi as any).verifyAuthUser,
+        (authApi as any).verifyUser,
+    ]
+
+    for (const fn of apiCandidates) {
+        try {
+            const r = await safeCall(fn, { userId: clean }, [clean])
+            if (r) return true
+        } catch {
+            // try next
+        }
+    }
+
+    const endpoints = ["/api/auth/verify-auth-user", "/api/auth/verify-user", "/api/auth/verify"]
+
+    for (const url of endpoints) {
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ userId: clean }),
+            })
+            if (res.ok) return true
+        } catch {
+            // try next
+        }
+    }
+
+    return false
+}
+
+/**
+ * ✅ First-login password change handler (UPDATED)
+ */
+export async function completeFirstLoginPasswordChange(input: {
     oldPassword: string
     newPassword: string
     confirmPassword: string
 }) {
-    const { oldPassword, newPassword, confirmPassword } = opts
+    const oldPassword = String(input?.oldPassword || "")
+    const newPassword = String(input?.newPassword || "").trim()
+    const confirmPassword = String(input?.confirmPassword || "").trim()
 
-    if (!oldPassword?.trim()) throw new Error("Current password is required.")
-    if (!newPassword?.trim()) throw new Error("New password is required.")
-    if (newPassword.length < 8) throw new Error("Password must be at least 8 characters.")
+    if (!oldPassword) throw new Error("Current password is required.")
+    if (!newPassword || newPassword.length < 8) throw new Error("New password must be at least 8 characters.")
     if (newPassword !== confirmPassword) throw new Error("Passwords do not match.")
+    if (newPassword === oldPassword) throw new Error("New password must be different from the current password.")
 
-    await updateMyPassword(oldPassword, newPassword)
+    const changeCandidates = [
+        (authApi as any).changePassword,
+        (authApi as any).updatePassword,
+        (authApi as any).setPassword,
+        (authApi as any).completeFirstLoginPasswordChange,
+    ]
+
+    let changed = false
+
+    for (const fn of changeCandidates) {
+        try {
+            await safeCall(
+                fn,
+                {
+                    oldPassword,
+                    newPassword,
+                    confirmPassword,
+                    password: newPassword,
+                    passwordConfirm: confirmPassword,
+                },
+                [oldPassword, newPassword, confirmPassword]
+            )
+            changed = true
+            break
+        } catch {
+            // try next
+        }
+    }
+
+    if (!changed) {
+        throw new Error("Password change endpoint is not available. Please check authApi implementation.")
+    }
 
     await updateMyPrefs({
         mustChangePassword: false,
@@ -152,125 +158,28 @@ export async function completeFirstLoginPasswordChange(opts: {
         verifiedAt: new Date().toISOString(),
     })
 
-    // Optional mirror in USER_PROFILES table
+    const me: any = await safeGetMe()
+    const resolvedUserId =
+        String(me?.$id || me?.id || me?.userId || me?.data?.$id || me?.data?.id || "").trim() || ""
+
+    if (resolvedUserId) {
+        await verifyAuthUserOnServer(resolvedUserId).catch(() => null)
+        await markFirstLoginCompleted(resolvedUserId).catch(() => null)
+    }
+
     try {
-        const me = await account.get()
-        const userId = (me as any).$id
-
-        const dbId = getDatabaseId()
-        const res = await tablesDB.listRows({
-            databaseId: dbId,
-            tableId: COLLECTIONS.USER_PROFILES,
-            queries: [Query.equal(ATTR.USER_PROFILES.userId, userId), Query.limit(1)],
-        })
-
-        const row = ((res as any)?.rows ?? [])[0]
-        if (row?.$id) {
-            await tablesDB.updateRow({
-                databaseId: dbId,
-                tableId: COLLECTIONS.USER_PROFILES,
-                rowId: row.$id,
-                data: {
-                    mustChangePassword: false,
-                    isVerified: true,
-                },
-            })
-        }
+        window.localStorage.setItem(FORCE_RELOGIN_KEY, String(Date.now()))
     } catch {
         // ignore
     }
 
-    return true
-}
+    await logoutAllSessions().catch(() => null)
 
-/**
- * ✅ Client-safe fallback: send setup password email using Appwrite Recovery email
- */
-export async function sendInviteEmail(email: string) {
-    if (!email?.trim()) throw new Error("Email is required.")
+    requestSessionRefresh()
 
-    const redirect = `${publicEnv.APP_ORIGIN}/auth/reset-password`
-    await requestPasswordRecovery(email.trim().toLowerCase(), redirect)
-
-    return true
-}
-
-/**
- * ✅ NEW: Send login credentials email to NEW user
- * - Server-side: uses Appwrite Messaging (SMTP Provider = WORKLOADHUB_GMAIL_SMTP)
- * - Browser fallback: uses Appwrite recovery email
- */
-export async function sendNewUserCredentialsEmail(opts: {
-    userId: string
-    email: string
-    tempPassword: string
-    name?: string | null
-}) {
-    const email = opts.email?.trim().toLowerCase()
-    const userId = opts.userId?.trim()
-    const tempPassword = opts.tempPassword?.trim()
-    const name = (opts.name || "").trim()
-
-    if (!userId) throw new Error("Missing userId.")
-    if (!email) throw new Error("Missing email.")
-    if (!tempPassword) throw new Error("Missing temp password.")
-
-    // ✅ If running in the browser, we cannot send custom email (needs API KEY)
-    if (typeof window !== "undefined") {
-        // Fallback: send reset/setup link instead
-        await sendInviteEmail(email)
-        return true
-    }
-
-    const origin = publicEnv.APP_ORIGIN || "http://localhost:5173"
-    const loginUrl = `${origin}/auth/login`
-
-    const subject = "Your WorkloadHub Login Credentials"
-
-    const content = `
-<div style="font-family:Arial,sans-serif;line-height:1.6">
-  <h2 style="margin:0 0 12px">Welcome to WorkloadHub</h2>
-  <p>Hello${name ? ` ${escapeHtml(name)}` : ""},</p>
-
-  <p>Your account has been created by the administrator.</p>
-
-  <div style="background:#f7f7f7;border:1px solid #e5e5e5;padding:12px;border-radius:8px">
-    <p style="margin:0 0 8px"><b>Login URL:</b> <a href="${escapeHtml(loginUrl)}">${escapeHtml(loginUrl)}</a></p>
-    <p style="margin:0 0 8px"><b>Email:</b> ${escapeHtml(email)}</p>
-    <p style="margin:0"><b>Temporary Password:</b> <code>${escapeHtml(tempPassword)}</code></p>
-  </div>
-
-  <p style="margin-top:12px">
-    ✅ On your first login, you must change your password.<br/>
-    ✅ After changing your password, your account will be verified automatically.
-  </p>
-
-  <p style="color:#666;font-size:12px">
-    If you did not expect this email, you may ignore it.
-  </p>
-</div>
-`
-
-    // ✅ Server-side send using Messaging provider from .env
-    const { createTargetAndSendEmail } = await import("./email")
-
-    await createTargetAndSendEmail({
-        userId,
-        email,
-        subject,
-        content,
-        html: true,
-        name: "WorkloadHub Email",
-    })
-
-    return true
-}
-
-export async function initialPrefsTemplate() {
     return {
-        mustChangePassword: true,
-        isVerified: false,
-        createdByAdmin: true,
-        createdAt: new Date().toISOString(),
+        ok: true,
+        userId: resolvedUserId || null,
+        loggedOut: true,
     }
 }

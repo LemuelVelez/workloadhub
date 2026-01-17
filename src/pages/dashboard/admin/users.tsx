@@ -1,3 +1,4 @@
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
@@ -52,7 +53,7 @@ type DepartmentLite = {
 
 type UserDoc = {
     $id: string
-    userId: string
+    userId?: string
     email: string
     name?: string | null
     role: string
@@ -64,7 +65,7 @@ type UserDoc = {
 
 type UserFormState = {
     $id?: string
-    userId?: string // ✅ auto-generated on create
+    userId?: string
     email: string
     name: string
     role: AdminUserRole
@@ -139,25 +140,29 @@ export default function AdminUsersPage() {
     const [rolePickerOpen, setRolePickerOpen] = React.useState(false)
     const [deptPickerOpen, setDeptPickerOpen] = React.useState(false)
 
-    // ✅ per-row resend loading state
     const [resending, setResending] = React.useState<Record<string, boolean>>({})
-
-    // ✅ confirmation dialog state for resend
     const [openResend, setOpenResend] = React.useState(false)
     const [resendTarget, setResendTarget] = React.useState<UserDoc | null>(null)
 
-    // ✅ NEW: cooldown per row (until timestamp)
     const [cooldowns, setCooldowns] = React.useState<Record<string, number>>({})
-
-    // ✅ NEW: show "Sent" badge after resend (timestamp)
     const [sentBadgeAt, setSentBadgeAt] = React.useState<Record<string, number>>({})
 
-    // ✅ tick for countdown UI
     const [now, setNow] = React.useState(() => Date.now())
     React.useEffect(() => {
         const t = setInterval(() => setNow(Date.now()), 1000)
         return () => clearInterval(t)
     }, [])
+
+    /**
+     * ✅ First Login Status from Appwrite table: first_login_users
+     * Map format:
+     * {
+     *   [userId]: { completed: boolean, mustChangePassword: boolean, rowId?: string }
+     * }
+     */
+    const [firstLoginMap, setFirstLoginMap] = React.useState<
+        Record<string, { completed: boolean; mustChangePassword: boolean; rowId?: string }>
+    >({})
 
     const deptMap = React.useMemo(() => {
         const m = new Map<string, DepartmentLite>()
@@ -173,7 +178,7 @@ export default function AdminUsersPage() {
 
         return base.filter((r) => {
             const hay = [
-                r.userId,
+                r.userId || "",
                 r.email,
                 r.name || "",
                 r.role,
@@ -185,6 +190,24 @@ export default function AdminUsersPage() {
             return hay.includes(term)
         })
     }, [rows, q, includeInactive, deptMap])
+
+    const firstLoginStats = React.useMemo(() => {
+        let pending = 0
+
+        for (const u of rows) {
+            const safeUserId = String(u.userId || "").trim()
+            if (!safeUserId) continue
+
+            const st = firstLoginMap[safeUserId]
+            const isPending = st ? (!st.completed || st.mustChangePassword) : false
+            if (isPending) pending++
+        }
+
+        return {
+            pending,
+            completed: Math.max(0, rows.length - pending),
+        }
+    }, [rows, firstLoginMap])
 
     async function loadAll() {
         setLoading(true)
@@ -198,9 +221,25 @@ export default function AdminUsersPage() {
 
             setDepartments(deps || [])
             setRows(users || [])
+
+            // ✅ Fetch first-login status ONLY for the listed users (fast + correct)
+            const userIds = Array.from(
+                new Set(
+                    (users || [])
+                        .map((u: any) => String(u?.userId || "").trim())
+                        .filter(Boolean)
+                )
+            )
+
+            const statusMap =
+                (await adminApi.firstLoginUsers?.statusMap?.(userIds).catch(() => ({}))) || {}
+
+            setFirstLoginMap(statusMap)
         } catch (e: any) {
             setError(e?.message || "Failed to load users.")
             setRows([])
+            setDepartments([])
+            setFirstLoginMap({})
         } finally {
             setLoading(false)
         }
@@ -220,7 +259,7 @@ export default function AdminUsersPage() {
         setTarget(it)
         setForm({
             $id: it.$id,
-            userId: it.userId || "",
+            userId: it.userId || it.$id || "",
             email: it.email || "",
             name: it.name || "",
             role: (it.role as AdminUserRole) || "FACULTY",
@@ -279,7 +318,7 @@ export default function AdminUsersPage() {
                     isActive,
                 } as any)
 
-                toast.success("User created. Invite email was sent to the user.")
+                toast.success("User created. Login credentials were sent to the user via email.")
             }
 
             setOpenForm(false)
@@ -292,21 +331,53 @@ export default function AdminUsersPage() {
         }
     }
 
+    /**
+     * ✅ Activate/Deactivate updates BOTH:
+     * - USER_PROFILES.isActive
+     * - Appwrite Auth status (blocks/allow login)
+     */
     async function toggleActive(it: UserDoc) {
+        const safeUserId = String(it.userId || it.$id || "").trim()
+        if (!safeUserId) {
+            toast.error("Missing userId. Please refresh and try again.")
+            return
+        }
+
         try {
-            await adminApi.users.setActive(it.$id, !it.isActive)
-            toast.success(it.isActive ? "User deactivated." : "User activated.")
+            await adminApi.users.setActive({
+                docId: it.$id,
+                userId: safeUserId,
+                isActive: !it.isActive,
+            })
+
+            toast.success(it.isActive ? "User deactivated (login blocked)." : "User activated (login enabled).")
             await loadAll()
         } catch (e: any) {
             toast.error(e?.message || "Failed to update status.")
         }
     }
 
+    /**
+     * ✅ deleting removes BOTH:
+     * - USER_PROFILES row
+     * - Appwrite Auth user
+     */
     async function deleteNow() {
         if (!target) return
+
+        const safeUserId = String(target.userId || target.$id || "").trim()
+        if (!safeUserId) {
+            toast.error("Missing userId. Please refresh and try again.")
+            return
+        }
+
         try {
-            await adminApi.users.remove(target.$id)
-            toast.success("User deleted.")
+            await adminApi.users.remove({
+                docId: target.$id,
+                userId: safeUserId,
+            })
+
+            toast.success("User deleted (Profile + Appwrite Auth).")
             setOpenDelete(false)
             setTarget(null)
             await loadAll()
@@ -322,7 +393,6 @@ export default function AdminUsersPage() {
     }
 
     function openResendConfirm(it: UserDoc) {
-        // ✅ Disabled for inactive users
         if (!it.isActive) {
             toast.error("Cannot resend credentials for an inactive user.")
             return
@@ -350,7 +420,6 @@ export default function AdminUsersPage() {
         window.setTimeout(() => {
             setSentBadgeAt((prev) => {
                 const next = { ...prev }
-                // only clear if still same/older badge
                 if ((next[rowId] ?? 0) <= ts) {
                     delete next[rowId]
                 }
@@ -362,7 +431,6 @@ export default function AdminUsersPage() {
     async function resendCredentialsNow(it: UserDoc) {
         const key = it.$id
 
-        // ✅ guard
         if (!it.isActive) {
             toast.error("Cannot resend credentials for an inactive user.")
             return false
@@ -374,23 +442,26 @@ export default function AdminUsersPage() {
             return false
         }
 
+        const safeUserId = String(it.userId || it.$id || "").trim()
+        if (!safeUserId) {
+            toast.error("Missing userId for this row. Please refresh or re-create user profile.")
+            return false
+        }
+
         setResending((p) => ({ ...p, [key]: true }))
 
         try {
             await adminApi.users.resendCredentials({
                 docId: it.$id,
-                userId: it.userId,
+                userId: safeUserId,
                 email: it.email,
                 name: it.name || null,
             })
 
-            // ✅ start cooldown
             setCooldowns((p) => ({ ...p, [key]: Date.now() + RESEND_COOLDOWN_MS }))
-
-            // ✅ show "Sent" badge
             showSentBadge(key)
 
-            toast.success("Credentials resent. A new temporary password was emailed to the user.")
+            toast.success("Credentials resent. A new temporary password was emailed.")
             return true
         } catch (e: any) {
             toast.error(e?.message || "Failed to resend credentials.")
@@ -466,6 +537,21 @@ export default function AdminUsersPage() {
                             </div>
                         </div>
 
+                        {/* ✅ Tiny Admin UI: First Login Summary */}
+                        {!loading ? (
+                            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+                                <Badge variant="secondary" className="gap-1">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    First Login Pending: {firstLoginStats.pending}
+                                </Badge>
+
+                                <Badge variant="secondary" className="gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                    Completed: {firstLoginStats.completed}
+                                </Badge>
+                            </div>
+                        ) : null}
+
                         <Separator />
 
                         {loading ? (
@@ -497,6 +583,7 @@ export default function AdminUsersPage() {
                                                 <th className="px-4 py-3 font-medium">Role</th>
                                                 <th className="px-4 py-3 font-medium">Department</th>
                                                 <th className="px-4 py-3 font-medium">Status</th>
+                                                <th className="px-4 py-3 font-medium">First Login</th>
                                                 <th className="px-4 py-3 font-medium text-right">Actions</th>
                                             </tr>
                                         </thead>
@@ -512,6 +599,13 @@ export default function AdminUsersPage() {
                                                 const showSent = Boolean(sentBadgeAt[it.$id])
                                                 const resendDisabled = isResending || !it.isActive || cooldownActive
 
+                                                const safeDisplayId = it.userId || it.$id || "—"
+                                                const safeUserId = String(it.userId || "").trim()
+
+                                                // ✅ TRUE source: first_login_users table in Appwrite
+                                                const st = safeUserId ? firstLoginMap[safeUserId] : undefined
+                                                const isFirstLoginPending = st ? (!st.completed || st.mustChangePassword) : false
+
                                                 return (
                                                     <tr
                                                         key={it.$id}
@@ -525,9 +619,11 @@ export default function AdminUsersPage() {
 
                                                                 <div className="min-w-0">
                                                                     <div className="truncate font-medium">{it.name || "—"}</div>
-                                                                    <div className="truncate text-xs text-muted-foreground">{it.email}</div>
-                                                                    <div className="truncate text-[11px] text-muted-foreground">
-                                                                        ID: {it.userId}
+                                                                    <div className="truncate text-xs text-muted-foreground">
+                                                                        {it.email}
+                                                                    </div>
+                                                                    <div className="truncate text-xs text-muted-foreground">
+                                                                        ID: {safeDisplayId}
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -543,7 +639,9 @@ export default function AdminUsersPage() {
                                                             {dept ? (
                                                                 <div className="min-w-0">
                                                                     <div className="truncate font-medium">{dept.name}</div>
-                                                                    <div className="truncate text-xs text-muted-foreground">{dept.code}</div>
+                                                                    <div className="truncate text-xs text-muted-foreground">
+                                                                        {dept.code}
+                                                                    </div>
                                                                 </div>
                                                             ) : (
                                                                 <span className="text-muted-foreground">—</span>
@@ -564,10 +662,24 @@ export default function AdminUsersPage() {
                                                             )}
                                                         </td>
 
+                                                        {/* ✅ First Login Status */}
+                                                        <td className="px-4 py-3">
+                                                            {isFirstLoginPending ? (
+                                                                <Badge variant="secondary" className="gap-1">
+                                                                    <Clock className="h-3.5 w-3.5" />
+                                                                    First Login Pending
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge variant="secondary" className="gap-1">
+                                                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                                                    Completed
+                                                                </Badge>
+                                                            )}
+                                                        </td>
+
                                                         <td className="px-4 py-3 text-right">
                                                             <div className="flex flex-col items-end gap-2">
                                                                 <div className="flex items-center justify-end gap-2">
-                                                                    {/* ✅ Resend Credentials */}
                                                                     <Button
                                                                         variant="outline"
                                                                         size="sm"
@@ -617,7 +729,6 @@ export default function AdminUsersPage() {
                                                                     </DropdownMenu>
                                                                 </div>
 
-                                                                {/* ✅ Inline "Sent" banner inside row */}
                                                                 {showSent ? (
                                                                     <Badge variant="secondary" className="gap-1">
                                                                         <CheckCircle2 className="h-3.5 w-3.5" />
@@ -625,7 +736,6 @@ export default function AdminUsersPage() {
                                                                     </Badge>
                                                                 ) : null}
 
-                                                                {/* ✅ helper note for inactive */}
                                                                 {!it.isActive ? (
                                                                     <span className="text-xs text-muted-foreground">
                                                                         Resend disabled for inactive users
@@ -649,23 +759,25 @@ export default function AdminUsersPage() {
             <Dialog open={openResend} onOpenChange={setOpenResend}>
                 <DialogContent className="max-w-full sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Resend credentials?</DialogTitle>
+                        <DialogTitle>Resend login credentials?</DialogTitle>
                     </DialogHeader>
 
                     <div className="space-y-3">
                         <p className="text-sm text-muted-foreground">
-                            This will generate a <span className="font-medium">NEW temporary password</span> and email it
+                            This will generate a <span className="font-medium">new temporary password</span> and email it
                             to the user again.
                         </p>
 
                         <div className="rounded-lg border border-border/70 p-3">
                             <div className="text-sm font-medium">{resendTarget?.name || "—"}</div>
                             <div className="text-xs text-muted-foreground">{resendTarget?.email || ""}</div>
-                            <div className="text-xs text-muted-foreground">ID: {resendTarget?.userId || ""}</div>
+                            <div className="text-xs text-muted-foreground">
+                                ID: {resendTarget?.userId || resendTarget?.$id || ""}
+                            </div>
                         </div>
 
                         <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
-                            ✅ The user will be forced to change password on next login.
+                            ✅ The user will be forced to change their password on next login.
                         </div>
 
                         <div className="flex justify-end gap-2">
@@ -685,7 +797,7 @@ export default function AdminUsersPage() {
                                 ) : (
                                     <>
                                         <Mail className="mr-2 h-4 w-4" />
-                                        Resend
+                                        Resend Email
                                     </>
                                 )}
                             </Button>
@@ -709,7 +821,7 @@ export default function AdminUsersPage() {
                             </div>
                         ) : (
                             <div className="rounded-lg border border-border/70 p-3 text-sm text-muted-foreground">
-                                ✅ User ID will be automatically generated and login setup email will be sent to the user.
+                                ✅ User account will be created and login credentials will be sent via email.
                             </div>
                         )}
 
@@ -760,7 +872,9 @@ export default function AdminUsersPage() {
                                                             setForm((p) => ({
                                                                 ...p,
                                                                 role: r.value,
-                                                                departmentId: canHaveDepartment(r.value) ? p.departmentId : "",
+                                                                departmentId: canHaveDepartment(r.value)
+                                                                    ? p.departmentId
+                                                                    : "",
                                                             }))
                                                             setRolePickerOpen(false)
                                                         }}
@@ -810,7 +924,9 @@ export default function AdminUsersPage() {
                                                         >
                                                             <div className="min-w-0">
                                                                 <div className="truncate font-medium">{d.name}</div>
-                                                                <div className="truncate text-xs text-muted-foreground">{d.code}</div>
+                                                                <div className="truncate text-xs text-muted-foreground">
+                                                                    {d.code}
+                                                                </div>
                                                             </div>
                                                         </CommandItem>
                                                     ))}
@@ -858,7 +974,8 @@ export default function AdminUsersPage() {
 
                     <div className="space-y-3">
                         <p className="text-sm text-muted-foreground">
-                            This will permanently remove the user profile record. You can also use
+                            This will permanently remove the user profile record
+                            <span className="font-medium"> and the Appwrite Auth user</span>. You can also use
                             <span className="font-medium"> Deactivate </span>
                             instead.
                         </p>
@@ -867,7 +984,9 @@ export default function AdminUsersPage() {
                             <div className="rounded-lg border border-border/70 p-3">
                                 <div className="text-sm font-medium">{target.name || "—"}</div>
                                 <div className="text-xs text-muted-foreground">{target.email}</div>
-                                <div className="text-xs text-muted-foreground">ID: {target.userId}</div>
+                                <div className="text-xs text-muted-foreground">
+                                    ID: {target.userId || target.$id || "—"}
+                                </div>
                             </div>
                         ) : null}
 

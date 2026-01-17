@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "001_initial_schema" as const;
+export const SCHEMA_MIGRATION_ID = "002_first_login_users" as const;
 
 /**
  * Appwrite Collection IDs (must match migration IDs exactly)
@@ -28,6 +28,9 @@ export const COLLECTIONS = {
 
     USER_PROFILES: "user_profiles",
     FACULTY_PROFILES: "faculty_profiles",
+
+    // ✅ NEW: first-time user gate table
+    FIRST_LOGIN_USERS: "first_login_users",
 
     SECTIONS: "sections",
     SCHEDULE_VERSIONS: "schedule_versions",
@@ -126,6 +129,16 @@ export const ATTR = {
         maxUnits: "maxUnits",
         maxHours: "maxHours",
         notes: "notes",
+    },
+
+    // ✅ NEW: first-time user gate attributes
+    FIRST_LOGIN_USERS: {
+        userId: "userId",
+        mustChangePassword: "mustChangePassword",
+        completed: "completed",
+        createdAt: "createdAt",
+        completedAt: "completedAt",
+        lastResetAt: "lastResetAt",
     },
 
     SECTIONS: {
@@ -267,6 +280,13 @@ export const INDEX = {
         userIdUnique: "idx_faculty_userId_unique",
         departmentId: "idx_faculty_departmentId",
     },
+
+    // ✅ NEW
+    FIRST_LOGIN_USERS: {
+        userIdUnique: "idx_firstlogin_userId_unique",
+        completed: "idx_firstlogin_completed",
+    },
+
     SECTIONS: {
         termDepartment: "idx_sections_term_department",
         termNameUnique: "idx_sections_term_name_unique",
@@ -327,7 +347,7 @@ export type AppwriteSystemFields = {
 export type Doc<T> = T & AppwriteSystemFields;
 
 /**
- * Common string unions for your schema (safe defaults; adjust anytime)
+ * Common string unions for your schema
  */
 export type RoomType = "LECTURE" | "LAB" | "OTHER" | (string & {});
 export type ScheduleStatus = "Draft" | "Active" | "Locked" | "Archived" | (string & {});
@@ -378,8 +398,8 @@ export type Room = {
 export type AcademicTerm = {
     schoolYear: string;
     semester: string;
-    startDate: string; // ISO datetime in Appwrite
-    endDate: string; // ISO datetime in Appwrite
+    startDate: string;
+    endDate: string;
     isActive: boolean;
     isLocked: boolean;
 };
@@ -387,8 +407,8 @@ export type AcademicTerm = {
 export type TimeBlock = {
     termId: string;
     dayOfWeek: string;
-    startTime: string; // HH:MM
-    endTime: string; // HH:MM
+    startTime: string;
+    endTime: string;
     label?: string | null;
     isActive: boolean;
 };
@@ -396,16 +416,16 @@ export type TimeBlock = {
 export type SystemPolicy = {
     termId?: string | null;
     key: string;
-    value: string; // JSON string
+    value: string;
     description?: string | null;
 };
 
 export type Setting = {
     key: string;
-    value: string; // JSON string
+    value: string;
     description?: string | null;
     updatedBy?: string | null;
-    updatedAt?: string | null; // ISO datetime
+    updatedAt?: string | null;
 };
 
 export type UserProfile = {
@@ -427,6 +447,16 @@ export type FacultyProfile = {
     notes?: string | null;
 };
 
+// ✅ NEW: first-time login record
+export type FirstLoginUser = {
+    userId: string;
+    mustChangePassword: boolean;
+    completed: boolean;
+    createdAt?: string | null;
+    completedAt?: string | null;
+    lastResetAt?: string | null;
+};
+
 export type Section = {
     termId: string;
     departmentId: string;
@@ -445,7 +475,7 @@ export type ScheduleVersion = {
     status: ScheduleStatus;
     createdBy: string;
     lockedBy?: string | null;
-    lockedAt?: string | null; // ISO datetime
+    lockedAt?: string | null;
     notes?: string | null;
 };
 
@@ -467,8 +497,8 @@ export type ClassMeeting = {
     versionId: string;
     classId: string;
     dayOfWeek: string;
-    startTime: string; // HH:MM
-    endTime: string; // HH:MM
+    startTime: string;
+    endTime: string;
     roomId?: string | null;
     meetingType: MeetingType;
     notes?: string | null;
@@ -478,8 +508,8 @@ export type FacultyAvailability = {
     termId: string;
     userId: string;
     dayOfWeek: string;
-    startTime: string; // HH:MM
-    endTime: string; // HH:MM
+    startTime: string;
+    endTime: string;
     preference: AvailabilityPreference;
     notes?: string | null;
 };
@@ -491,11 +521,11 @@ export type ChangeRequest = {
     classId?: string | null;
     meetingId?: string | null;
     type: string;
-    details: string; // JSON string
+    details: string;
     status: ChangeRequestStatus;
     reviewedBy?: string | null;
-    reviewedAt?: string | null; // ISO datetime
-    resolutionNotes?: string | null; // JSON string
+    reviewedAt?: string | null;
+    resolutionNotes?: string | null;
 };
 
 export type Notification = {
@@ -512,7 +542,7 @@ export type NotificationRecipient = {
     notificationId: string;
     userId: string;
     isRead: boolean;
-    readAt?: string | null; // ISO datetime
+    readAt?: string | null;
 };
 
 export type AuditLog = {
@@ -520,10 +550,10 @@ export type AuditLog = {
     action: string;
     entityType: string;
     entityId: string;
-    before?: string | null; // JSON string
-    after?: string | null; // JSON string
-    meta?: string | null; // JSON string
-    createdAt?: string | null; // ISO datetime (separate from $createdAt)
+    before?: string | null;
+    after?: string | null;
+    meta?: string | null;
+    createdAt?: string | null;
 };
 
 /**
@@ -539,6 +569,7 @@ export type SystemPolicyDoc = Doc<SystemPolicy>;
 export type SettingDoc = Doc<Setting>;
 export type UserProfileDoc = Doc<UserProfile>;
 export type FacultyProfileDoc = Doc<FacultyProfile>;
+export type FirstLoginUserDoc = Doc<FirstLoginUser>;
 export type SectionDoc = Doc<Section>;
 export type ScheduleVersionDoc = Doc<ScheduleVersion>;
 export type ClassOfferingDoc = Doc<ClassOffering>;
@@ -550,7 +581,7 @@ export type NotificationRecipientDoc = Doc<NotificationRecipient>;
 export type AuditLogDoc = Doc<AuditLog>;
 
 /**
- * Optional: map collection -> doc type (useful for generic helpers)
+ * Optional: map collection -> doc type
  */
 export type CollectionDocMap = {
     [COLLECTIONS.DEPARTMENTS]: DepartmentDoc;
@@ -564,6 +595,8 @@ export type CollectionDocMap = {
 
     [COLLECTIONS.USER_PROFILES]: UserProfileDoc;
     [COLLECTIONS.FACULTY_PROFILES]: FacultyProfileDoc;
+
+    [COLLECTIONS.FIRST_LOGIN_USERS]: FirstLoginUserDoc;
 
     [COLLECTIONS.SECTIONS]: SectionDoc;
     [COLLECTIONS.SCHEDULE_VERSIONS]: ScheduleVersionDoc;

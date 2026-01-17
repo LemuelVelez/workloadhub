@@ -8,6 +8,9 @@ import {
     updateUserProfile,
 } from "@/lib/admin-users"
 
+// ✅ NEW: First-login status helper from Appwrite table
+import { getFirstLoginStatusMap } from "@/lib/first-login"
+
 export const adminApi = {
     departments: {
         listLite: listDepartmentsLite,
@@ -19,10 +22,23 @@ export const adminApi = {
         create: createUserWithInvite,
 
         update: updateUserProfile,
+
+        // ✅ NOW updates BOTH:
+        // - USER_PROFILES.isActive
+        // - Appwrite Auth user status (login blocked)
         setActive: setUserActive,
+
+        // ✅ NOW deletes BOTH:
+        // - USER_PROFILES row
+        // - Appwrite Auth User
         remove: deleteUserProfile,
 
-        // ✅ NEW: resend credentials email + reset temp password
+        // ✅ resend credentials email + reset temp password
         resendCredentials: resendUserCredentials,
+    },
+
+    // ✅ NEW: fetch first-login status from Appwrite FIRST_LOGIN_USERS table
+    firstLoginUsers: {
+        statusMap: getFirstLoginStatusMap,
     },
 }

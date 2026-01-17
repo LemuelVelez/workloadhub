@@ -11,58 +11,297 @@ import LandingPage from "./pages/landing"
 import LoginPage from "./pages/auth/login"
 import ForgotPasswordPage from "./pages/auth/forgot-password"
 import ResetPasswordPage from "./pages/auth/reset-password"
+import ChangePasswordPage from "./pages/auth/change-password"
 
 import { useSession } from "@/hooks/use-session"
+import { authApi } from "@/api/auth"
+
+// ✅ NEW
+import { needsFirstLoginPasswordChange } from "@/lib/first-login"
+
+const AUTH_PENDING_KEY = "workloadhub:auth:pendingAt"
+
+function getAuthPendingAgeMs(): number | null {
+  try {
+    if (typeof window === "undefined") return null
+    const v = window.localStorage.getItem(AUTH_PENDING_KEY)
+    if (!v) return null
+    const t = Number(v)
+    if (!Number.isFinite(t)) return null
+    const age = Date.now() - t
+    return age >= 0 ? age : null
+  } catch {
+    return null
+  }
+}
 
 // ✅ Lazy-load dashboard pages
 const AdminOverviewPage = React.lazy(() => import("./pages/dashboard/admin/overview"))
 const AdminUsersPage = React.lazy(() => import("./pages/dashboard/admin/users"))
 
-// ✅ (Optional) If you already have these pages, uncomment them
-// const ChairOverviewPage = React.lazy(() => import("./pages/dashboard/chair/overview"))
-// const FacultyOverviewPage = React.lazy(() => import("./pages/dashboard/faculty/overview"))
+function readBool(v: any) {
+  return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
+}
+
+function safeParsePrefs(prefs: any) {
+  if (!prefs) return {}
+  if (typeof prefs === "string") {
+    try {
+      const parsed = JSON.parse(prefs)
+      return parsed && typeof parsed === "object" ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof prefs === "object") return prefs
+  return {}
+}
+
+function resolveUserId(user: any) {
+  return String(user?.$id || user?.id || user?.userId || "").trim()
+}
+
+function getMustChangePasswordFromPrefs(user: any) {
+  const rawPrefs =
+    user?.prefs ??
+    user?.preferences ??
+    user?.profile?.prefs ??
+    user?.profile?.preferences ??
+    user?.data?.prefs ??
+    user?.data?.preferences ??
+    {}
+
+  const prefs = safeParsePrefs(rawPrefs)
+  return readBool(prefs?.mustChangePassword ?? user?.mustChangePassword)
+}
+
+/**
+ * ✅ FIXED: Smart session snapshot
+ * - Has fallback to authApi.me()
+ * - Has hard timeout protection (no infinite loading)
+ */
+function useAuthSnapshot() {
+  const { loading: sessionLoading, isAuthenticated, user } = useSession()
+
+  const [fallbackUser, setFallbackUser] = React.useState<any | null>(null)
+  const [fallbackLoading, setFallbackLoading] = React.useState(false)
+  const triedRef = React.useRef(false)
+
+  const [sessionStuck, setSessionStuck] = React.useState(false)
+
+  // ✅ Prevent infinite spinner if useSession.loading is stuck forever
+  React.useEffect(() => {
+    if (!sessionLoading) {
+      setSessionStuck(false)
+      return
+    }
+    if (isAuthenticated || user) {
+      setSessionStuck(false)
+      return
+    }
+
+    const t = window.setTimeout(() => {
+      setSessionStuck(true)
+    }, 6500)
+
+    return () => window.clearTimeout(t)
+  }, [sessionLoading, isAuthenticated, user])
+
+  React.useEffect(() => {
+    // already authenticated => no fallback needed
+    if (isAuthenticated || user) return
+    if (triedRef.current) return
+
+    let alive = true
+
+    const runFallback = async () => {
+      if (!alive) return
+      triedRef.current = true
+      setFallbackLoading(true)
+
+      authApi
+        .me()
+        .then((me: any) => {
+          if (!alive) return
+          if (me) setFallbackUser(me)
+        })
+        .catch(() => null)
+        .finally(() => {
+          if (!alive) return
+          setFallbackLoading(false)
+        })
+    }
+
+    // ✅ If session is not loading anymore -> run immediately
+    if (!sessionLoading) {
+      void runFallback()
+      return
+    }
+
+    // ✅ If session is "loading" for too long -> fallback anyway
+    const timeout = window.setTimeout(() => {
+      void runFallback()
+    }, 1200)
+
+    return () => {
+      alive = false
+      window.clearTimeout(timeout)
+    }
+  }, [sessionLoading, isAuthenticated, user])
+
+  const authed = Boolean(isAuthenticated || user || fallbackUser)
+  const effectiveUser = user || fallbackUser
+
+  // ✅ hard stop loading if hook is stuck too long
+  const loading = !authed && !sessionStuck && (sessionLoading || fallbackLoading)
+
+  return {
+    loading,
+    authed,
+    user: effectiveUser,
+  }
+}
+
+type GateStatus = "unknown" | "needs_change" | "clear"
+
+function useNeedsPasswordChange(user: any) {
+  const userId = React.useMemo(() => resolveUserId(user), [user])
+  const prefsMustChange = React.useMemo(() => getMustChangePasswordFromPrefs(user), [user])
+
+  const [status, setStatus] = React.useState<GateStatus>("unknown")
+
+  React.useEffect(() => {
+    let alive = true
+
+    setStatus("unknown")
+
+    const run = async () => {
+      if (!userId) {
+        if (alive) setStatus("clear")
+        return
+      }
+
+      if (prefsMustChange) {
+        if (alive) setStatus("needs_change")
+        return
+      }
+
+      const needs = await needsFirstLoginPasswordChange(userId).catch(() => false)
+
+      if (alive) {
+        setStatus(needs ? "needs_change" : "clear")
+      }
+    }
+
+    void run()
+
+    return () => {
+      alive = false
+    }
+  }, [userId, prefsMustChange])
+
+  return {
+    loading: status === "unknown",
+    needsChange: status === "needs_change",
+  }
+}
 
 function RequireAuth() {
   const location = useLocation()
-  const { loading, isAuthenticated } = useSession()
+  const snap = useAuthSnapshot()
 
-  if (loading) {
+  const pendingAge = getAuthPendingAgeMs()
+  const isAuthPending = pendingAge !== null && pendingAge < 8000
+
+  React.useEffect(() => {
+    if (!snap.authed) return
+    try {
+      window.localStorage.removeItem(AUTH_PENDING_KEY)
+    } catch {
+      // ignore
+    }
+  }, [snap.authed])
+
+  // ✅ Only show loading if NOT authed
+  if (!snap.authed && (snap.loading || isAuthPending)) {
     return (
       <Loading
-        title="Checking session…"
-        message="Verifying your login session."
+        title={isAuthPending ? "Signing you in…" : "Checking session…"}
+        message={isAuthPending ? "Finalizing your session, please wait." : "Verifying your login session."}
         fullscreen
       />
     )
   }
 
-  if (!isAuthenticated) {
-    return (
-      <Navigate
-        to="/auth/login"
-        replace
-        state={{ from: `${location.pathname}${location.search}` }}
-      />
-    )
+  if (!snap.authed) {
+    return <Navigate to="/auth/login" replace state={{ from: `${location.pathname}${location.search}` }} />
   }
 
   return <Outlet />
 }
 
-/**
- * ✅ Redirect /dashboard to the correct overview depending on the user's role
- * This prevents "Dashboard" and "Overview" being treated as the same item.
- */
+function RequireGatePass() {
+  const location = useLocation()
+  const snap = useAuthSnapshot()
+  const gate = useNeedsPasswordChange(snap.user)
+
+  if (!snap.authed && snap.loading) {
+    return <Loading title="Checking access…" message="Verifying your login session." fullscreen />
+  }
+
+  if (snap.authed && gate.loading) {
+    return <Loading title="Checking access…" message="Validating password change requirement." fullscreen />
+  }
+
+  if (gate.needsChange) {
+    if (location.pathname !== "/auth/change-password") {
+      return (
+        <Navigate
+          to="/auth/change-password"
+          replace
+          state={{ gate: true, reason: "first_login" }}
+        />
+      )
+    }
+  }
+
+  return <Outlet />
+}
+
+function RequireNeedsPasswordChange() {
+  const snap = useAuthSnapshot()
+  const gate = useNeedsPasswordChange(snap.user)
+
+  if (!snap.authed && snap.loading) {
+    return <Loading title="Checking requirement…" message="Verifying your login session." fullscreen />
+  }
+
+  if (snap.authed && gate.loading) {
+    return <Loading title="Checking requirement…" message="Verifying password change rule." fullscreen />
+  }
+
+  if (!gate.needsChange) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  return <Outlet />
+}
+
 function DashboardIndexRedirect() {
-  const { user } = useSession()
+  const snap = useAuthSnapshot()
 
-  // ✅ adjust this field based on your backend user object
-  const role = (user as any)?.role || (user as any)?.type || (user as any)?.accountType || "admin"
+  const rawRole =
+    (snap.user as any)?.role ||
+    (snap.user as any)?.type ||
+    (snap.user as any)?.accountType ||
+    (snap.user as any)?.prefs?.role ||
+    "ADMIN"
 
-  if (role === "chair") return <Navigate to="/dashboard/chair/overview" replace />
-  if (role === "faculty") return <Navigate to="/dashboard/faculty/overview" replace />
+  const role = String(rawRole).toLowerCase()
 
-  // default: admin
+  if (role.includes("chair")) return <Navigate to="/dashboard/chair/overview" replace />
+  if (role.includes("faculty")) return <Navigate to="/dashboard/faculty/overview" replace />
+
   return <Navigate to="/dashboard/admin/overview" replace />
 }
 
@@ -76,61 +315,43 @@ export default function App() {
           {/* Landing */}
           <Route path="/" element={<LandingPage />} />
 
-          {/* ✅ Protected Dashboard */}
-          <Route element={<RequireAuth />}>
-            <Route path="/dashboard" element={<Outlet />}>
-              {/* ✅ Default dashboard route (role-based) */}
-              <Route index element={<DashboardIndexRedirect />} />
-
-              {/* ✅ Optional nice alias: /dashboard/overview */}
-              <Route path="overview" element={<DashboardIndexRedirect />} />
-
-              {/* ✅ Aliases (fix blank white space routes) */}
-              <Route path="users" element={<Navigate to="admin/users" replace />} />
-
-              {/* ✅ Admin pages */}
-              <Route path="admin" element={<Outlet />}>
-                <Route index element={<Navigate to="overview" replace />} />
-                <Route path="overview" element={<AdminOverviewPage />} />
-                <Route path="users" element={<AdminUsersPage />} />
-              </Route>
-
-              {/* ✅ Chair pages (ONLY if you already created them) */}
-              {/* 
-              <Route path="chair" element={<Outlet />}>
-                <Route index element={<Navigate to="overview" replace />} />
-                <Route path="overview" element={<ChairOverviewPage />} />
-              </Route>
-              */}
-
-              {/* ✅ Faculty pages (ONLY if you already created them) */}
-              {/* 
-              <Route path="faculty" element={<Outlet />}>
-                <Route index element={<Navigate to="overview" replace />} />
-                <Route path="overview" element={<FacultyOverviewPage />} />
-              </Route>
-              */}
-
-              {/* Dashboard catch-all */}
-              <Route path="*" element={<NotFoundPage />} />
-            </Route>
-          </Route>
-
           {/* Auth */}
           <Route path="/auth/login" element={<LoginPage />} />
           <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
 
+          {/* ✅ Change password (protected + only when needed) */}
+          <Route element={<RequireAuth />}>
+            <Route element={<RequireNeedsPasswordChange />}>
+              <Route path="/auth/change-password" element={<ChangePasswordPage />} />
+            </Route>
+          </Route>
+
+          {/* ✅ Dashboard (protected + gated) */}
+          <Route element={<RequireAuth />}>
+            <Route element={<RequireGatePass />}>
+              <Route path="/dashboard" element={<Outlet />}>
+                <Route index element={<DashboardIndexRedirect />} />
+                <Route path="overview" element={<DashboardIndexRedirect />} />
+
+                <Route path="users" element={<Navigate to="admin/users" replace />} />
+
+                <Route path="admin" element={<Outlet />}>
+                  <Route index element={<Navigate to="overview" replace />} />
+                  <Route path="overview" element={<AdminOverviewPage />} />
+                  <Route path="users" element={<AdminUsersPage />} />
+                </Route>
+
+                <Route path="*" element={<NotFoundPage />} />
+              </Route>
+            </Route>
+          </Route>
+
           {/* Friendly aliases */}
           <Route path="/login" element={<Navigate to="/auth/login" replace />} />
-          <Route
-            path="/forgot-password"
-            element={<Navigate to="/auth/forgot-password" replace />}
-          />
-          <Route
-            path="/reset-password"
-            element={<Navigate to="/auth/reset-password" replace />}
-          />
+          <Route path="/forgot-password" element={<Navigate to="/auth/forgot-password" replace />} />
+          <Route path="/reset-password" element={<Navigate to="/auth/reset-password" replace />} />
+          <Route path="/change-password" element={<Navigate to="/auth/change-password" replace />} />
 
           {/* Catch-all */}
           <Route path="*" element={<NotFoundPage />} />

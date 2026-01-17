@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Account, ID } from "appwrite"
+import { Account, ID, Query, TablesDB } from "appwrite"
 import { appwriteClient } from "./db"
 import { publicEnv } from "./env"
+import { COLLECTIONS, ATTR } from "@/model/schemaModel"
 
 /**
  * Browser-safe Appwrite Account client.
@@ -17,6 +18,110 @@ function formatAppwriteError(err: any): string {
     )
 }
 
+/**
+ * ✅ One-time flag after password reset
+ * We can't auto-verify server-side without API key / Functions,
+ * so we mark a local flag and consume it after the user logs in once.
+ */
+const PW_RESET_FLAG_PREFIX = "workloadhub:pw_reset_done:"
+
+function setPasswordResetDoneFlag(userId: string) {
+    try {
+        if (typeof window === "undefined") return
+        const key = `${PW_RESET_FLAG_PREFIX}${userId}`
+        localStorage.setItem(key, new Date().toISOString())
+    } catch {
+        // ignore
+    }
+}
+
+function consumePasswordResetDoneFlag(userId: string): boolean {
+    try {
+        if (typeof window === "undefined") return false
+        const key = `${PW_RESET_FLAG_PREFIX}${userId}`
+        const value = localStorage.getItem(key)
+        if (!value) return false
+        localStorage.removeItem(key)
+        return true
+    } catch {
+        return false
+    }
+}
+
+function getDatabaseId(): string {
+    const anyEnv = publicEnv as any
+
+    const dbId =
+        anyEnv?.APPWRITE_DATABASE ||
+        anyEnv?.APPWRITE_DATABASE_ID ||
+        anyEnv?.DATABASE_ID ||
+        anyEnv?.DB_ID ||
+        (import.meta as any)?.env?.VITE_PUBLIC_APPWRITE_DATABASE_ID ||
+        (import.meta as any)?.env?.VITE_PUBLIC_APPWRITE_DATABASE ||
+        null
+
+    if (!dbId) throw new Error("Missing Appwrite Database ID in env.")
+    return String(dbId)
+}
+
+/**
+ * ✅ Runs AFTER login.
+ * If the user just reset password (via recovery link),
+ * we automatically mark them verified and mustChangePassword=false.
+ */
+async function applyAutoVerifyAfterFirstPasswordReset() {
+    try {
+        const me = await account.get().catch(() => null)
+        if (!me) return
+
+        const userId = String((me as any)?.$id || (me as any)?.id || "").trim()
+        if (!userId) return
+
+        const shouldVerifyNow = consumePasswordResetDoneFlag(userId)
+        if (!shouldVerifyNow) return
+
+        // ✅ Mark VERIFIED in prefs (this is your internal verification system)
+        const updatePrefsFn = (account as any)["updatePrefs"]?.bind(account)
+        if (updatePrefsFn) {
+            await updatePrefsFn({
+                mustChangePassword: false,
+                isVerified: true,
+                verifiedAt: new Date().toISOString(),
+                verifiedBy: "password_reset",
+            })
+        }
+
+        // ✅ Best-effort mirror to USER_PROFILES (optional)
+        try {
+            const dbId = getDatabaseId()
+            const tablesDB = new TablesDB(appwriteClient)
+
+            const res = await tablesDB.listRows({
+                databaseId: dbId,
+                tableId: COLLECTIONS.USER_PROFILES,
+                queries: [Query.equal(ATTR.USER_PROFILES.userId, userId), Query.limit(1)],
+            })
+
+            const row = ((res as any)?.rows ?? [])[0]
+            if (row?.$id) {
+                await tablesDB.updateRow({
+                    databaseId: dbId,
+                    tableId: COLLECTIONS.USER_PROFILES,
+                    rowId: row.$id,
+                    data: {
+                        mustChangePassword: false,
+                        isVerified: true,
+                    },
+                })
+            }
+        } catch {
+            // ignore if schema doesn't have fields or permissions don't allow
+        }
+    } catch {
+        // ignore
+    }
+}
+
 export async function loginWithEmailPassword(email: string, password: string) {
     if (!email?.trim()) throw new Error("Email is required.")
     if (!password?.trim()) throw new Error("Password is required.")
@@ -30,7 +135,12 @@ export async function loginWithEmailPassword(email: string, password: string) {
     }
 
     try {
-        return await createFn(email.trim(), password)
+        const session = await createFn(email.trim(), password)
+
+        // ✅ After login, auto-verify ONLY if a password reset was just done
+        await applyAutoVerifyAfterFirstPasswordReset()
+
+        return session
     } catch (err: any) {
         throw new Error(formatAppwriteError(err))
     }
@@ -50,6 +160,34 @@ export async function logoutCurrentSession() {
         const msg = formatAppwriteError(err)
         if (msg.toLowerCase().includes("session")) return null
         throw new Error(msg)
+    }
+}
+
+/**
+ * ✅ NEW: Clear ALL sessions for this account (logout everywhere)
+ * - Used after first-login password change to force re-login
+ */
+export async function logoutAllSessions() {
+    try {
+        const fn =
+            (account as any)["deleteSessions"]?.bind(account) ??
+            (account as any)["deleteAllSessions"]?.bind(account)
+
+        if (fn) {
+            try {
+                return await fn()
+            } catch {
+                // some SDK variants might accept object param
+                return await fn({})
+            }
+        }
+
+        // fallback: at least clear current session
+        return await logoutCurrentSession().catch(() => null)
+    } catch (err: any) {
+        const msg = formatAppwriteError(err)
+        if (msg.toLowerCase().includes("session")) return null
+        return null
     }
 }
 
@@ -144,6 +282,10 @@ export async function requestPasswordRecovery(email: string, redirectUrl?: strin
  * ✅ Completes the password recovery flow (NO deprecated updateRecovery signature)
  * ✅ Uses NEW object-parameter overload:
  * account.updateRecovery({ userId, secret, password })
+ *
+ * ✅ NEW BEHAVIOR:
+ * After success, we set a one-time local flag.
+ * On next login, the system will auto-verify that user.
  */
 export async function confirmPasswordRecovery(opts: {
     userId: string
@@ -163,12 +305,16 @@ export async function confirmPasswordRecovery(opts: {
         const fn = (account as any)["updateRecovery"]?.bind(account)
         if (!fn) throw new Error("Account.updateRecovery() is not available in this SDK version.")
 
-        // ✅ NEW overload (non-deprecated)
-        return await fn({
+        const result = await fn({
             userId: userId.trim(),
             secret: secret.trim(),
             password: password.trim(),
         })
+
+        // ✅ mark this user for auto-verify on next login
+        setPasswordResetDoneFlag(userId.trim())
+
+        return result
     } catch (err: any) {
         throw new Error(formatAppwriteError(err))
     }
