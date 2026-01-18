@@ -188,6 +188,12 @@ export default function AccountsPage() {
                     setProfileDocId(row.$id)
                     setProfileRole(String(row.role || ""))
                     setProfileDepartmentId(String(row.departmentId || ""))
+
+                    // ✅ NEW: prefer DB avatarUrl if exists
+                    const dbAvatar = String(row?.avatarUrl || "").trim()
+                    if (dbAvatar) {
+                        setAvatarUrl(dbAvatar)
+                    }
                 } else {
                     setProfileDocId(null)
                     setProfileRole("")
@@ -255,6 +261,18 @@ export default function AccountsPage() {
         await safeRefreshSession()
     }
 
+    const updateDbAvatarUrl = async (nextUrl: string) => {
+        if (!profileDocId) return
+        await databases.updateDocument(
+            DATABASE_ID,
+            SCHEMA_COLLECTIONS.USER_PROFILES,
+            profileDocId,
+            {
+                [ATTR.USER_PROFILES.avatarUrl]: nextUrl,
+            } as any
+        )
+    }
+
     const uploadAvatarToBucket = async (file: File) => {
         if (!file.type.startsWith("image/")) {
             toast.error("Please select an image file.")
@@ -275,10 +293,14 @@ export default function AccountsPage() {
             const preview = storage.getFilePreview(BUCKET_ID, created.$id)
             const previewUrl = String(preview)
 
+            // ✅ store in prefs
             await updatePrefsPartial({
                 avatarUrl: previewUrl,
                 avatarFileId: created.$id,
             })
+
+            // ✅ NEW: store in DB column user_profiles.avatarUrl
+            await updateDbAvatarUrl(previewUrl)
 
             setAvatarUrl(previewUrl)
             toast.success("Avatar updated successfully!")
@@ -302,10 +324,14 @@ export default function AccountsPage() {
         try {
             setAvatarUploading(true)
 
+            // ✅ clear prefs
             await updatePrefsPartial({
                 avatarUrl: "",
                 avatarFileId: "",
             })
+
+            // ✅ NEW: clear DB avatar url
+            await updateDbAvatarUrl("")
 
             setAvatarUrl("")
             toast.success("Avatar removed.")
@@ -341,7 +367,6 @@ export default function AccountsPage() {
     }
 
     const applySave = async (nextName: string, nextEmail: string, passwordForEmail?: string) => {
-        // ✅ If email changed, update AUTH email first (needs password)
         const authEmail = String(authEmailRef.current || "").trim()
         const emailChanged = authEmail && nextEmail.toLowerCase() !== authEmail.toLowerCase()
 
@@ -352,14 +377,12 @@ export default function AccountsPage() {
             await updateAuthEmail(nextEmail, passwordForEmail.trim())
         }
 
-        // ✅ Update auth display name
         try {
             await (account as any).updateName(nextName)
         } catch {
-            // ignore if SDK version doesn't support it
+            // ignore
         }
 
-        // ✅ Update USER_PROFILES (database)
         if (profileDocId) {
             await databases.updateDocument(
                 DATABASE_ID,
@@ -372,16 +395,12 @@ export default function AccountsPage() {
             )
         }
 
-        // ✅ Update prefs (optional)
         await updatePrefsPartial({
             name: nextName,
             email: nextEmail,
         })
 
-        // ✅ refresh user session to reflect new auth email immediately
         await safeRefreshSession()
-
-        // ✅ update reference so next save works correctly
         authEmailRef.current = nextEmail
     }
 
@@ -409,11 +428,9 @@ export default function AccountsPage() {
             return
         }
 
-        // ✅ detect if auth email is being changed
         const authEmail = String(authEmailRef.current || "").trim()
         const emailChanged = authEmail && nextEmail.toLowerCase() !== authEmail.toLowerCase()
 
-        // ✅ If email changed -> ask password first
         if (emailChanged) {
             setPendingUpdate({ name: nextName, email: nextEmail })
             setConfirmPassword("")
@@ -422,7 +439,6 @@ export default function AccountsPage() {
             return
         }
 
-        // ✅ Name-only change (no password needed)
         try {
             setSaving(true)
             await applySave(nextName, nextEmail)

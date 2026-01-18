@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
@@ -26,6 +27,9 @@ import { cn } from "@/lib/utils"
 
 // ✅ fetch avatar from bucket if available
 import { storage, BUCKET_ID } from "@/lib/bucket"
+
+// ✅ NEW: fetch avatarUrl from USER_PROFILES
+import { databases, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -68,9 +72,14 @@ type UserDoc = {
     $createdAt: string
     $updatedAt: string
 
-    // ✅ Optional avatar-related fields
+    // ✅ avatar URL stored in DB user_profiles.avatarUrl
+    avatarUrl?: string | null
+
+    // ✅ NEW: stamp from user_profiles.$updatedAt for cache-busting
+    avatarStamp?: string
+
+    // ✅ Optional legacy avatar-related fields (fallback)
     prefs?: any
-    avatarUrl?: string
     avatarFileId?: string
     avatar?: string
 }
@@ -153,9 +162,8 @@ function appendCacheBuster(url: string, stamp?: string) {
 
 function makeInitialsSvgDataUri(seed: string) {
     const text = initials(seed || "User")
-    // simple theme-safe colors
-    const bg = "#e2e8f0" // slate-200
-    const fg = "#334155" // slate-700
+    const bg = "#e2e8f0"
+    const fg = "#334155"
 
     const svg = `
 <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
@@ -183,22 +191,70 @@ function uniq(arr: string[]) {
     return out
 }
 
+/**
+ * ✅ NEW: Fetch avatarUrl from USER_PROFILES by userId
+ * This ensures even if adminApi.users.list() doesn't return avatarUrl,
+ * we still display all user images correctly.
+ */
+async function fetchAvatarUrlMap(userIds: string[]) {
+    const map: Record<string, { avatarUrl?: string | null; stamp?: string }> = {}
+
+    const ids = Array.from(new Set((userIds || []).map((x) => String(x || "").trim()).filter(Boolean)))
+    if (!ids.length) return map
+
+    const CHUNK = 50
+    for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK)
+
+        try {
+            const res: any = await databases.listDocuments(DATABASE_ID, COLLECTIONS.USER_PROFILES, [
+                Query.equal("userId", chunk),
+                Query.limit(200),
+            ])
+
+            const docs = (res?.documents || []) as any[]
+            for (const d of docs) {
+                const uid = String(d?.userId || "").trim()
+                if (!uid) continue
+
+                map[uid] = {
+                    avatarUrl: d?.avatarUrl ?? null,
+                    stamp: d?.$updatedAt || d?.$id || "",
+                }
+            }
+        } catch {
+            // ignore (no permission / collection not readable)
+        }
+    }
+
+    return map
+}
+
 function getAvatarCandidates(it: UserDoc) {
     const prefs = safeParsePrefs(it?.prefs)
 
-    const avatarUrl = String(it?.avatarUrl || prefs?.avatarUrl || "").trim()
+    // ✅ PRIORITY #1: DB column user_profiles.avatarUrl
+    const dbAvatarUrl = String(it?.avatarUrl || "").trim()
+
+    // ✅ fallback: prefs.avatarUrl (legacy)
+    const prefAvatarUrl = String(prefs?.avatarUrl || "").trim()
+
+    // ✅ fallback: fileId
     const avatarFileId = String(it?.avatarFileId || prefs?.avatarFileId || "").trim()
+
+    // ✅ fallback: any direct avatar field
     const direct = String((it as any)?.avatar || "").trim()
 
-    const stamp = it?.$updatedAt || it?.$id || ""
+    // ✅ Prefer avatarStamp from user_profiles updates
+    const stamp = it?.avatarStamp || it?.$updatedAt || it?.$id || ""
 
     const list: string[] = []
 
-    if (avatarUrl) list.push(appendCacheBuster(avatarUrl, stamp))
+    if (dbAvatarUrl) list.push(appendCacheBuster(dbAvatarUrl, stamp))
+    if (prefAvatarUrl) list.push(appendCacheBuster(prefAvatarUrl, stamp))
 
     if (avatarFileId) {
         try {
-            // ✅ provide width/height to improve reliability
             const preview = storage.getFilePreview(BUCKET_ID, avatarFileId, 96, 96)
             list.push(appendCacheBuster(String(preview), stamp))
         } catch {
@@ -208,7 +264,6 @@ function getAvatarCandidates(it: UserDoc) {
 
     if (direct) list.push(appendCacheBuster(direct, stamp))
 
-    // ✅ Guaranteed fallback that ALWAYS loads (no network)
     const seed = it?.name || it?.email || "User"
     list.push(makeInitialsSvgDataUri(seed))
 
@@ -218,22 +273,29 @@ function getAvatarCandidates(it: UserDoc) {
 function UserAvatarCell({ user }: { user: UserDoc }) {
     const seed = user?.name || user?.email || "User"
 
+    // ✅ FIX: extract complex expression for eslint static check
+    const directAvatar = (user as any)?.avatar
+
     const candidates = React.useMemo(() => getAvatarCandidates(user), [
+        user,
         user?.$id,
         user?.$updatedAt,
         user?.name,
         user?.email,
         user?.avatarUrl,
+        user?.avatarStamp,
         user?.avatarFileId,
-        (user as any)?.avatar,
+        directAvatar,
         user?.prefs,
     ])
 
     const [idx, setIdx] = React.useState(0)
 
+    const candidatesKey = React.useMemo(() => candidates.join("|"), [candidates])
+
     React.useEffect(() => {
         setIdx(0)
-    }, [candidates.join("|")])
+    }, [candidatesKey])
 
     const src = candidates[idx] || makeInitialsSvgDataUri(seed)
 
@@ -355,16 +417,32 @@ export default function AdminUsersPage() {
                 adminApi.users.list({ includeInactive: true, limit: 200 }),
             ])
 
+            const rawUsers = (users || []) as any[]
             setDepartments(deps || [])
-            setRows(users || [])
 
+            // ✅ Collect userIds
             const userIds = Array.from(
-                new Set(
-                    (users || [])
-                        .map((u: any) => String(u?.userId || "").trim())
-                        .filter(Boolean)
-                )
+                new Set(rawUsers.map((u: any) => String(u?.userId || "").trim()).filter(Boolean))
             )
+
+            // ✅ NEW: Fetch avatarUrl from USER_PROFILES table
+            const avatarMap = await fetchAvatarUrlMap(userIds)
+
+            // ✅ Merge avatarUrl into rows (so UserAvatarCell can display images)
+            const merged: UserDoc[] = rawUsers.map((u: any) => {
+                const uid = String(u?.userId || "").trim()
+                const hit = uid ? avatarMap[uid] : undefined
+
+                const hasOwnAvatar = String(u?.avatarUrl || "").trim().length > 0
+
+                return {
+                    ...(u as any),
+                    avatarUrl: hasOwnAvatar ? u.avatarUrl : hit?.avatarUrl ?? u.avatarUrl ?? null,
+                    avatarStamp: hit?.stamp || u?.$updatedAt || u?.$id || "",
+                }
+            })
+
+            setRows(merged as any)
 
             const statusMap =
                 (await adminApi.firstLoginUsers?.statusMap?.(userIds).catch(() => ({}))) || {}
@@ -868,13 +946,8 @@ export default function AdminUsersPage() {
                                                                             </Button>
                                                                         </DropdownMenuTrigger>
 
-                                                                        <DropdownMenuContent
-                                                                            align="end"
-                                                                            className="min-w-44"
-                                                                        >
-                                                                            <DropdownMenuItem
-                                                                                onClick={() => openEdit(it)}
-                                                                            >
+                                                                        <DropdownMenuContent align="end" className="min-w-44">
+                                                                            <DropdownMenuItem onClick={() => openEdit(it)}>
                                                                                 Edit
                                                                             </DropdownMenuItem>
 
@@ -926,7 +999,6 @@ export default function AdminUsersPage() {
             </div>
 
             {/* dialogs below are unchanged (resend, form, delete) */}
-
             <Dialog open={openResend} onOpenChange={setOpenResend}>
                 <DialogContent className="max-w-full sm:max-w-md">
                     <DialogHeader>

@@ -120,6 +120,9 @@ export const ATTR = {
         role: "role",
         departmentId: "departmentId",
         isActive: "isActive",
+
+        // ✅ NEW: avatar url stored in DB
+        avatarUrl: "avatarUrl",
     },
     FACULTY_PROFILES: {
         userId: "userId",
@@ -435,6 +438,9 @@ export type UserProfile = {
     role: UserRole;
     departmentId?: string | null;
     isActive: boolean;
+
+    // ✅ NEW
+    avatarUrl?: string | null;
 };
 
 export type FacultyProfile = {
