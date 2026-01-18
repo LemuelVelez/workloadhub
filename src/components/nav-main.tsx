@@ -13,6 +13,7 @@ import {
     DoorOpen,
     Scale,
     FileClock,
+    UserCircle2,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -35,6 +36,37 @@ type NavItem = {
     href: string
     icon: React.ElementType
     roles?: RoleKey[] // if omitted => shown to everyone
+}
+
+const LAST_DASHBOARD_AREA_KEY = "workloadhub:lastDashboardArea"
+
+type DashboardArea = "admin" | "chair" | "faculty" | null
+
+function getAreaFromPath(pathname: string): DashboardArea {
+    if (!pathname) return null
+    if (pathname.startsWith("/dashboard/admin")) return "admin"
+    if (pathname.startsWith("/dashboard/chair")) return "chair"
+    if (pathname.startsWith("/dashboard/faculty")) return "faculty"
+    return null
+}
+
+function safeGetLastArea(): DashboardArea {
+    try {
+        const v = window.sessionStorage.getItem(LAST_DASHBOARD_AREA_KEY)
+        if (v === "admin" || v === "chair" || v === "faculty") return v
+        return null
+    } catch {
+        return null
+    }
+}
+
+function safeSetLastArea(area: DashboardArea) {
+    try {
+        if (!area) return
+        window.sessionStorage.setItem(LAST_DASHBOARD_AREA_KEY, area)
+    } catch {
+        // ignore
+    }
 }
 
 function getRole(user: any): RoleKey {
@@ -113,12 +145,26 @@ export default function NavMain({ className }: { className?: string }) {
     const { user } = useSession()
 
     const role = getRole(user)
-    const inAdminArea = pathname.startsWith("/dashboard/admin")
 
-    /**
-     * ✅ MAIN NAVIGATION REMOVED
-     * ✅ Overview is now under Admin
-     */
+    // ✅ Sticky area: remember if user was in Admin/Chair/Faculty pages before going to /accounts or /settings
+    const areaFromPath = React.useMemo(() => getAreaFromPath(pathname), [pathname])
+    const [stickyArea, setStickyArea] = React.useState<DashboardArea>(null)
+
+    React.useEffect(() => {
+        if (typeof window === "undefined") return
+
+        if (areaFromPath) {
+            safeSetLastArea(areaFromPath)
+            setStickyArea(areaFromPath)
+            return
+        }
+
+        const last = safeGetLastArea()
+        setStickyArea(last)
+    }, [areaFromPath])
+
+    const effectiveArea = areaFromPath || stickyArea
+
     const adminMenu: NavItem[] = [
         {
             title: "Overview",
@@ -178,6 +224,11 @@ export default function NavMain({ className }: { className?: string }) {
 
     const settings: NavItem[] = [
         {
+            title: "Account",
+            href: "/dashboard/accounts",
+            icon: UserCircle2,
+        },
+        {
             title: "Settings",
             href: "/dashboard/settings",
             icon: Settings,
@@ -186,7 +237,10 @@ export default function NavMain({ className }: { className?: string }) {
 
     const visible = (it: NavItem) => {
         if (!it.roles || it.roles.length === 0) return true
-        if (inAdminArea && it.roles.includes("admin")) return true
+
+        // ✅ If user is in (or previously came from) admin area, keep admin menu visible even on /accounts and /settings
+        if (it.roles.includes("admin") && effectiveArea === "admin") return true
+
         return it.roles.includes(role)
     }
 

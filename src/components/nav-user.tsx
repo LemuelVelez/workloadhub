@@ -11,6 +11,9 @@ import { clearSessionCache, useSession } from "@/hooks/use-session"
 
 import { cn } from "@/lib/utils"
 
+// ✅ NEW: fetch avatar from bucket via prefs
+import { storage, BUCKET_ID } from "@/lib/bucket"
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
     DropdownMenu,
@@ -55,6 +58,51 @@ function initialsFromName(name: string) {
     return (first + second).toUpperCase()
 }
 
+function safeParsePrefs(prefs: any) {
+    if (!prefs) return {}
+    if (typeof prefs === "string") {
+        try {
+            const parsed = JSON.parse(prefs)
+            return parsed && typeof parsed === "object" ? parsed : {}
+        } catch {
+            return {}
+        }
+    }
+    if (typeof prefs === "object") return prefs
+    return {}
+}
+
+function getAvatarFromUser(user: any, displayName: string) {
+    const prefs = safeParsePrefs(user?.prefs)
+
+    const direct =
+        String((user as any)?.avatar || (user as any)?.photoURL || (user as any)?.photoUrl || "").trim()
+
+    const avatarUrl =
+        String((user as any)?.avatarUrl || prefs?.avatarUrl || "").trim()
+
+    const avatarFileId =
+        String((user as any)?.avatarFileId || prefs?.avatarFileId || "").trim()
+
+    // ✅ 1) best: stored URL from prefs
+    if (avatarUrl) return avatarUrl
+
+    // ✅ 2) fallback: build URL from fileId
+    if (avatarFileId) {
+        try {
+            return String(storage.getFilePreview(BUCKET_ID, avatarFileId))
+        } catch {
+            // ignore
+        }
+    }
+
+    // ✅ 3) fallback: any direct avatar field
+    if (direct) return direct
+
+    // ✅ 4) fallback: initials image
+    return `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`
+}
+
 export function NavUser({
     className,
     showDetailsOnMobile,
@@ -67,9 +115,8 @@ export function NavUser({
     const displayName = user?.name || user?.email || "User"
     const email = user?.email || "—"
 
-    const avatar =
-        (user as any)?.avatar ||
-        `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`
+    // ✅ avatar fetched from prefs + bucket
+    const avatar = React.useMemo(() => getAvatarFromUser(user, displayName), [user, displayName])
 
     const inHeader = placement === "header"
 
@@ -95,7 +142,6 @@ export function NavUser({
      * Header should open downward
      */
     const contentSide = inHeader ? "bottom" : isMobile ? "bottom" : "right"
-
     const contentAlign = inHeader ? "end" : collapsed ? "center" : "end"
 
     // ✅ AlertDialog open state
@@ -183,7 +229,7 @@ export function NavUser({
                             )}
                         >
                             <Avatar className="h-9 w-9 rounded-xl shrink-0">
-                                <AvatarImage src={avatar} alt={displayName} />
+                                <AvatarImage src={avatar} alt={displayName} className="object-cover" />
                                 <AvatarFallback className="rounded-xl">
                                     {initialsFromName(displayName)}
                                 </AvatarFallback>
@@ -210,7 +256,7 @@ export function NavUser({
                         <DropdownMenuLabel className="p-0 font-normal">
                             <div className="flex items-center gap-2 px-2 py-2 text-left text-sm">
                                 <Avatar className="h-8 w-8 rounded-lg shrink-0">
-                                    <AvatarImage src={avatar} alt={displayName} />
+                                    <AvatarImage src={avatar} alt={displayName} className="object-cover" />
                                     <AvatarFallback className="rounded-lg">
                                         {initialsFromName(displayName)}
                                     </AvatarFallback>
@@ -263,14 +309,13 @@ export function NavUser({
                                     aria-label="Open user menu"
                                     className={cn(
                                         "flex h-12 w-12 items-center justify-center rounded-xl",
-                                        // ✅ REMOVED BORDER here ✅
                                         "bg-transparent",
                                         "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                                         "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                                     )}
                                 >
                                     <Avatar className="h-9 w-9 rounded-xl shrink-0">
-                                        <AvatarImage src={avatar} alt={displayName} />
+                                        <AvatarImage src={avatar} alt={displayName} className="object-cover" />
                                         <AvatarFallback className="rounded-xl">
                                             {initialsFromName(displayName)}
                                         </AvatarFallback>
@@ -282,7 +327,7 @@ export function NavUser({
                                     className="w-full data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                                 >
                                     <Avatar className="h-8 w-8 rounded-lg shrink-0">
-                                        <AvatarImage src={avatar} alt={displayName} />
+                                        <AvatarImage src={avatar} alt={displayName} className="object-cover" />
                                         <AvatarFallback className="rounded-lg">
                                             {initialsFromName(displayName)}
                                         </AvatarFallback>
@@ -317,7 +362,7 @@ export function NavUser({
                             <DropdownMenuLabel className="p-0 font-normal">
                                 <div className="flex items-center gap-2 px-2 py-2 text-left text-sm">
                                     <Avatar className="h-8 w-8 rounded-lg shrink-0">
-                                        <AvatarImage src={avatar} alt={displayName} />
+                                        <AvatarImage src={avatar} alt={displayName} className="object-cover" />
                                         <AvatarFallback className="rounded-lg">
                                             {initialsFromName(displayName)}
                                         </AvatarFallback>

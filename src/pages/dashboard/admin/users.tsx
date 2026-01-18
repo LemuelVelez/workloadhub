@@ -24,7 +24,11 @@ import { clearSessionCache, useSession } from "@/hooks/use-session"
 
 import { cn } from "@/lib/utils"
 
+// ✅ fetch avatar from bucket if available
+import { storage, BUCKET_ID } from "@/lib/bucket"
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -63,6 +67,12 @@ type UserDoc = {
     isActive: boolean
     $createdAt: string
     $updatedAt: string
+
+    // ✅ Optional avatar-related fields
+    prefs?: any
+    avatarUrl?: string
+    avatarFileId?: string
+    avatar?: string
 }
 
 type UserFormState = {
@@ -119,6 +129,134 @@ function emptyForm(): UserFormState {
     }
 }
 
+function safeParsePrefs(prefs: any) {
+    if (!prefs) return {}
+    if (typeof prefs === "string") {
+        try {
+            const parsed = JSON.parse(prefs)
+            return parsed && typeof parsed === "object" ? parsed : {}
+        } catch {
+            return {}
+        }
+    }
+    if (typeof prefs === "object") return prefs
+    return {}
+}
+
+function appendCacheBuster(url: string, stamp?: string) {
+    const u = (url || "").trim()
+    if (!u) return ""
+    const v = stamp || String(Date.now())
+    const sep = u.includes("?") ? "&" : "?"
+    return `${u}${sep}v=${encodeURIComponent(v)}`
+}
+
+function makeInitialsSvgDataUri(seed: string) {
+    const text = initials(seed || "User")
+    // simple theme-safe colors
+    const bg = "#e2e8f0" // slate-200
+    const fg = "#334155" // slate-700
+
+    const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <rect width="96" height="96" rx="16" fill="${bg}" />
+  <text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle"
+        font-family="Inter, system-ui, Arial" font-size="34" font-weight="700"
+        fill="${fg}">
+    ${text}
+  </text>
+</svg>`.trim()
+
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+}
+
+function uniq(arr: string[]) {
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const s of arr) {
+        const v = (s || "").trim()
+        if (!v) continue
+        if (seen.has(v)) continue
+        seen.add(v)
+        out.push(v)
+    }
+    return out
+}
+
+function getAvatarCandidates(it: UserDoc) {
+    const prefs = safeParsePrefs(it?.prefs)
+
+    const avatarUrl = String(it?.avatarUrl || prefs?.avatarUrl || "").trim()
+    const avatarFileId = String(it?.avatarFileId || prefs?.avatarFileId || "").trim()
+    const direct = String((it as any)?.avatar || "").trim()
+
+    const stamp = it?.$updatedAt || it?.$id || ""
+
+    const list: string[] = []
+
+    if (avatarUrl) list.push(appendCacheBuster(avatarUrl, stamp))
+
+    if (avatarFileId) {
+        try {
+            // ✅ provide width/height to improve reliability
+            const preview = storage.getFilePreview(BUCKET_ID, avatarFileId, 96, 96)
+            list.push(appendCacheBuster(String(preview), stamp))
+        } catch {
+            // ignore
+        }
+    }
+
+    if (direct) list.push(appendCacheBuster(direct, stamp))
+
+    // ✅ Guaranteed fallback that ALWAYS loads (no network)
+    const seed = it?.name || it?.email || "User"
+    list.push(makeInitialsSvgDataUri(seed))
+
+    return uniq(list)
+}
+
+function UserAvatarCell({ user }: { user: UserDoc }) {
+    const seed = user?.name || user?.email || "User"
+
+    const candidates = React.useMemo(() => getAvatarCandidates(user), [
+        user?.$id,
+        user?.$updatedAt,
+        user?.name,
+        user?.email,
+        user?.avatarUrl,
+        user?.avatarFileId,
+        (user as any)?.avatar,
+        user?.prefs,
+    ])
+
+    const [idx, setIdx] = React.useState(0)
+
+    React.useEffect(() => {
+        setIdx(0)
+    }, [candidates.join("|")])
+
+    const src = candidates[idx] || makeInitialsSvgDataUri(seed)
+
+    return (
+        <Avatar className="h-9 w-9 rounded-lg shrink-0">
+            <AvatarImage
+                src={src}
+                alt={seed}
+                className="object-cover"
+                onError={() => {
+                    setIdx((prev) => {
+                        const next = prev + 1
+                        return next < candidates.length ? next : prev
+                    })
+                }}
+            />
+            <AvatarFallback className="rounded-lg text-xs font-semibold">
+                {initials(seed)}
+            </AvatarFallback>
+        </Avatar>
+    )
+}
+
 const RESEND_COOLDOWN_MS = 30_000
 const RESEND_SUCCESS_BADGE_MS = 5_000
 
@@ -158,9 +296,6 @@ export default function AdminUsersPage() {
         return () => clearInterval(t)
     }, [])
 
-    /**
-     * ✅ First Login Status from Appwrite table: first_login_users
-     */
     const [firstLoginMap, setFirstLoginMap] = React.useState<
         Record<string, { completed: boolean; mustChangePassword: boolean; rowId?: string }>
     >({})
@@ -331,11 +466,6 @@ export default function AdminUsersPage() {
         }
     }
 
-    /**
-     * ✅ Activate/Deactivate updates BOTH:
-     * - USER_PROFILES.isActive
-     * - Appwrite Auth status (blocks/allow login)
-     */
     async function toggleActive(it: UserDoc) {
         const safeUserId = String(it.userId || "").trim()
         if (!safeUserId) {
@@ -357,15 +487,6 @@ export default function AdminUsersPage() {
         }
     }
 
-    /**
-     * ✅ deleting removes BOTH:
-     * - USER_PROFILES row
-     * - Appwrite Auth user
-     * ✅ also cleans first_login_users record
-     *
-     * ✅ NEW:
-     * If the deleted user is the CURRENT logged-in user -> logout + redirect to login
-     */
     async function deleteNow() {
         if (!target) return
 
@@ -384,7 +505,6 @@ export default function AdminUsersPage() {
             setOpenDelete(false)
             setTarget(null)
 
-            // ✅ If admin deleted their OWN account -> redirect to login
             const currentId = String(
                 (currentUser as any)?.$id || (currentUser as any)?.id || (currentUser as any)?.userId || ""
             ).trim()
@@ -392,14 +512,12 @@ export default function AdminUsersPage() {
             if (currentId && currentId === safeUserId) {
                 toast.success("Your account was deleted. Redirecting to login…")
 
-                // best-effort logout
                 const logoutFn = (authApi as any)?.logout?.bind(authApi)
                 if (logoutFn) {
                     await logoutFn().catch(() => null)
                 }
 
                 clearSessionCache()
-
                 navigate("/auth/login", { replace: true })
                 return
             }
@@ -637,18 +755,23 @@ export default function AdminUsersPage() {
                                                 const safeDisplayId = authUserId || "—"
 
                                                 const st = authUserId ? firstLoginMap[authUserId] : undefined
-                                                const isFirstLoginPending = st ? (!st.completed || st.mustChangePassword) : false
+                                                const isFirstLoginPending = st
+                                                    ? (!st.completed || st.mustChangePassword)
+                                                    : false
 
                                                 return (
-                                                    <tr key={it.$id} className="border-t border-border/60 hover:bg-muted/20">
+                                                    <tr
+                                                        key={it.$id}
+                                                        className="border-t border-border/60 hover:bg-muted/20"
+                                                    >
                                                         <td className="px-4 py-3">
                                                             <div className="flex min-w-0 items-center gap-3">
-                                                                <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-background text-xs font-semibold">
-                                                                    {initials(it.name || it.email)}
-                                                                </div>
+                                                                <UserAvatarCell user={it} />
 
                                                                 <div className="min-w-0">
-                                                                    <div className="truncate font-medium">{it.name || "—"}</div>
+                                                                    <div className="truncate font-medium">
+                                                                        {it.name || "—"}
+                                                                    </div>
                                                                     <div className="truncate text-xs text-muted-foreground">
                                                                         {it.email}
                                                                     </div>
@@ -658,7 +781,8 @@ export default function AdminUsersPage() {
 
                                                                     {missingAuthUserId ? (
                                                                         <div className="mt-1 text-xs text-destructive">
-                                                                            ⚠ Missing Appwrite Auth userId (actions disabled)
+                                                                            ⚠ Missing Appwrite Auth userId (actions
+                                                                            disabled)
                                                                         </div>
                                                                     ) : null}
                                                                 </div>
@@ -674,7 +798,9 @@ export default function AdminUsersPage() {
                                                         <td className="px-4 py-3">
                                                             {dept ? (
                                                                 <div className="min-w-0">
-                                                                    <div className="truncate font-medium">{dept.name}</div>
+                                                                    <div className="truncate font-medium">
+                                                                        {dept.name}
+                                                                    </div>
                                                                     <div className="truncate text-xs text-muted-foreground">
                                                                         {dept.code}
                                                                     </div>
@@ -742,8 +868,13 @@ export default function AdminUsersPage() {
                                                                             </Button>
                                                                         </DropdownMenuTrigger>
 
-                                                                        <DropdownMenuContent align="end" className="min-w-44">
-                                                                            <DropdownMenuItem onClick={() => openEdit(it)}>
+                                                                        <DropdownMenuContent
+                                                                            align="end"
+                                                                            className="min-w-44"
+                                                                        >
+                                                                            <DropdownMenuItem
+                                                                                onClick={() => openEdit(it)}
+                                                                            >
                                                                                 Edit
                                                                             </DropdownMenuItem>
 
@@ -793,6 +924,8 @@ export default function AdminUsersPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* dialogs below are unchanged (resend, form, delete) */}
 
             <Dialog open={openResend} onOpenChange={setOpenResend}>
                 <DialogContent className="max-w-full sm:max-w-md">

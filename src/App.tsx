@@ -66,6 +66,10 @@ const AdminSchedulesPage = React.lazy(
   () => import("./pages/dashboard/admin/schedules")
 )
 
+// ✅ NEW: Accounts + Settings pages
+const DashboardAccountsPage = React.lazy(() => import("./pages/dashboard/accounts"))
+const DashboardSettingsPage = React.lazy(() => import("./pages/dashboard/settings"))
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -346,12 +350,13 @@ export default function App() {
                 <Route index element={<DashboardIndexRedirect />} />
                 <Route path="overview" element={<DashboardIndexRedirect />} />
 
+                {/* ✅ NEW: Dashboard Preferences Pages */}
+                <Route path="accounts" element={<DashboardAccountsPage />} />
+                <Route path="settings" element={<DashboardSettingsPage />} />
+
                 <Route path="users" element={<Navigate to="admin/users" replace />} />
 
-                {/* ✅ FIX: Requests is ADMIN perspective, so redirect */}
                 <Route path="requests" element={<Navigate to="admin/requests" replace />} />
-
-                {/* ✅ NEW: Schedules is ADMIN perspective for now, so redirect */}
                 <Route path="schedules" element={<Navigate to="admin/schedules" replace />} />
 
                 <Route path="admin" element={<Outlet />}>
@@ -384,10 +389,7 @@ export default function App() {
                     element={<AdminAuditLogsPage />}
                   />
 
-                  {/* ✅ REAL ADMIN Requests route */}
                   <Route path="requests" element={<AdminRequestsPage />} />
-
-                  {/* ✅ REAL ADMIN Schedules route */}
                   <Route path="schedules" element={<AdminSchedulesPage />} />
                 </Route>
 
