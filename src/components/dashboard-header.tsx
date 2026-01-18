@@ -46,7 +46,7 @@ export type DashboardHeaderProps = {
     className?: string
 }
 
-type RoleKey = "admin" | "scheduler" | "faculty" | "chair" | "dean" | "user"
+type RoleKey = "admin" | "chair" | "faculty" | "user"
 
 type SearchItemType =
     | "page"
@@ -144,7 +144,7 @@ function safeParsePrefs(prefs: any) {
 }
 
 /**
- * ✅ Tolerant Role Resolver
+ * ✅ Tolerant Role Resolver (ADMIN / CHAIR / FACULTY)
  */
 function getRole(user: any): RoleKey {
     if (!user) return "user"
@@ -195,10 +195,8 @@ function getRole(user: any): RoleKey {
     const all = candidates.join(" ").toLowerCase()
 
     if (all.includes("superadmin") || all.includes("admin")) return "admin"
-    if (all.includes("scheduler")) return "scheduler"
+    if (all.includes("chair") || all.includes("department head") || all.includes("dept head")) return "chair"
     if (all.includes("faculty")) return "faculty"
-    if (all.includes("chair")) return "chair"
-    if (all.includes("dean")) return "dean"
 
     return "user"
 }
@@ -208,63 +206,20 @@ function resolveUserId(user: any) {
 }
 
 function roleBase(role: RoleKey) {
-    // ✅ current app only has /dashboard/admin pages
-    // ✅ scheduler/chair/dean can still be routed there if allowed by visibility filter
-    if (role === "admin" || role === "scheduler" || role === "chair" || role === "dean") {
-        return "/dashboard/admin"
-    }
-    return "/dashboard"
+    // ✅ Search results redirect to the SOURCE PAGES (Admin module pages)
+    // regardless of the current role.
+    void role
+    return "/dashboard/admin"
 }
 
 /**
- * ✅ Role-Based Visibility (FIXED TS2367)
+ * ✅ Role-Based Visibility REMOVED (now always visible)
+ * (kept signature to avoid breaking structure)
  */
 function isTypeVisibleForRole(type: SearchItemType, role: RoleKey) {
-    if (type === "page") return true
-    if (role === "admin") return true
-
-    if (role === "scheduler") {
-        return (
-            type === "department" ||
-            type === "program" ||
-            type === "subject" ||
-            type === "room" ||
-            type === "academic_term" ||
-            type === "time_block" ||
-            type === "section" ||
-            type === "schedule_version" ||
-            type === "class" ||
-            type === "meeting" ||
-            type === "request" ||
-            type === "notification"
-        )
-    }
-
-    if (role === "faculty") {
-        return (
-            type === "class" ||
-            type === "meeting" ||
-            type === "availability" ||
-            type === "academic_term" ||
-            type === "time_block" ||
-            type === "notification"
-        )
-    }
-
-    if (role === "chair" || role === "dean") {
-        return (
-            type === "department" ||
-            type === "program" ||
-            type === "subject" ||
-            type === "section" ||
-            type === "schedule_version" ||
-            type === "class" ||
-            type === "request" ||
-            type === "notification"
-        )
-    }
-
-    return type === "notification"
+    void type
+    void role
+    return true
 }
 
 function appendQuery(href: string, params: Record<string, string | undefined>) {
@@ -279,28 +234,19 @@ function appendQuery(href: string, params: Record<string, string | undefined>) {
 }
 
 /**
- * ✅ Redirect to SOURCE PAGES (role-aware)
- * ✅ Also injects focusType + focusId so target pages can auto-open + highlight record.
+ * ✅ Redirect to SOURCE PAGES
+ * ✅ Inject focusType + focusId so target pages can auto-open + highlight record.
  */
 function hrefForItem(type: SearchItemType, id: string, role: RoleKey) {
     const base = roleBase(role)
 
-    // Notifications:
-    // - privileged roles -> admin overview focus
-    // - normal users -> dashboard home
     if (type === "notification") {
-        if (base === "/dashboard/admin") {
-            return appendQuery(`${base}/overview`, {
-                focusType: "notification",
-                focusId: id,
-                notificationId: id,
-            })
-        }
-        return "/dashboard"
+        return appendQuery(`${base}/overview`, {
+            focusType: "notification",
+            focusId: id,
+            notificationId: id,
+        })
     }
-
-    // Admin-only entity pages fallback
-    if (base !== "/dashboard/admin") return "/dashboard"
 
     if (type === "department") {
         return appendQuery(`${base}/master-data-management`, {
@@ -463,6 +409,29 @@ function scorePageItem(item: PageItem, q: string) {
     return score
 }
 
+function scoreAnyItem(item: SearchItem, q: string) {
+    const query = normalizeText(q)
+    if (!query) return 0
+
+    const title = normalizeText(item.title)
+    const sub = normalizeText(item.subtitle ?? "")
+
+    let score = 0
+    if (title === query) score += 90
+    if (title.startsWith(query)) score += 45
+    if (title.includes(query)) score += 22
+    if (sub.includes(query)) score += 9
+
+    const tokens = query.split(/\s+/g).filter(Boolean)
+    for (const t of tokens) {
+        if (t.length < 2) continue
+        if (title.includes(t)) score += 4
+        if (sub.includes(t)) score += 2
+    }
+
+    return score
+}
+
 function buildPageCatalog(): PageItem[] {
     return [
         {
@@ -471,7 +440,7 @@ function buildPageCatalog(): PageItem[] {
             title: "Dashboard",
             subtitle: "Go to dashboard home",
             href: "/dashboard",
-            roles: ["admin", "scheduler", "faculty", "chair", "dean", "user"],
+            roles: ["admin", "chair", "faculty", "user"],
             keywords: ["home", "overview"],
         },
         {
@@ -480,7 +449,7 @@ function buildPageCatalog(): PageItem[] {
             title: "Settings",
             subtitle: "App preferences",
             href: "/dashboard/settings",
-            roles: ["admin", "scheduler", "faculty", "chair", "dean", "user"],
+            roles: ["admin", "chair", "faculty", "user"],
             keywords: ["preferences", "config"],
         },
 
@@ -500,7 +469,7 @@ function buildPageCatalog(): PageItem[] {
             title: "Schedules",
             subtitle: "Manage schedules",
             href: "/dashboard/admin/schedules",
-            roles: ["admin", "scheduler"],
+            roles: ["admin"],
             keywords: ["classes", "timetable"],
         },
         {
@@ -509,7 +478,7 @@ function buildPageCatalog(): PageItem[] {
             title: "Requests",
             subtitle: "Manage change requests",
             href: "/dashboard/admin/requests",
-            roles: ["admin", "scheduler", "chair", "dean"],
+            roles: ["admin"],
             keywords: ["pending", "approval"],
         },
         {
@@ -518,7 +487,7 @@ function buildPageCatalog(): PageItem[] {
             title: "Master Data",
             subtitle: "Departments, programs, subjects",
             href: "/dashboard/admin/master-data-management",
-            roles: ["admin", "scheduler"],
+            roles: ["admin"],
             keywords: ["departments", "programs", "subjects", "mdm"],
         },
         {
@@ -527,7 +496,7 @@ function buildPageCatalog(): PageItem[] {
             title: "Academic Term Setup",
             subtitle: "Configure terms and time blocks",
             href: "/dashboard/admin/academic-term-setup",
-            roles: ["admin", "scheduler"],
+            roles: ["admin"],
             keywords: ["term", "semester", "time blocks"],
         },
         {
@@ -536,7 +505,7 @@ function buildPageCatalog(): PageItem[] {
             title: "Rooms & Facilities",
             subtitle: "Manage rooms",
             href: "/dashboard/admin/rooms-and-facilities",
-            roles: ["admin", "scheduler"],
+            roles: ["admin"],
             keywords: ["rooms", "facilities"],
         },
         {
@@ -570,8 +539,10 @@ function buildPageCatalog(): PageItem[] {
 }
 
 function canSeePageForRole(item: PageItem, role: RoleKey) {
-    if (!item.roles || item.roles.length === 0) return true
-    return item.roles.includes(role)
+    // ✅ role restriction removed for page results
+    void item
+    void role
+    return true
 }
 
 function localPageSearch(
@@ -620,6 +591,20 @@ async function listDocumentsTry(collectionId: string, tryQueries: any[]): Promis
     }
 }
 
+function dedupeDocsById(docs: any[], limit: number) {
+    const seen = new Set<string>()
+    const out: any[] = []
+    for (const d of docs) {
+        const id = String(d?.$id ?? "")
+        if (!id) continue
+        if (seen.has(id)) continue
+        seen.add(id)
+        out.push(d)
+        if (out.length >= limit) break
+    }
+    return out
+}
+
 async function searchByFields(
     collectionId: string,
     fields: string[],
@@ -630,27 +615,22 @@ async function searchByFields(
     const trimmed = q.trim()
     if (!trimmed) return []
 
-    // 1) fulltext
-    for (const f of fields) {
-        const docs = await listDocumentsTry(collectionId, [
-            Query.search(f, trimmed),
-            Query.limit(limit),
-            ...extraQueries,
-        ])
-        if (docs.length > 0) return docs
+    const runBatch = async (mode: "search" | "startsWith") => {
+        const tasks = fields.map((f) => {
+            const op = mode === "search" ? Query.search(f, trimmed) : Query.startsWith(f, trimmed)
+            return listDocumentsTry(collectionId, [op, Query.limit(limit), ...extraQueries])
+        })
+
+        const settled = await Promise.allSettled(tasks)
+        const docs = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []))
+        return dedupeDocsById(docs, limit)
     }
 
-    // 2) startsWith fallback
-    for (const f of fields) {
-        const docs = await listDocumentsTry(collectionId, [
-            Query.startsWith(f, trimmed),
-            Query.limit(limit),
-            ...extraQueries,
-        ])
-        if (docs.length > 0) return docs
-    }
+    const searchDocs = await runBatch("search")
+    if (searchDocs.length > 0) return searchDocs
 
-    return []
+    const startDocs = await runBatch("startsWith")
+    return startDocs
 }
 
 function dedupeItems(arr: SearchItem[]) {
@@ -698,7 +678,7 @@ export default function DashboardHeader({
                 type: "department",
                 collectionId: COLLECTIONS.DEPARTMENTS,
                 fields: ["name", "code"],
-                roles: ["admin", "scheduler", "chair", "dean"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "department",
                     id: d.$id,
@@ -711,7 +691,7 @@ export default function DashboardHeader({
                 type: "program",
                 collectionId: COLLECTIONS.PROGRAMS,
                 fields: ["name", "code"],
-                roles: ["admin", "scheduler", "chair", "dean"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "program",
                     id: d.$id,
@@ -724,7 +704,7 @@ export default function DashboardHeader({
                 type: "subject",
                 collectionId: COLLECTIONS.SUBJECTS,
                 fields: ["title", "code"],
-                roles: ["admin", "scheduler", "chair", "dean"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "subject",
                     id: d.$id,
@@ -742,7 +722,7 @@ export default function DashboardHeader({
                 type: "room",
                 collectionId: COLLECTIONS.ROOMS,
                 fields: ["name", "code", "building"],
-                roles: ["admin", "scheduler"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "room",
                     id: d.$id,
@@ -756,7 +736,7 @@ export default function DashboardHeader({
                 type: "academic_term",
                 collectionId: COLLECTIONS.ACADEMIC_TERMS,
                 fields: ["schoolYear", "semester"],
-                roles: ["admin", "scheduler", "chair", "dean", "faculty"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "academic_term",
                     id: d.$id,
@@ -774,7 +754,7 @@ export default function DashboardHeader({
                 type: "time_block",
                 collectionId: COLLECTIONS.TIME_BLOCKS,
                 fields: ["label", "dayOfWeek"],
-                roles: ["admin", "scheduler", "faculty"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "time_block",
                     id: d.$id,
@@ -790,7 +770,7 @@ export default function DashboardHeader({
                 type: "user",
                 collectionId: COLLECTIONS.USER_PROFILES,
                 fields: ["name", "email", "role"],
-                roles: ["admin"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "user",
                     id: d.$id,
@@ -803,7 +783,7 @@ export default function DashboardHeader({
                 type: "faculty",
                 collectionId: COLLECTIONS.FACULTY_PROFILES,
                 fields: ["employeeNo", "rank", "notes"],
-                roles: ["admin"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "faculty",
                     id: d.$id,
@@ -817,7 +797,7 @@ export default function DashboardHeader({
                 type: "section",
                 collectionId: COLLECTIONS.SECTIONS,
                 fields: ["name"],
-                roles: ["admin", "scheduler", "chair", "dean"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "section",
                     id: d.$id,
@@ -835,7 +815,7 @@ export default function DashboardHeader({
                 type: "schedule_version",
                 collectionId: COLLECTIONS.SCHEDULE_VERSIONS,
                 fields: ["label", "status"],
-                roles: ["admin", "scheduler", "chair", "dean"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "schedule_version",
                     id: d.$id,
@@ -848,9 +828,9 @@ export default function DashboardHeader({
                 type: "class",
                 collectionId: COLLECTIONS.CLASSES,
                 fields: ["classCode", "remarks", "status"],
-                roles: ["admin", "scheduler", "chair", "dean", "faculty"],
-                buildExtraQueries: ({ role, userId }) => {
-                    if (role === "faculty" && userId) return [Query.equal("facultyUserId", userId)]
+                roles: ["admin", "chair", "faculty", "user"],
+                buildExtraQueries: () => {
+                    // ✅ role restriction removed (previously limited faculty to only their classes)
                     return []
                 },
                 toItem: (d, ctx) => ({
@@ -870,7 +850,7 @@ export default function DashboardHeader({
                 type: "meeting",
                 collectionId: COLLECTIONS.CLASS_MEETINGS,
                 fields: ["dayOfWeek", "meetingType", "notes"],
-                roles: ["admin", "scheduler", "faculty"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "meeting",
                     id: d.$id,
@@ -883,9 +863,9 @@ export default function DashboardHeader({
                 type: "availability",
                 collectionId: COLLECTIONS.FACULTY_AVAILABILITY,
                 fields: ["dayOfWeek", "notes", "preference"],
-                roles: ["admin", "faculty"],
-                buildExtraQueries: ({ role, userId }) => {
-                    if (role === "faculty" && userId) return [Query.equal("userId", userId)]
+                roles: ["admin", "chair", "faculty", "user"],
+                buildExtraQueries: () => {
+                    // ✅ role restriction removed (previously limited faculty to their own availability)
                     return []
                 },
                 toItem: (d, ctx) => ({
@@ -901,7 +881,7 @@ export default function DashboardHeader({
                 type: "request",
                 collectionId: COLLECTIONS.CHANGE_REQUESTS,
                 fields: ["type", "details", "status"],
-                roles: ["admin", "scheduler", "chair", "dean"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "request",
                     id: d.$id,
@@ -914,7 +894,7 @@ export default function DashboardHeader({
                 type: "notification",
                 collectionId: COLLECTIONS.NOTIFICATIONS,
                 fields: ["title", "message", "type"],
-                roles: ["admin", "scheduler", "faculty", "chair", "dean", "user"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "notification",
                     id: d.$id,
@@ -927,7 +907,7 @@ export default function DashboardHeader({
                 type: "audit",
                 collectionId: COLLECTIONS.AUDIT_LOGS,
                 fields: ["action", "entityType"],
-                roles: ["admin"],
+                roles: ["admin", "chair", "faculty", "user"],
                 toItem: (d, ctx) => ({
                     type: "audit",
                     id: d.$id,
@@ -955,10 +935,10 @@ export default function DashboardHeader({
             try {
                 const pageResults = localPageSearch(pageCatalog, role, trimmed, 6)
 
+                // ✅ Role restriction removed => search ALL specs
                 const visibleSpecs = searchSpecs.filter((spec) => {
-                    const allowedBySpec = spec.roles.includes(role) || role === "admin"
-                    const allowedByType = isTypeVisibleForRole(spec.type, role)
-                    return allowedBySpec && allowedByType
+                    void spec
+                    return true
                 })
 
                 const perCollectionLimit = 4
@@ -991,6 +971,7 @@ export default function DashboardHeader({
 
                 const limitedDb = dbItems.slice(0, maxTotalDbItems)
 
+                // ✅ Role restriction removed => no filtering here
                 const merged = dedupeItems([...pageResults, ...limitedDb]).filter((it) =>
                     isTypeVisibleForRole(it.type, role)
                 )
@@ -1027,8 +1008,17 @@ export default function DashboardHeader({
             arr.push(it)
             map.set(it.type, arr)
         }
+
+        // ✅ Optimize ordering inside each group by relevance
+        for (const [k, arr] of map.entries()) {
+            map.set(
+                k,
+                [...arr].sort((a, b) => scoreAnyItem(b, q) - scoreAnyItem(a, q))
+            )
+        }
+
         return map
-    }, [items])
+    }, [items, q])
 
     const onPick = React.useCallback(
         (it: SearchItem) => {
@@ -1040,10 +1030,7 @@ export default function DashboardHeader({
         [navigate]
     )
 
-    const placeholder =
-        role === "admin"
-            ? "Search everything (users, rooms, subjects, schedules...)"
-            : "Search data allowed for your role..."
+    const placeholder = "Search everything (users, rooms, subjects, schedules...)"
 
     const SearchBox = (
         <div className="relative min-w-0 w-64 xl:w-80">
@@ -1061,6 +1048,31 @@ export default function DashboardHeader({
         </div>
     )
 
+    const TYPE_ORDER: SearchItemType[] = [
+        "page",
+        "department",
+        "program",
+        "subject",
+        "room",
+        "academic_term",
+        "time_block",
+        "section",
+        "schedule_version",
+        "class",
+        "meeting",
+        "availability",
+        "request",
+        "notification",
+        "user",
+        "faculty",
+        "audit",
+    ]
+
+    const orderIndex = (t: SearchItemType) => {
+        const idx = TYPE_ORDER.indexOf(t)
+        return idx === -1 ? 999 : idx
+    }
+
     const Results = (
         <Command shouldFilter={false}>
             <CommandList>
@@ -1073,37 +1085,39 @@ export default function DashboardHeader({
                         <Skeleton className="h-4 w-40" />
                     </div>
                 ) : items.length === 0 ? (
-                    <CommandEmpty>No results. (Filtered by role: {role})</CommandEmpty>
+                    <CommandEmpty>No results.</CommandEmpty>
                 ) : (
                     <>
-                        {Array.from(grouped.entries()).map(([t, arr]) => (
-                            <CommandGroup key={t} heading={typeLabel(t)}>
-                                {arr.slice(0, 8).map((it) => (
-                                    <CommandItem
-                                        key={`${it.type}:${it.id}`}
-                                        value={`${it.type}:${it.id}`}
-                                        onSelect={() => onPick(it)}
-                                        className="flex items-start gap-3"
-                                    >
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <span className="truncate text-sm font-medium">
-                                                    {it.title}
-                                                </span>
-                                                <Badge variant="secondary" className="shrink-0">
-                                                    {typeBadge(it.type)}
-                                                </Badge>
-                                            </div>
-                                            {it.subtitle ? (
-                                                <div className="truncate text-xs text-muted-foreground">
-                                                    {it.subtitle}
+                        {Array.from(grouped.entries())
+                            .sort((a, b) => orderIndex(a[0]) - orderIndex(b[0]))
+                            .map(([t, arr]) => (
+                                <CommandGroup key={t} heading={typeLabel(t)}>
+                                    {arr.slice(0, 8).map((it) => (
+                                        <CommandItem
+                                            key={`${it.type}:${it.id}`}
+                                            value={`${it.type}:${it.id}`}
+                                            onSelect={() => onPick(it)}
+                                            className="flex items-start gap-3"
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <span className="truncate text-sm font-medium">
+                                                        {it.title}
+                                                    </span>
+                                                    <Badge variant="secondary" className="shrink-0">
+                                                        {typeBadge(it.type)}
+                                                    </Badge>
                                                 </div>
-                                            ) : null}
-                                        </div>
-                                    </CommandItem>
-                                ))}
-                            </CommandGroup>
-                        ))}
+                                                {it.subtitle ? (
+                                                    <div className="truncate text-xs text-muted-foreground">
+                                                        {it.subtitle}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        </CommandItem>
+                                    ))}
+                                </CommandGroup>
+                            ))}
                     </>
                 )}
             </CommandList>
@@ -1199,7 +1213,7 @@ export default function DashboardHeader({
                         </div>
 
                         <div className="text-xs text-muted-foreground">
-                            Search results are filtered automatically based on your role.
+                            Search results redirect to their source pages automatically.
                         </div>
 
                         <div className="flex justify-end gap-2">

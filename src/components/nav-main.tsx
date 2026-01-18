@@ -28,7 +28,7 @@ import {
     SidebarSeparator,
 } from "@/components/ui/sidebar"
 
-type RoleKey = "admin" | "scheduler" | "faculty" | "reviewer" | "uploader" | "user"
+type RoleKey = "admin" | "chair" | "faculty" | "user"
 
 type NavItem = {
     title: string
@@ -87,10 +87,8 @@ function getRole(user: any): RoleKey {
     const all = candidates.join(" ").toLowerCase()
 
     if (all.includes("superadmin") || all.includes("admin")) return "admin"
-    if (all.includes("scheduler")) return "scheduler"
+    if (all.includes("chair") || all.includes("department head") || all.includes("dept head")) return "chair"
     if (all.includes("faculty")) return "faculty"
-    if (all.includes("reviewer")) return "reviewer"
-    if (all.includes("uploader")) return "uploader"
 
     return "user"
 }
@@ -99,9 +97,7 @@ function isOverviewRoute(pathname: string) {
     if (!pathname) return false
     if (pathname === "/dashboard") return true
 
-    return /^\/dashboard\/(admin|chair|faculty|scheduler|reviewer|uploader)\/overview\/?$/.test(
-        pathname
-    )
+    return /^\/dashboard\/(admin|chair|faculty)\/overview\/?$/.test(pathname)
 }
 
 function isActivePath(currentPath: string, href: string) {
