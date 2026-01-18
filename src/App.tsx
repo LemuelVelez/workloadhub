@@ -70,6 +70,11 @@ const AdminSchedulesPage = React.lazy(
 const DashboardAccountsPage = React.lazy(() => import("./pages/dashboard/accounts"))
 const DashboardSettingsPage = React.lazy(() => import("./pages/dashboard/settings"))
 
+// ✅ NEW: Department Head (Chair) page
+const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
+  () => import("./pages/dashboard/department-head/faculty-workload-assignment")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -319,7 +324,11 @@ function DashboardIndexRedirect() {
 
   const role = String(rawRole).toLowerCase()
 
-  if (role.includes("chair")) return <Navigate to="/dashboard/chair/overview" replace />
+  // ✅ Department Head (Chair) goes to department-head area
+  if (role.includes("chair") || role.includes("department head") || role.includes("dept head")) {
+    return <Navigate to="/dashboard/department-head/faculty-workload-assignment" replace />
+  }
+
   if (role.includes("faculty")) return <Navigate to="/dashboard/faculty/overview" replace />
 
   return <Navigate to="/dashboard/admin/overview" replace />
@@ -350,15 +359,15 @@ export default function App() {
                 <Route index element={<DashboardIndexRedirect />} />
                 <Route path="overview" element={<DashboardIndexRedirect />} />
 
-                {/* ✅ NEW: Dashboard Preferences Pages */}
+                {/* ✅ Dashboard Preferences Pages */}
                 <Route path="accounts" element={<DashboardAccountsPage />} />
                 <Route path="settings" element={<DashboardSettingsPage />} />
 
                 <Route path="users" element={<Navigate to="admin/users" replace />} />
-
                 <Route path="requests" element={<Navigate to="admin/requests" replace />} />
                 <Route path="schedules" element={<Navigate to="admin/schedules" replace />} />
 
+                {/* ✅ Admin Area */}
                 <Route path="admin" element={<Outlet />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AdminOverviewPage />} />
@@ -391,6 +400,15 @@ export default function App() {
 
                   <Route path="requests" element={<AdminRequestsPage />} />
                   <Route path="schedules" element={<AdminSchedulesPage />} />
+                </Route>
+
+                {/* ✅ Department Head (Chair) Area */}
+                <Route path="department-head" element={<Outlet />}>
+                  <Route index element={<Navigate to="faculty-workload-assignment" replace />} />
+                  <Route
+                    path="faculty-workload-assignment"
+                    element={<DepartmentHeadFacultyWorkloadAssignmentPage />}
+                  />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />

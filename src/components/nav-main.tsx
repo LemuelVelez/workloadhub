@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
@@ -14,6 +15,7 @@ import {
     Scale,
     FileClock,
     UserCircle2,
+    ClipboardList,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -38,38 +40,23 @@ type NavItem = {
     roles?: RoleKey[] // if omitted => shown to everyone
 }
 
-const LAST_DASHBOARD_AREA_KEY = "workloadhub:lastDashboardArea"
-
 type DashboardArea = "admin" | "chair" | "faculty" | null
 
 function getAreaFromPath(pathname: string): DashboardArea {
     if (!pathname) return null
     if (pathname.startsWith("/dashboard/admin")) return "admin"
+
+    // ✅ New Department Head area
+    if (pathname.startsWith("/dashboard/department-head")) return "chair"
+
+    // ✅ Backward compatibility (old chair route)
     if (pathname.startsWith("/dashboard/chair")) return "chair"
+
     if (pathname.startsWith("/dashboard/faculty")) return "faculty"
     return null
 }
 
-function safeGetLastArea(): DashboardArea {
-    try {
-        const v = window.sessionStorage.getItem(LAST_DASHBOARD_AREA_KEY)
-        if (v === "admin" || v === "chair" || v === "faculty") return v
-        return null
-    } catch {
-        return null
-    }
-}
-
-function safeSetLastArea(area: DashboardArea) {
-    try {
-        if (!area) return
-        window.sessionStorage.setItem(LAST_DASHBOARD_AREA_KEY, area)
-    } catch {
-        // ignore
-    }
-}
-
-function getRole(user: any): RoleKey {
+function getRoleFromUser(user: any): RoleKey {
     if (!user) return "user"
 
     let prefs: any = user?.prefs ?? {}
@@ -129,7 +116,8 @@ function isOverviewRoute(pathname: string) {
     if (!pathname) return false
     if (pathname === "/dashboard") return true
 
-    return /^\/dashboard\/(admin|chair|faculty)\/overview\/?$/.test(pathname)
+    // ✅ Include department-head area
+    return /^\/dashboard\/(admin|department-head|chair|faculty)\/overview\/?$/.test(pathname)
 }
 
 function isActivePath(currentPath: string, href: string) {
@@ -144,9 +132,29 @@ export default function NavMain({ className }: { className?: string }) {
     const { pathname } = useLocation()
     const { user } = useSession()
 
-    const role = getRole(user)
+    // ✅ store last area per-user (prevents admin sticky leaking to chair account)
+    const userKey = String(user?.$id || user?.id || user?.userId || "anon").trim()
+    const LAST_DASHBOARD_AREA_KEY = `workloadhub:lastDashboardArea:${userKey}`
 
-    // ✅ Sticky area: remember if user was in Admin/Chair/Faculty pages before going to /accounts or /settings
+    function safeGetLastArea(): DashboardArea {
+        try {
+            const v = window.sessionStorage.getItem(LAST_DASHBOARD_AREA_KEY)
+            if (v === "admin" || v === "chair" || v === "faculty") return v
+            return null
+        } catch {
+            return null
+        }
+    }
+
+    function safeSetLastArea(area: DashboardArea) {
+        try {
+            if (!area) return
+            window.sessionStorage.setItem(LAST_DASHBOARD_AREA_KEY, area)
+        } catch {
+            // ignore
+        }
+    }
+
     const areaFromPath = React.useMemo(() => getAreaFromPath(pathname), [pathname])
     const [stickyArea, setStickyArea] = React.useState<DashboardArea>(null)
 
@@ -164,6 +172,20 @@ export default function NavMain({ className }: { className?: string }) {
     }, [areaFromPath])
 
     const effectiveArea = areaFromPath || stickyArea
+
+    /**
+     * ✅ FIX: Role fallback resolver
+     * If user role is missing/unknown, infer from URL area.
+     */
+    const roleFromUser = React.useMemo(() => getRoleFromUser(user), [user])
+
+    const role: RoleKey = React.useMemo(() => {
+        if (roleFromUser !== "user") return roleFromUser
+        if (effectiveArea === "admin") return "admin"
+        if (effectiveArea === "chair") return "chair"
+        if (effectiveArea === "faculty") return "faculty"
+        return "user"
+    }, [roleFromUser, effectiveArea])
 
     const adminMenu: NavItem[] = [
         {
@@ -222,7 +244,30 @@ export default function NavMain({ className }: { className?: string }) {
         },
     ]
 
-    const settings: NavItem[] = [
+    // ✅ Department Head (Chair) menu
+    const chairMenu: NavItem[] = [
+        {
+            title: "Faculty Workload Assignment",
+            href: "/dashboard/department-head/faculty-workload-assignment",
+            icon: ClipboardList,
+            roles: ["chair"],
+        },
+    ]
+
+    // ✅ Faculty menu (so Faculty isn't empty)
+    const facultyMenu: NavItem[] = [
+        {
+            title: "Overview",
+            href: "/dashboard/faculty/overview",
+            icon: LayoutDashboard,
+            roles: ["faculty"],
+        },
+    ]
+
+    /**
+     * ✅ Preferences ALWAYS SHOW
+     */
+    const preferencesMenu: NavItem[] = [
         {
             title: "Account",
             href: "/dashboard/accounts",
@@ -237,10 +282,6 @@ export default function NavMain({ className }: { className?: string }) {
 
     const visible = (it: NavItem) => {
         if (!it.roles || it.roles.length === 0) return true
-
-        // ✅ If user is in (or previously came from) admin area, keep admin menu visible even on /accounts and /settings
-        if (it.roles.includes("admin") && effectiveArea === "admin") return true
-
         return it.roles.includes(role)
     }
 
@@ -265,9 +306,13 @@ export default function NavMain({ className }: { className?: string }) {
         )
     }
 
+    const hasAdmin = adminMenu.filter(visible).length > 0
+    const hasChair = chairMenu.filter(visible).length > 0
+    const hasFaculty = facultyMenu.filter(visible).length > 0
+
     return (
         <div className={cn("min-w-0", className)}>
-            {adminMenu.filter(visible).length > 0 ? (
+            {hasAdmin ? (
                 <>
                     <SidebarGroup>
                         <SidebarGroupLabel>Admin</SidebarGroupLabel>
@@ -275,15 +320,39 @@ export default function NavMain({ className }: { className?: string }) {
                             <SidebarMenu>{adminMenu.filter(visible).map(renderItem)}</SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>
-
                     <SidebarSeparator />
                 </>
             ) : null}
 
+            {hasChair ? (
+                <>
+                    <SidebarGroup>
+                        <SidebarGroupLabel>Department Head</SidebarGroupLabel>
+                        <SidebarGroupContent>
+                            <SidebarMenu>{chairMenu.filter(visible).map(renderItem)}</SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
+                    <SidebarSeparator />
+                </>
+            ) : null}
+
+            {hasFaculty ? (
+                <>
+                    <SidebarGroup>
+                        <SidebarGroupLabel>Faculty</SidebarGroupLabel>
+                        <SidebarGroupContent>
+                            <SidebarMenu>{facultyMenu.filter(visible).map(renderItem)}</SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
+                    <SidebarSeparator />
+                </>
+            ) : null}
+
+            {/* ✅ ALWAYS SHOW PREFERENCES */}
             <SidebarGroup>
                 <SidebarGroupLabel>Preferences</SidebarGroupLabel>
                 <SidebarGroupContent>
-                    <SidebarMenu>{settings.filter(visible).map(renderItem)}</SidebarMenu>
+                    <SidebarMenu>{preferencesMenu.map(renderItem)}</SidebarMenu>
                 </SidebarGroupContent>
             </SidebarGroup>
         </div>
