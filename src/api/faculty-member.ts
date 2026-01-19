@@ -41,6 +41,11 @@ function safeStr(v: any) {
     return String(v ?? "").trim()
 }
 
+function toNum(v: any, fallback = 0) {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : fallback
+}
+
 function normalizeRole(role: any) {
     return safeStr(role).toLowerCase()
 }
@@ -78,6 +83,13 @@ function timeToMinutes(t: any) {
     return hh * 60 + mm
 }
 
+function durationMinutes(start: any, end: any) {
+    const a = timeToMinutes(start)
+    const b = timeToMinutes(end)
+    const diff = b - a
+    return diff > 0 ? diff : 0
+}
+
 export type FacultyScheduleItem = {
     meetingId: string
     classId: string
@@ -96,6 +108,29 @@ export type FacultyScheduleItem = {
 
     roomCode?: string | null
     roomName?: string | null
+}
+
+export type FacultyWorkloadSummaryItem = {
+    classId: string
+
+    subjectId?: string | null
+    subjectCode?: string | null
+    subjectTitle?: string | null
+
+    sectionId?: string | null
+    sectionLabel?: string | null
+
+    classCode?: string | null
+    deliveryMode?: string | null
+    status?: string | null
+
+    units: number
+    lectureHours: number
+    labHours: number
+    totalHours: number
+
+    meetingCount: number
+    weeklyMinutes: number
 }
 
 export const facultyMemberApi = {
@@ -119,6 +154,19 @@ export const facultyMemberApi = {
                 [Query.equal("userId", id), Query.orderDesc("$updatedAt")],
                 5
             )
+            return rows[0] ?? null
+        },
+
+        async getFacultyProfileByUserId(userId: string) {
+            const id = safeStr(userId)
+            if (!id) return null
+
+            const rows = await listAllRows(
+                COLLECTIONS.FACULTY_PROFILES,
+                [Query.equal("userId", id), Query.orderDesc("$updatedAt")],
+                5
+            )
+
             return rows[0] ?? null
         },
 
@@ -303,6 +351,199 @@ export const facultyMemberApi = {
                 term,
                 version,
                 profile,
+                items,
+            }
+        },
+    },
+
+    workloads: {
+        /**
+         * ✅ Workload Summary:
+         * - Lists faculty assigned classes (unique class rows)
+         * - Adds units/hours from SUBJECTS
+         * - Adds meetingCount + weeklyMinutes from CLASS_MEETINGS
+         * - Includes facultyProfile (maxUnits/maxHours)
+         */
+        async getMyWorkloadSummary(args: { userId: string }) {
+            const userId = safeStr(args.userId)
+            if (!userId) {
+                return {
+                    term: null,
+                    version: null,
+                    profile: null,
+                    facultyProfile: null,
+                    items: [] as FacultyWorkloadSummaryItem[],
+                }
+            }
+
+            const term = await facultyMemberApi.terms.getActive().catch(() => null)
+            const termId = safeStr(term?.$id)
+
+            const profile = await facultyMemberApi.profiles.getByUserId(userId).catch(() => null)
+            const facultyProfile = await facultyMemberApi.profiles.getFacultyProfileByUserId(userId).catch(() => null)
+
+            const departmentId = safeStr(profile?.departmentId)
+
+            if (!termId || !departmentId) {
+                return {
+                    term,
+                    version: null,
+                    profile,
+                    facultyProfile,
+                    items: [] as FacultyWorkloadSummaryItem[],
+                }
+            }
+
+            const versions = await listAllRows(
+                COLLECTIONS.SCHEDULE_VERSIONS,
+                [
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.orderDesc("version"),
+                ],
+                300
+            )
+
+            const active = versions.find((v) => safeStr(v?.status) === "Active")
+            const locked = versions.find((v) => safeStr(v?.status) === "Locked")
+            const version = active ?? locked ?? versions[0] ?? null
+            const versionId = safeStr(version?.$id)
+
+            if (!versionId) {
+                return {
+                    term,
+                    version: null,
+                    profile,
+                    facultyProfile,
+                    items: [] as FacultyWorkloadSummaryItem[],
+                }
+            }
+
+            const classes = await listAllRows(
+                COLLECTIONS.CLASSES,
+                [
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.equal("versionId", versionId),
+                    Query.equal("facultyUserId", userId),
+                    Query.orderDesc("$updatedAt"),
+                ],
+                6000
+            )
+
+            if (!Array.isArray(classes) || classes.length === 0) {
+                return {
+                    term,
+                    version,
+                    profile,
+                    facultyProfile,
+                    items: [] as FacultyWorkloadSummaryItem[],
+                }
+            }
+
+            const classIdSet = new Set(classes.map((c) => safeStr(c?.$id)).filter(Boolean))
+
+            const subjects = await listAllRows(COLLECTIONS.SUBJECTS, [
+                Query.equal("departmentId", departmentId),
+                Query.orderAsc("code"),
+            ])
+
+            const sections = await listAllRows(COLLECTIONS.SECTIONS, [
+                Query.equal("termId", termId),
+                Query.equal("departmentId", departmentId),
+                Query.equal("isActive", true),
+                Query.orderAsc("yearLevel"),
+                Query.orderAsc("name"),
+            ])
+
+            const subjectMap = new Map<string, AnyRow>()
+            for (const s of subjects) subjectMap.set(safeStr(s?.$id), s)
+
+            const sectionMap = new Map<string, AnyRow>()
+            for (const s of sections) sectionMap.set(safeStr(s?.$id), s)
+
+            // Meetings stats for scheduled hours
+            const meetingsAll = await listAllRows(
+                COLLECTIONS.CLASS_MEETINGS,
+                [Query.equal("versionId", versionId), Query.orderDesc("$updatedAt")],
+                12000
+            )
+
+            const statsMap = new Map<string, { meetingCount: number; weeklyMinutes: number }>()
+
+            for (const m of meetingsAll) {
+                const classId = safeStr(m?.classId)
+                if (!classId || !classIdSet.has(classId)) continue
+
+                const dur = durationMinutes(m?.startTime, m?.endTime)
+
+                const prev = statsMap.get(classId) ?? { meetingCount: 0, weeklyMinutes: 0 }
+                prev.meetingCount += 1
+                prev.weeklyMinutes += dur
+                statsMap.set(classId, prev)
+            }
+
+            const items: FacultyWorkloadSummaryItem[] = classes
+                .map((c) => {
+                    const classId = safeStr(c?.$id)
+                    if (!classId) return null
+
+                    const subjectId = safeStr(c?.subjectId)
+                    const sectionId = safeStr(c?.sectionId)
+
+                    const subj = subjectMap.get(subjectId)
+                    const sec = sectionMap.get(sectionId)
+
+                    const sectionLabel =
+                        sec
+                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""}`
+                            : null
+
+                    const sUnits = toNum(subj?.units, 0)
+                    const sLec = toNum(subj?.lectureHours, 0)
+                    const sLab = toNum(subj?.labHours, 0)
+                    const sTotal = toNum(subj?.totalHours, sLec + sLab)
+
+                    const stats = statsMap.get(classId) ?? { meetingCount: 0, weeklyMinutes: 0 }
+
+                    return {
+                        classId,
+
+                        subjectId: subjectId || null,
+                        subjectCode: safeStr(subj?.code) || null,
+                        subjectTitle: safeStr(subj?.title) || null,
+
+                        sectionId: sectionId || null,
+                        sectionLabel,
+
+                        classCode: safeStr(c?.classCode) || null,
+                        deliveryMode: safeStr(c?.deliveryMode) || null,
+                        status: safeStr(c?.status) || null,
+
+                        units: sUnits,
+                        lectureHours: sLec,
+                        labHours: sLab,
+                        totalHours: sTotal,
+
+                        meetingCount: toNum(stats?.meetingCount, 0),
+                        weeklyMinutes: toNum(stats?.weeklyMinutes, 0),
+                    } as FacultyWorkloadSummaryItem
+                })
+                .filter(Boolean) as FacultyWorkloadSummaryItem[]
+
+            items.sort((a, b) => {
+                const ac = safeStr(a?.subjectCode).localeCompare(safeStr(b?.subjectCode))
+                if (ac !== 0) return ac
+                const as = safeStr(a?.sectionLabel).localeCompare(safeStr(b?.sectionLabel))
+                if (as !== 0) return as
+                return safeStr(a?.classCode).localeCompare(safeStr(b?.classCode))
+            })
+
+            return {
+                term,
+                version,
+                profile,
+                facultyProfile,
                 items,
             }
         },

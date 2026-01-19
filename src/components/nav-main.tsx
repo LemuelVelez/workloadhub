@@ -311,6 +311,12 @@ export default function NavMain({ className }: { className?: string }) {
             icon: CalendarDays,
             roles: ["faculty"],
         },
+        {
+            title: "My Workload Summary",
+            href: "/dashboard/faculty/workload-summary",
+            icon: ClipboardList,
+            roles: ["faculty"],
+        },
     ]
 
     const preferencesMenu: NavItem[] = [

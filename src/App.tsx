@@ -101,6 +101,7 @@ const DepartmentHeadNotificationsPage = React.lazy(
 /** ✅ NEW: Faculty Pages */
 const FacultyOverviewPage = React.lazy(() => import("./pages/dashboard/faculty-member/overview"))
 const FacultyMySchedulePage = React.lazy(() => import("./pages/dashboard/faculty-member/my-schedule"))
+const FacultyWorkloadSummaryPage = React.lazy(() => import("./pages/dashboard/faculty-member/workload-summary"))
 
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
@@ -516,6 +517,7 @@ export default function App() {
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<FacultyOverviewPage />} />
                   <Route path="my-schedule" element={<FacultyMySchedulePage />} />
+                  <Route path="workload-summary" element={<FacultyWorkloadSummaryPage />} />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />
