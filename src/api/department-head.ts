@@ -1,17 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
+import { tablesDB, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
-type AnyDoc = {
+type AnyRow = {
     $id: string
     $createdAt?: string
     $updatedAt?: string
     [key: string]: any
 }
 
-async function listAllDocuments(collectionId: string, baseQueries: any[] = [], max = 800) {
+async function listAllRows(tableId: string, baseQueries: any[] = [], max = 800) {
     const limit = 100
     let offset = 0
-    const all: AnyDoc[] = []
+    const all: AnyRow[] = []
 
     while (true) {
         const queries = [
@@ -20,12 +20,17 @@ async function listAllDocuments(collectionId: string, baseQueries: any[] = [], m
             Query.offset(offset),
         ]
 
-        const res: any = await databases.listDocuments(DATABASE_ID, collectionId, queries)
-        const docs: AnyDoc[] = Array.isArray(res?.documents) ? res.documents : []
+        const res: any = await tablesDB.listRows({
+            databaseId: DATABASE_ID,
+            tableId,
+            queries,
+        })
 
-        all.push(...docs)
+        const rows: AnyRow[] = Array.isArray(res?.rows) ? res.rows : []
 
-        if (docs.length < limit) break
+        all.push(...rows)
+
+        if (rows.length < limit) break
         offset += limit
 
         if (all.length >= max) break
@@ -46,11 +51,11 @@ function isFacultyRole(role: any) {
 export const departmentHeadApi = {
     terms: {
         async getActive() {
-            const docs = await listAllDocuments(COLLECTIONS.ACADEMIC_TERMS, [
+            const rows = await listAllRows(COLLECTIONS.ACADEMIC_TERMS, [
                 Query.equal("isActive", true),
                 Query.orderDesc("$updatedAt"),
             ])
-            return docs[0] ?? null
+            return rows[0] ?? null
         },
     },
 
@@ -63,55 +68,47 @@ export const departmentHeadApi = {
     profiles: {
         async getByUserId(userId: string) {
             if (!userId) return null
-            const docs = await listAllDocuments(
+            const rows = await listAllRows(
                 COLLECTIONS.USER_PROFILES,
-                [
-                    Query.equal("userId", userId),
-                    Query.orderDesc("$updatedAt"),
-                ],
+                [Query.equal("userId", userId), Query.orderDesc("$updatedAt")],
                 5
             )
-            return docs[0] ?? null
+            return rows[0] ?? null
         },
     },
 
     scheduleVersions: {
         async listByTermDepartment(termId: string, departmentId: string) {
             if (!termId || !departmentId) return []
-            const docs = await listAllDocuments(COLLECTIONS.SCHEDULE_VERSIONS, [
+            return listAllRows(COLLECTIONS.SCHEDULE_VERSIONS, [
                 Query.equal("termId", termId),
                 Query.equal("departmentId", departmentId),
                 Query.orderDesc("version"),
             ])
-            return docs
         },
     },
 
     subjects: {
         async listByDepartment(departmentId: string) {
             if (!departmentId) return []
-            const docs = await listAllDocuments(COLLECTIONS.SUBJECTS, [
+            return listAllRows(COLLECTIONS.SUBJECTS, [
                 Query.equal("departmentId", departmentId),
                 Query.equal("isActive", true),
                 Query.orderAsc("code"),
             ])
-            return docs
         },
     },
 
     sections: {
         async listByTermDepartment(termId: string, departmentId: string) {
             if (!termId || !departmentId) return []
-            const docs = await listAllDocuments(COLLECTIONS.SECTIONS, [
+            return listAllRows(COLLECTIONS.SECTIONS, [
                 Query.equal("termId", termId),
                 Query.equal("departmentId", departmentId),
                 Query.equal("isActive", true),
-
-                // ✅ Better ordering: Year Level then Name (prevents confusing duplicates)
                 Query.orderAsc("yearLevel"),
                 Query.orderAsc("name"),
             ])
-            return docs
         },
     },
 
@@ -119,14 +116,14 @@ export const departmentHeadApi = {
         async listByDepartment(departmentId: string) {
             if (!departmentId) return { users: [], profiles: [] }
 
-            const userProfiles = await listAllDocuments(COLLECTIONS.USER_PROFILES, [
+            const userProfiles = await listAllRows(COLLECTIONS.USER_PROFILES, [
                 Query.equal("departmentId", departmentId),
                 Query.orderAsc("name"),
             ])
 
             const facultyUsers = userProfiles.filter((u) => isFacultyRole(u?.role))
 
-            const facultyProfiles = await listAllDocuments(COLLECTIONS.FACULTY_PROFILES, [
+            const facultyProfiles = await listAllRows(COLLECTIONS.FACULTY_PROFILES, [
                 Query.equal("departmentId", departmentId),
                 Query.orderAsc("userId"),
             ])
@@ -138,66 +135,67 @@ export const departmentHeadApi = {
         },
     },
 
-    /**
-     * ✅ NEW: Faculty Availability (Preferences)
-     * - Uses faculty_availability collection
-     * - termId is required
-     */
     facultyAvailability: {
         async listByTerm(termId: string) {
             if (!termId) return []
-            const docs = await listAllDocuments(COLLECTIONS.FACULTY_AVAILABILITY, [
+            return listAllRows(COLLECTIONS.FACULTY_AVAILABILITY, [
                 Query.equal("termId", termId),
                 Query.orderDesc("$updatedAt"),
             ])
-            return docs
         },
 
         async listByTermUser(termId: string, userId: string) {
             if (!termId || !userId) return []
-            const docs = await listAllDocuments(COLLECTIONS.FACULTY_AVAILABILITY, [
+            return listAllRows(COLLECTIONS.FACULTY_AVAILABILITY, [
                 Query.equal("termId", termId),
                 Query.equal("userId", userId),
                 Query.orderDesc("$updatedAt"),
             ])
-            return docs
         },
     },
 
-    // ✅ NEW: Rooms loader (for scheduling room selection)
+    timeBlocks: {
+        async listByTerm(termId: string) {
+            if (!termId) return []
+            return listAllRows(COLLECTIONS.TIME_BLOCKS, [
+                Query.equal("termId", termId),
+                Query.equal("isActive", true),
+                Query.orderAsc("dayOfWeek"),
+                Query.orderAsc("startTime"),
+            ])
+        },
+    },
+
     rooms: {
         async listActive() {
-            const docs = await listAllDocuments(COLLECTIONS.ROOMS, [
+            return listAllRows(COLLECTIONS.ROOMS, [
                 Query.equal("isActive", true),
                 Query.orderAsc("code"),
             ])
-            return docs
         },
     },
 
     classes: {
         async listByVersion(termId: string, departmentId: string, versionId: string) {
             if (!termId || !departmentId || !versionId) return []
-            const docs = await listAllDocuments(COLLECTIONS.CLASSES, [
+            return listAllRows(COLLECTIONS.CLASSES, [
                 Query.equal("termId", termId),
                 Query.equal("departmentId", departmentId),
                 Query.equal("versionId", versionId),
                 Query.orderDesc("$updatedAt"),
             ])
-            return docs
         },
 
         async unassign(classId: string) {
             if (!classId) throw new Error("Missing classId.")
-            return databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASSES, classId, {
-                facultyUserId: null,
+            return tablesDB.updateRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.CLASSES,
+                rowId: classId,
+                data: { facultyUserId: null },
             })
         },
 
-        /**
-         * ✅ NEW: Find an existing class offering by (version+term+dept+section+subject)
-         * Used by Class Scheduling to avoid duplicating assignment logic.
-         */
         async findOffering(args: {
             versionId: string
             termId: string
@@ -206,10 +204,9 @@ export const departmentHeadApi = {
             subjectId: string
         }) {
             const { versionId, termId, departmentId, sectionId, subjectId } = args
-
             if (!versionId || !termId || !departmentId || !sectionId || !subjectId) return null
 
-            const existing = await listAllDocuments(
+            const existing = await listAllRows(
                 COLLECTIONS.CLASSES,
                 [
                     Query.equal("versionId", versionId),
@@ -224,11 +221,6 @@ export const departmentHeadApi = {
             return existing?.[0] ?? null
         },
 
-        /**
-         * ✅ Assign logic:
-         * If offering for (versionId+sectionId+subjectId) exists -> update facultyUserId
-         * else -> create new class offering with facultyUserId
-         */
         async assignOrCreate(args: {
             versionId: string
             termId: string
@@ -256,8 +248,7 @@ export const departmentHeadApi = {
                 throw new Error("Missing required assignment fields.")
             }
 
-            // Try find existing class offering
-            const existing = await listAllDocuments(
+            const existing = await listAllRows(
                 COLLECTIONS.CLASSES,
                 [
                     Query.equal("versionId", versionId),
@@ -270,39 +261,47 @@ export const departmentHeadApi = {
             )
 
             if (existing?.[0]?.$id) {
-                return databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASSES, existing[0].$id, {
-                    facultyUserId,
-                    classCode: classCode ?? existing[0]?.classCode ?? null,
-                    deliveryMode: deliveryMode ?? existing[0]?.deliveryMode ?? null,
-                    remarks: remarks ?? existing[0]?.remarks ?? null,
+                return tablesDB.updateRow({
+                    databaseId: DATABASE_ID,
+                    tableId: COLLECTIONS.CLASSES,
+                    rowId: existing[0].$id,
+                    data: {
+                        facultyUserId,
+                        classCode: classCode ?? existing[0]?.classCode ?? null,
+                        deliveryMode: deliveryMode ?? existing[0]?.deliveryMode ?? null,
+                        remarks: remarks ?? existing[0]?.remarks ?? null,
+                    },
                 })
             }
 
-            return databases.createDocument(DATABASE_ID, COLLECTIONS.CLASSES, ID.unique(), {
-                versionId,
-                termId,
-                departmentId,
-                programId: null,
-                sectionId,
-                subjectId,
-                facultyUserId,
-                classCode: classCode ?? null,
-                deliveryMode: deliveryMode ?? null,
-                status: "Planned",
-                remarks: remarks ?? null,
+            return tablesDB.createRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.CLASSES,
+                rowId: ID.unique(),
+                data: {
+                    versionId,
+                    termId,
+                    departmentId,
+                    programId: null,
+                    sectionId,
+                    subjectId,
+                    facultyUserId,
+                    classCode: classCode ?? null,
+                    deliveryMode: deliveryMode ?? null,
+                    status: "Planned",
+                    remarks: remarks ?? null,
+                },
             })
         },
     },
 
-    // ✅ NEW: Meeting schedules CRUD (CLASS_MEETINGS)
     classMeetings: {
         async listByVersion(versionId: string) {
             if (!versionId) return []
-            const docs = await listAllDocuments(COLLECTIONS.CLASS_MEETINGS, [
+            return listAllRows(COLLECTIONS.CLASS_MEETINGS, [
                 Query.equal("versionId", versionId),
                 Query.orderDesc("$updatedAt"),
             ])
-            return docs
         },
 
         async create(args: {
@@ -315,32 +314,47 @@ export const departmentHeadApi = {
             meetingType?: string | null
             notes?: string | null
         }) {
-            const { versionId, classId, dayOfWeek, startTime, endTime, roomId, meetingType, notes } = args
+            const { versionId, classId, dayOfWeek, startTime, endTime, roomId, meetingType, notes } =
+                args
 
             if (!versionId || !classId || !dayOfWeek || !startTime || !endTime) {
                 throw new Error("Missing required meeting fields.")
             }
 
-            return databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                versionId,
-                classId,
-                dayOfWeek,
-                startTime,
-                endTime,
-                roomId: roomId ?? null,
-                meetingType: meetingType ?? "LECTURE",
-                notes: notes ?? null,
+            return tablesDB.createRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.CLASS_MEETINGS,
+                rowId: ID.unique(),
+                data: {
+                    versionId,
+                    classId,
+                    dayOfWeek,
+                    startTime,
+                    endTime,
+                    roomId: roomId ?? null,
+                    meetingType: meetingType ?? "LECTURE",
+                    notes: notes ?? null,
+                },
             })
         },
 
         async update(meetingId: string, data: any) {
             if (!meetingId) throw new Error("Missing meetingId.")
-            return databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meetingId, data)
+            return tablesDB.updateRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.CLASS_MEETINGS,
+                rowId: meetingId,
+                data,
+            })
         },
 
         async delete(meetingId: string) {
             if (!meetingId) throw new Error("Missing meetingId.")
-            return databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meetingId)
+            return tablesDB.deleteRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.CLASS_MEETINGS,
+                rowId: meetingId,
+            })
         },
     },
 }

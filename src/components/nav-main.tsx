@@ -104,7 +104,12 @@ function getRoleFromUser(user: any): RoleKey {
     const all = candidates.join(" ").toLowerCase()
 
     if (all.includes("superadmin") || all.includes("admin")) return "admin"
-    if (all.includes("chair") || all.includes("department head") || all.includes("dept head")) return "chair"
+    if (
+        all.includes("chair") ||
+        all.includes("department head") ||
+        all.includes("dept head")
+    )
+        return "chair"
     if (all.includes("faculty")) return "faculty"
 
     return "user"
@@ -114,7 +119,9 @@ function isOverviewRoute(pathname: string) {
     if (!pathname) return false
     if (pathname === "/dashboard") return true
 
-    return /^\/dashboard\/(admin|department-head|chair|faculty)\/overview\/?$/.test(pathname)
+    return /^\/dashboard\/(admin|department-head|chair|faculty)\/overview\/?$/.test(
+        pathname
+    )
 }
 
 function isActivePath(currentPath: string, href: string) {
@@ -180,18 +187,57 @@ export default function NavMain({ className }: { className?: string }) {
     }, [roleFromUser, effectiveArea])
 
     const adminMenu: NavItem[] = [
-        { title: "Overview", href: "/dashboard/admin/overview", icon: LayoutDashboard, roles: ["admin"] },
-        { title: "Schedules", href: "/dashboard/admin/schedules", icon: CalendarDays, roles: ["admin"] },
-        { title: "Requests", href: "/dashboard/admin/requests", icon: Clock, roles: ["admin"] },
-        { title: "Master Data", href: "/dashboard/admin/master-data-management", icon: Database, roles: ["admin"] },
-        { title: "Academic Term Setup", href: "/dashboard/admin/academic-term-setup", icon: CalendarDays, roles: ["admin"] },
-        { title: "Rooms & Facilities", href: "/dashboard/admin/rooms-and-facilities", icon: DoorOpen, roles: ["admin"] },
-        { title: "Rules & Policies", href: "/dashboard/admin/rules-and-policies", icon: Scale, roles: ["admin"] },
+        {
+            title: "Overview",
+            href: "/dashboard/admin/overview",
+            icon: LayoutDashboard,
+            roles: ["admin"],
+        },
+        {
+            title: "Schedules",
+            href: "/dashboard/admin/schedules",
+            icon: CalendarDays,
+            roles: ["admin"],
+        },
+        {
+            title: "Requests",
+            href: "/dashboard/admin/requests",
+            icon: Clock,
+            roles: ["admin"],
+        },
+        {
+            title: "Master Data",
+            href: "/dashboard/admin/master-data-management",
+            icon: Database,
+            roles: ["admin"],
+        },
+        {
+            title: "Academic Term Setup",
+            href: "/dashboard/admin/academic-term-setup",
+            icon: CalendarDays,
+            roles: ["admin"],
+        },
+        {
+            title: "Rooms & Facilities",
+            href: "/dashboard/admin/rooms-and-facilities",
+            icon: DoorOpen,
+            roles: ["admin"],
+        },
+        {
+            title: "Rules & Policies",
+            href: "/dashboard/admin/rules-and-policies",
+            icon: Scale,
+            roles: ["admin"],
+        },
         { title: "Users", href: "/dashboard/admin/users", icon: Users, roles: ["admin"] },
-        { title: "Audit Logs", href: "/dashboard/admin/audit-logs", icon: FileClock, roles: ["admin"] },
+        {
+            title: "Audit Logs",
+            href: "/dashboard/admin/audit-logs",
+            icon: FileClock,
+            roles: ["admin"],
+        },
     ]
 
-    // ✅ UPDATED: Department Head menu includes Faculty Availability
     const chairMenu: NavItem[] = [
         {
             title: "Faculty Workload Assignment",
@@ -212,6 +258,12 @@ export default function NavMain({ className }: { className?: string }) {
             roles: ["chair"],
         },
         {
+            title: "Room Utilization View",
+            href: "/dashboard/department-head/room-utilization-view",
+            icon: DoorOpen,
+            roles: ["chair"],
+        },
+        {
             title: "Conflict Checker",
             href: "/dashboard/department-head/conflict-checker",
             icon: AlertTriangle,
@@ -220,7 +272,12 @@ export default function NavMain({ className }: { className?: string }) {
     ]
 
     const facultyMenu: NavItem[] = [
-        { title: "Overview", href: "/dashboard/faculty/overview", icon: LayoutDashboard, roles: ["faculty"] },
+        {
+            title: "Overview",
+            href: "/dashboard/faculty/overview",
+            icon: LayoutDashboard,
+            roles: ["faculty"],
+        },
     ]
 
     const preferencesMenu: NavItem[] = [
@@ -265,7 +322,9 @@ export default function NavMain({ className }: { className?: string }) {
                     <SidebarGroup>
                         <SidebarGroupLabel>Admin</SidebarGroupLabel>
                         <SidebarGroupContent>
-                            <SidebarMenu>{adminMenu.filter(visible).map(renderItem)}</SidebarMenu>
+                            <SidebarMenu>
+                                {adminMenu.filter(visible).map(renderItem)}
+                            </SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>
                     <SidebarSeparator />
@@ -277,7 +336,9 @@ export default function NavMain({ className }: { className?: string }) {
                     <SidebarGroup>
                         <SidebarGroupLabel>Department Head</SidebarGroupLabel>
                         <SidebarGroupContent>
-                            <SidebarMenu>{chairMenu.filter(visible).map(renderItem)}</SidebarMenu>
+                            <SidebarMenu>
+                                {chairMenu.filter(visible).map(renderItem)}
+                            </SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>
                     <SidebarSeparator />
@@ -289,7 +350,9 @@ export default function NavMain({ className }: { className?: string }) {
                     <SidebarGroup>
                         <SidebarGroupLabel>Faculty</SidebarGroupLabel>
                         <SidebarGroupContent>
-                            <SidebarMenu>{facultyMenu.filter(visible).map(renderItem)}</SidebarMenu>
+                            <SidebarMenu>
+                                {facultyMenu.filter(visible).map(renderItem)}
+                            </SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>
                     <SidebarSeparator />
@@ -299,7 +362,9 @@ export default function NavMain({ className }: { className?: string }) {
             <SidebarGroup>
                 <SidebarGroupLabel>Preferences</SidebarGroupLabel>
                 <SidebarGroupContent>
-                    <SidebarMenu>{preferencesMenu.map(renderItem)}</SidebarMenu>
+                    <SidebarMenu>
+                        {preferencesMenu.map(renderItem)}
+                    </SidebarMenu>
                 </SidebarGroupContent>
             </SidebarGroup>
         </div>

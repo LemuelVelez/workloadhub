@@ -66,7 +66,7 @@ const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-workload-assignment")
 )
 
-// ✅ NEW: Department Head Faculty Availability
+// ✅ Department Head Faculty Availability
 const DepartmentHeadFacultyAvailabilityPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-availability")
 )
@@ -76,7 +76,12 @@ const DepartmentHeadClassSchedulingPage = React.lazy(
   () => import("./pages/dashboard/department-head/class-scheduling")
 )
 
-// ✅ NEW: Conflict Checker
+// ✅ Department Head Room Utilization View
+const DepartmentHeadRoomUtilizationViewPage = React.lazy(
+  () => import("./pages/dashboard/department-head/room-utilization-view")
+)
+
+// ✅ Conflict Checker
 const DepartmentHeadConflictCheckerPage = React.lazy(
   () => import("./pages/dashboard/department-head/conflict-checker")
 )
@@ -128,10 +133,6 @@ function getMustChangePasswordFromPrefs(user: any) {
   return readBool(prefs?.mustChangePassword ?? u?.mustChangePassword)
 }
 
-/**
- * ✅ Role Resolver
- * Role merged from user_profiles.role inside useSession()
- */
 type RoleKey = "admin" | "chair" | "faculty" | "unknown"
 type AllowedRoleKey = Exclude<RoleKey, "unknown">
 
@@ -457,7 +458,6 @@ export default function App() {
                     element={<DepartmentHeadFacultyWorkloadAssignmentPage />}
                   />
 
-                  {/* ✅ NEW: Faculty Availability */}
                   <Route
                     path="faculty-availability"
                     element={<DepartmentHeadFacultyAvailabilityPage />}
@@ -468,7 +468,12 @@ export default function App() {
                     element={<DepartmentHeadClassSchedulingPage />}
                   />
 
-                  {/* ✅ Conflict Checker */}
+                  {/* ✅ NEW: Room Utilization View */}
+                  <Route
+                    path="room-utilization-view"
+                    element={<DepartmentHeadRoomUtilizationViewPage />}
+                  />
+
                   <Route
                     path="conflict-checker"
                     element={<DepartmentHeadConflictCheckerPage />}

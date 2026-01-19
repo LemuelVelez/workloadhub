@@ -1,5 +1,5 @@
-import { Client, Databases, ID, Query } from "appwrite";
-import { publicEnv } from "./env";
+import { Client, Databases, TablesDB, ID, Query } from "appwrite"
+import { publicEnv } from "./env"
 
 /**
  * Browser-safe Appwrite client (uses VITE_PUBLIC_* env only)
@@ -7,11 +7,15 @@ import { publicEnv } from "./env";
  */
 export const appwriteClient = new Client()
     .setEndpoint(publicEnv.APPWRITE_ENDPOINT)
-    .setProject(publicEnv.APPWRITE_PROJECT_ID);
+    .setProject(publicEnv.APPWRITE_PROJECT_ID)
 
-export const databases = new Databases(appwriteClient);
+// ✅ Keep Databases for backwards compatibility (old code)
+export const databases = new Databases(appwriteClient)
 
-export const DATABASE_ID = publicEnv.APPWRITE_DATABASE;
+// ✅ NEW: TablesDB (Appwrite 1.8+ replacement)
+export const tablesDB = new TablesDB(appwriteClient)
+
+export const DATABASE_ID = publicEnv.APPWRITE_DATABASE
 
 export const COLLECTIONS = {
     DEPARTMENTS: "departments",
@@ -38,6 +42,6 @@ export const COLLECTIONS = {
     NOTIFICATION_RECIPIENTS: "notification_recipients",
 
     AUDIT_LOGS: "audit_logs",
-} as const;
+} as const
 
-export { ID, Query };
+export { ID, Query }
