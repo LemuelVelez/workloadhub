@@ -242,6 +242,14 @@ export default function NavMain({ className }: { className?: string }) {
     ]
 
     const chairMenu: NavItem[] = [
+        // ✅ NEW: Overview
+        {
+            title: "Overview",
+            href: "/dashboard/department-head/overview",
+            icon: LayoutDashboard,
+            roles: ["chair"],
+        },
+
         {
             title: "Faculty Workload Assignment",
             href: "/dashboard/department-head/faculty-workload-assignment",

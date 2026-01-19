@@ -66,6 +66,11 @@ const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-workload-assignment")
 )
 
+// ✅ NEW: Department Head Overview
+const DepartmentHeadOverviewPage = React.lazy(
+  () => import("./pages/dashboard/department-head/overview")
+)
+
 // ✅ Department Head Faculty Availability
 const DepartmentHeadFacultyAvailabilityPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-availability")
@@ -467,6 +472,9 @@ export default function App() {
                 {/* ✅ CHAIR Area */}
                 <Route path="department-head" element={<RequireRole allow={["chair"]} />}>
                   <Route index element={<Navigate to="faculty-workload-assignment" replace />} />
+
+                  {/* ✅ NEW: Overview */}
+                  <Route path="overview" element={<DepartmentHeadOverviewPage />} />
 
                   <Route
                     path="faculty-workload-assignment"
