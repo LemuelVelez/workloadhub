@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { tablesDB, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
+import { tablesDB, DATABASE_ID, COLLECTIONS, Query, ID } from "@/lib/db"
 
 type AnyRow = {
     $id: string
@@ -90,6 +90,16 @@ function durationMinutes(start: any, end: any) {
     return diff > 0 ? diff : 0
 }
 
+function normalizePreference(pref: any) {
+    const p = safeStr(pref)
+    if (!p) return "Neutral"
+    const lower = p.toLowerCase()
+    if (lower.includes("unavail")) return "Unavailable"
+    if (lower.includes("prefer")) return "Preferred"
+    if (lower.includes("neutral")) return "Neutral"
+    return p
+}
+
 export type FacultyScheduleItem = {
     meetingId: string
     classId: string
@@ -131,6 +141,20 @@ export type FacultyWorkloadSummaryItem = {
 
     meetingCount: number
     weeklyMinutes: number
+}
+
+export type FacultyAvailabilityItem = {
+    $id: string
+    $createdAt?: string
+    $updatedAt?: string
+
+    termId: string
+    userId: string
+    dayOfWeek: string
+    startTime: string
+    endTime: string
+    preference: string
+    notes?: string | null
 }
 
 export const facultyMemberApi = {
@@ -316,7 +340,8 @@ export const facultyMemberApi = {
 
                     const sectionLabel =
                         sec
-                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""}`
+                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""
+                            }`
                             : null
 
                     return {
@@ -496,7 +521,8 @@ export const facultyMemberApi = {
 
                     const sectionLabel =
                         sec
-                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""}`
+                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""
+                            }`
                             : null
 
                     const sUnits = toNum(subj?.units, 0)
@@ -546,6 +572,145 @@ export const facultyMemberApi = {
                 facultyProfile,
                 items,
             }
+        },
+    },
+
+    /**
+     * ✅ NEW: Faculty Availability / Preference Submission
+     * Saves entries into FACULTY_AVAILABILITY table for ACTIVE term.
+     */
+    availability: {
+        async listMy(args: { userId: string }) {
+            const userId = safeStr(args.userId)
+            if (!userId) {
+                return {
+                    term: null,
+                    items: [] as FacultyAvailabilityItem[],
+                }
+            }
+
+            const term = await facultyMemberApi.terms.getActive().catch(() => null)
+            const termId = safeStr(term?.$id)
+
+            if (!termId) {
+                return {
+                    term: null,
+                    items: [] as FacultyAvailabilityItem[],
+                }
+            }
+
+            const rows = await listAllRows(
+                COLLECTIONS.FACULTY_AVAILABILITY,
+                [
+                    Query.equal("termId", termId),
+                    Query.equal("userId", userId),
+                    Query.orderDesc("$updatedAt"),
+                ],
+                6000
+            )
+
+            const items: FacultyAvailabilityItem[] = rows
+                .map((r) => {
+                    return {
+                        $id: safeStr(r?.$id),
+                        $createdAt: safeStr(r?.$createdAt),
+                        $updatedAt: safeStr(r?.$updatedAt),
+
+                        termId: safeStr(r?.termId),
+                        userId: safeStr(r?.userId),
+
+                        dayOfWeek: normalizeDay(r?.dayOfWeek),
+                        startTime: safeStr(r?.startTime),
+                        endTime: safeStr(r?.endTime),
+                        preference: normalizePreference(r?.preference),
+                        notes: safeStr(r?.notes) || null,
+                    } as FacultyAvailabilityItem
+                })
+                .filter((x) => x.$id && x.termId && x.userId)
+                .sort((a, b) => {
+                    const da = DAY_ORDER.indexOf(a.dayOfWeek as any)
+                    const db = DAY_ORDER.indexOf(b.dayOfWeek as any)
+                    if (da !== db) return da - db
+                    return timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
+                })
+
+            return { term, items }
+        },
+
+        async createMy(args: {
+            userId: string
+            dayOfWeek: string
+            startTime: string
+            endTime: string
+            preference: string
+            notes?: string
+        }) {
+            const userId = safeStr(args.userId)
+            if (!userId) throw new Error("Missing userId")
+
+            const term = await facultyMemberApi.terms.getActive().catch(() => null)
+            const termId = safeStr(term?.$id)
+            if (!termId) throw new Error("No active term")
+
+            const payload = {
+                termId,
+                userId,
+                dayOfWeek: normalizeDay(args.dayOfWeek),
+                startTime: safeStr(args.startTime),
+                endTime: safeStr(args.endTime),
+                preference: normalizePreference(args.preference),
+                notes: safeStr(args.notes) || null,
+            }
+
+            return await tablesDB.createRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.FACULTY_AVAILABILITY,
+                rowId: ID.unique(),
+                data: payload,
+            })
+        },
+
+        async updateMy(args: {
+            userId: string
+            rowId: string
+            dayOfWeek: string
+            startTime: string
+            endTime: string
+            preference: string
+            notes?: string
+        }) {
+            const userId = safeStr(args.userId)
+            const rowId = safeStr(args.rowId)
+            if (!userId) throw new Error("Missing userId")
+            if (!rowId) throw new Error("Missing rowId")
+
+            const payload = {
+                dayOfWeek: normalizeDay(args.dayOfWeek),
+                startTime: safeStr(args.startTime),
+                endTime: safeStr(args.endTime),
+                preference: normalizePreference(args.preference),
+                notes: safeStr(args.notes) || null,
+            }
+
+            return await tablesDB.updateRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.FACULTY_AVAILABILITY,
+                rowId,
+                data: payload,
+            })
+        },
+
+        async deleteMy(args: { userId: string; rowId: string }) {
+            const userId = safeStr(args.userId)
+            const rowId = safeStr(args.rowId)
+            if (!userId) throw new Error("Missing userId")
+            if (!rowId) throw new Error("Missing rowId")
+
+            return await tablesDB.deleteRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.FACULTY_AVAILABILITY,
+                rowId,
+            })
         },
     },
 }

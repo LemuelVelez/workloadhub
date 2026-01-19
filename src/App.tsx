@@ -103,6 +103,11 @@ const FacultyOverviewPage = React.lazy(() => import("./pages/dashboard/faculty-m
 const FacultyMySchedulePage = React.lazy(() => import("./pages/dashboard/faculty-member/my-schedule"))
 const FacultyWorkloadSummaryPage = React.lazy(() => import("./pages/dashboard/faculty-member/workload-summary"))
 
+// ✅ NEW: Availability / Preference Submission
+const FacultyPreferenceSubmissionPage = React.lazy(
+  () => import("./pages/dashboard/faculty-member/availability/preference-submission")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -518,6 +523,12 @@ export default function App() {
                   <Route path="overview" element={<FacultyOverviewPage />} />
                   <Route path="my-schedule" element={<FacultyMySchedulePage />} />
                   <Route path="workload-summary" element={<FacultyWorkloadSummaryPage />} />
+
+                  {/* ✅ NEW */}
+                  <Route
+                    path="availability/preference-submission"
+                    element={<FacultyPreferenceSubmissionPage />}
+                  />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />

@@ -317,6 +317,14 @@ export default function NavMain({ className }: { className?: string }) {
             icon: ClipboardList,
             roles: ["faculty"],
         },
+
+        // ✅ NEW
+        {
+            title: "Availability Preferences",
+            href: "/dashboard/faculty/availability/preference-submission",
+            icon: Clock,
+            roles: ["faculty"],
+        },
     ]
 
     const preferencesMenu: NavItem[] = [
