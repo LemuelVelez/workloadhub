@@ -191,12 +191,18 @@ export default function NavMain({ className }: { className?: string }) {
         { title: "Audit Logs", href: "/dashboard/admin/audit-logs", icon: FileClock, roles: ["admin"] },
     ]
 
-    // ✅ UPDATED: Department Head menu includes Conflict Checker
+    // ✅ UPDATED: Department Head menu includes Faculty Availability
     const chairMenu: NavItem[] = [
         {
             title: "Faculty Workload Assignment",
             href: "/dashboard/department-head/faculty-workload-assignment",
             icon: ClipboardList,
+            roles: ["chair"],
+        },
+        {
+            title: "Faculty Availability",
+            href: "/dashboard/department-head/faculty-availability",
+            icon: Clock,
             roles: ["chair"],
         },
         {

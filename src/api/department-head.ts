@@ -138,6 +138,32 @@ export const departmentHeadApi = {
         },
     },
 
+    /**
+     * ✅ NEW: Faculty Availability (Preferences)
+     * - Uses faculty_availability collection
+     * - termId is required
+     */
+    facultyAvailability: {
+        async listByTerm(termId: string) {
+            if (!termId) return []
+            const docs = await listAllDocuments(COLLECTIONS.FACULTY_AVAILABILITY, [
+                Query.equal("termId", termId),
+                Query.orderDesc("$updatedAt"),
+            ])
+            return docs
+        },
+
+        async listByTermUser(termId: string, userId: string) {
+            if (!termId || !userId) return []
+            const docs = await listAllDocuments(COLLECTIONS.FACULTY_AVAILABILITY, [
+                Query.equal("termId", termId),
+                Query.equal("userId", userId),
+                Query.orderDesc("$updatedAt"),
+            ])
+            return docs
+        },
+    },
+
     // ✅ NEW: Rooms loader (for scheduling room selection)
     rooms: {
         async listActive() {

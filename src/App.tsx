@@ -66,6 +66,11 @@ const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-workload-assignment")
 )
 
+// ✅ NEW: Department Head Faculty Availability
+const DepartmentHeadFacultyAvailabilityPage = React.lazy(
+  () => import("./pages/dashboard/department-head/faculty-availability")
+)
+
 // ✅ Department Head Class Scheduling
 const DepartmentHeadClassSchedulingPage = React.lazy(
   () => import("./pages/dashboard/department-head/class-scheduling")
@@ -452,12 +457,18 @@ export default function App() {
                     element={<DepartmentHeadFacultyWorkloadAssignmentPage />}
                   />
 
+                  {/* ✅ NEW: Faculty Availability */}
+                  <Route
+                    path="faculty-availability"
+                    element={<DepartmentHeadFacultyAvailabilityPage />}
+                  />
+
                   <Route
                     path="class-scheduling"
                     element={<DepartmentHeadClassSchedulingPage />}
                   />
 
-                  {/* ✅ NEW: Conflict Checker */}
+                  {/* ✅ Conflict Checker */}
                   <Route
                     path="conflict-checker"
                     element={<DepartmentHeadConflictCheckerPage />}
