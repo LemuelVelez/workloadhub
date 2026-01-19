@@ -66,9 +66,14 @@ const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-workload-assignment")
 )
 
-// ✅ NEW: Department Head Class Scheduling
+// ✅ Department Head Class Scheduling
 const DepartmentHeadClassSchedulingPage = React.lazy(
   () => import("./pages/dashboard/department-head/class-scheduling")
+)
+
+// ✅ NEW: Conflict Checker
+const DepartmentHeadConflictCheckerPage = React.lazy(
+  () => import("./pages/dashboard/department-head/conflict-checker")
 )
 
 function readBool(v: any) {
@@ -447,10 +452,15 @@ export default function App() {
                     element={<DepartmentHeadFacultyWorkloadAssignmentPage />}
                   />
 
-                  {/* ✅ NEW: Class Scheduling Page */}
                   <Route
                     path="class-scheduling"
                     element={<DepartmentHeadClassSchedulingPage />}
+                  />
+
+                  {/* ✅ NEW: Conflict Checker */}
+                  <Route
+                    path="conflict-checker"
+                    element={<DepartmentHeadConflictCheckerPage />}
                   />
                 </Route>
 

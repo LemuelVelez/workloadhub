@@ -16,6 +16,7 @@ import {
     FileClock,
     UserCircle2,
     ClipboardList,
+    AlertTriangle,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -190,7 +191,7 @@ export default function NavMain({ className }: { className?: string }) {
         { title: "Audit Logs", href: "/dashboard/admin/audit-logs", icon: FileClock, roles: ["admin"] },
     ]
 
-    // ✅ UPDATED: Department Head menu now includes Class Scheduling
+    // ✅ UPDATED: Department Head menu includes Conflict Checker
     const chairMenu: NavItem[] = [
         {
             title: "Faculty Workload Assignment",
@@ -202,6 +203,12 @@ export default function NavMain({ className }: { className?: string }) {
             title: "Class Scheduling",
             href: "/dashboard/department-head/class-scheduling",
             icon: CalendarDays,
+            roles: ["chair"],
+        },
+        {
+            title: "Conflict Checker",
+            href: "/dashboard/department-head/conflict-checker",
+            icon: AlertTriangle,
             roles: ["chair"],
         },
     ]
