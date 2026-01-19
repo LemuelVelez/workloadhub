@@ -30,6 +30,9 @@ export const COLLECTIONS = {
     USER_PROFILES: "user_profiles",
     FACULTY_PROFILES: "faculty_profiles",
 
+    // ✅ NEW: match schemaModel.ts
+    FIRST_LOGIN_USERS: "first_login_users",
+
     SECTIONS: "sections",
     SCHEDULE_VERSIONS: "schedule_versions",
     CLASSES: "classes",

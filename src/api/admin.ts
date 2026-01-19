@@ -11,10 +11,33 @@ import {
 // ✅ NEW: First-login status helper from Appwrite table
 import { getFirstLoginStatusMap } from "@/lib/first-login"
 
+// ✅ NEW: Sections backend helpers
+import {
+    listSections,
+    createSection,
+    updateSection,
+    deleteSection,
+    listAcademicTermsLite,
+} from "@/lib/admin-sections"
+
 export const adminApi = {
     departments: {
         listLite: listDepartmentsLite,
     },
+
+    // ✅ NEW: Academic terms (used by Sections)
+    academicTerms: {
+        listLite: listAcademicTermsLite,
+    },
+
+    // ✅ NEW: Sections API (uses Appwrite SECTIONS table)
+    sections: {
+        list: listSections,
+        create: createSection,
+        update: updateSection,
+        remove: deleteSection,
+    },
+
     users: {
         list: listUserProfiles,
 

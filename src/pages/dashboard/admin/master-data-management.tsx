@@ -7,6 +7,7 @@ import { Plus, RefreshCcw, Pencil, Trash2 } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
+import { SECTION_NAME_OPTIONS } from "@/model/schemaModel"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -90,6 +91,27 @@ type SubjectDoc = {
     isActive: boolean
 }
 
+type AcademicTermDoc = {
+    $id: string
+    schoolYear: string
+    semester: string
+    startDate?: string | null
+    endDate?: string | null
+    isActive: boolean
+    isLocked: boolean
+}
+
+type SectionDoc = {
+    $id: string
+    termId: string
+    departmentId: string
+    programId?: string | null
+    yearLevel: number
+    name: string
+    studentCount?: number | null
+    isActive: boolean
+}
+
 type UserProfileDoc = {
     $id: string
     userId: string
@@ -111,13 +133,14 @@ type FacultyProfileDoc = {
     notes?: string | null
 }
 
-type MasterTab = "departments" | "programs" | "subjects" | "faculty"
+type MasterTab = "departments" | "programs" | "subjects" | "faculty" | "sections"
 
 type DeleteIntent =
     | { type: "department"; doc: DepartmentDoc }
     | { type: "program"; doc: ProgramDoc }
     | { type: "subject"; doc: SubjectDoc }
     | { type: "faculty"; doc: FacultyProfileDoc }
+    | { type: "section"; doc: SectionDoc }
 
 const FACULTY_ROLES = ["FACULTY", "CHAIR", "DEAN"] as const
 
@@ -145,6 +168,24 @@ function deptLabel(depts: DepartmentDoc[], deptId: string | null | undefined) {
     return `${d.code} — ${d.name}`
 }
 
+function programLabel(programs: ProgramDoc[], programId: string | null | undefined) {
+    const id = String(programId ?? "").trim()
+    if (!id) return "—"
+    const p = programs.find((x) => x.$id === id)
+    if (!p) return "Unknown"
+    return `${p.code} — ${p.name}`
+}
+
+function termLabel(terms: AcademicTermDoc[], termId: string | null | undefined) {
+    const id = String(termId ?? "").trim()
+    if (!id) return "—"
+    const t = terms.find((x) => x.$id === id)
+    if (!t) return "Unknown"
+    const sy = str(t.schoolYear)
+    const sem = str(t.semester)
+    return sy && sem ? `${sy} • ${sem}` : sy || sem || "Term"
+}
+
 function facultyDisplay(u?: UserProfileDoc | null) {
     if (!u) return "Unknown faculty"
     const name = str(u.name) || "Unnamed"
@@ -157,6 +198,8 @@ async function listDocs(collectionId: string, queries: any[] = []) {
     return (res?.documents ?? []) as any[]
 }
 
+const YEAR_LEVEL_OPTIONS = [1, 2, 3, 4, 5, 6] as const
+
 export default function AdminMasterDataManagementPage() {
     const [tab, setTab] = React.useState<MasterTab>("departments")
     const [loading, setLoading] = React.useState(true)
@@ -165,6 +208,11 @@ export default function AdminMasterDataManagementPage() {
     const [programs, setPrograms] = React.useState<ProgramDoc[]>([])
     const [subjects, setSubjects] = React.useState<SubjectDoc[]>([])
     const [facultyProfiles, setFacultyProfiles] = React.useState<FacultyProfileDoc[]>([])
+
+    // ✅ NEW: Terms + Sections (SECTIONS table now used)
+    const [terms, setTerms] = React.useState<AcademicTermDoc[]>([])
+    const [sections, setSections] = React.useState<SectionDoc[]>([])
+    const [selectedTermId, setSelectedTermId] = React.useState("")
 
     // ✅ NEW: faculty users from USER_PROFILES (role FACULTY/CHAIR/DEAN)
     const [facultyUsers, setFacultyUsers] = React.useState<UserProfileDoc[]>([])
@@ -176,15 +224,22 @@ export default function AdminMasterDataManagementPage() {
     const refreshAll = React.useCallback(async () => {
         setLoading(true)
         try {
-            const [deptDocs, progDocs, subDocs, facDocs, userProfileDocs] = await Promise.all([
-                listDocs(COLLECTIONS.DEPARTMENTS, [Query.orderAsc("name"), Query.limit(200)]),
-                listDocs(COLLECTIONS.PROGRAMS, [Query.orderAsc("name"), Query.limit(500)]),
-                listDocs(COLLECTIONS.SUBJECTS, [Query.orderAsc("code"), Query.limit(2000)]),
-                listDocs(COLLECTIONS.FACULTY_PROFILES, [Query.orderAsc("$createdAt"), Query.limit(1000)]),
+            const [deptDocs, progDocs, subDocs, facDocs, userProfileDocs, termDocs, sectionDocs] =
+                await Promise.all([
+                    listDocs(COLLECTIONS.DEPARTMENTS, [Query.orderAsc("name"), Query.limit(200)]),
+                    listDocs(COLLECTIONS.PROGRAMS, [Query.orderAsc("name"), Query.limit(500)]),
+                    listDocs(COLLECTIONS.SUBJECTS, [Query.orderAsc("code"), Query.limit(2000)]),
+                    listDocs(COLLECTIONS.FACULTY_PROFILES, [Query.orderAsc("$createdAt"), Query.limit(1000)]),
 
-                // ✅ fetch user profiles (then filter to faculty roles)
-                listDocs(COLLECTIONS.USER_PROFILES, [Query.orderAsc("name"), Query.limit(2000)]),
-            ])
+                    // ✅ fetch user profiles (then filter to faculty roles)
+                    listDocs(COLLECTIONS.USER_PROFILES, [Query.orderAsc("name"), Query.limit(2000)]),
+
+                    // ✅ Academic Terms
+                    listDocs(COLLECTIONS.ACADEMIC_TERMS, [Query.orderDesc("$createdAt"), Query.limit(500)]),
+
+                    // ✅ Sections (now used)
+                    listDocs(COLLECTIONS.SECTIONS, [Query.orderDesc("$createdAt"), Query.limit(5000)]),
+                ])
 
             setDepartments(
                 deptDocs.map((d: any) => ({
@@ -249,6 +304,36 @@ export default function AdminMasterDataManagementPage() {
                 .sort((a, b) => facultyDisplay(a).localeCompare(facultyDisplay(b)))
 
             setFacultyUsers(filteredFacultyUsers)
+
+            const mappedTerms: AcademicTermDoc[] = (termDocs ?? []).map((t: any) => ({
+                $id: t.$id,
+                schoolYear: str(t.schoolYear),
+                semester: str(t.semester),
+                startDate: t.startDate ?? null,
+                endDate: t.endDate ?? null,
+                isActive: toBool(t.isActive),
+                isLocked: toBool(t.isLocked),
+            }))
+            setTerms(mappedTerms)
+
+            // ✅ Auto-select an active term (or fallback to first)
+            setSelectedTermId((prev) => {
+                if (str(prev)) return prev
+                const active = mappedTerms.find((x) => x.isActive)
+                return active?.$id || mappedTerms[0]?.$id || ""
+            })
+
+            const mappedSections: SectionDoc[] = (sectionDocs ?? []).map((s: any) => ({
+                $id: s.$id,
+                termId: str(s.termId),
+                departmentId: str(s.departmentId),
+                programId: s.programId ? str(s.programId) : null,
+                yearLevel: num(s.yearLevel, 1),
+                name: str(s.name),
+                studentCount: s.studentCount != null ? num(s.studentCount, 0) : null,
+                isActive: toBool(s.isActive),
+            }))
+            setSections(mappedSections)
         } catch (e: any) {
             toast.error(e?.message || "Failed to load Master Data.")
         } finally {
@@ -540,6 +625,124 @@ export default function AdminMasterDataManagementPage() {
     }
 
     // -----------------------------
+    // Sections dialog state (NEW)
+    // -----------------------------
+    const [secOpen, setSecOpen] = React.useState(false)
+    const [secEditing, setSecEditing] = React.useState<SectionDoc | null>(null)
+
+    const [secTermId, setSecTermId] = React.useState("")
+    const [secDeptId, setSecDeptId] = React.useState("")
+    const [secProgId, setSecProgId] = React.useState<string>("__none__")
+    const [secYear, setSecYear] = React.useState<string>("1")
+    const [secName, setSecName] = React.useState<string>(SECTION_NAME_OPTIONS[0] || "A")
+    const [secStudentCount, setSecStudentCount] = React.useState<string>("")
+    const [secActive, setSecActive] = React.useState<boolean>(true)
+
+    React.useEffect(() => {
+        if (!secOpen) return
+
+        if (!secEditing) {
+            setSecTermId(str(selectedTermId))
+            setSecDeptId("")
+            setSecProgId("__none__")
+            setSecYear("1")
+            setSecName(SECTION_NAME_OPTIONS[0] || "A")
+            setSecStudentCount("")
+            setSecActive(true)
+            return
+        }
+
+        setSecTermId(str(secEditing.termId))
+        setSecDeptId(str(secEditing.departmentId))
+        setSecProgId(secEditing.programId ? str(secEditing.programId) : "__none__")
+        setSecYear(String(secEditing.yearLevel ?? 1))
+        setSecName(str(secEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
+        setSecStudentCount(secEditing.studentCount != null ? String(secEditing.studentCount) : "")
+        setSecActive(Boolean(secEditing.isActive))
+    }, [secOpen, secEditing, selectedTermId])
+
+    const programsForSelectedDept = React.useMemo(() => {
+        const deptId = str(secDeptId)
+        if (!deptId) return []
+        return programs
+            .filter((p) => str(p.departmentId) === deptId)
+            .sort((a, b) => `${a.code} ${a.name}`.localeCompare(`${b.code} ${b.name}`))
+    }, [programs, secDeptId])
+
+    async function saveSection() {
+        const termId = str(secTermId)
+        const departmentId = str(secDeptId)
+        const yearLevel = num(secYear, 1)
+        const name = str(secName)
+
+        if (!termId) {
+            toast.error("Academic term is required for Sections.")
+            return
+        }
+        if (!departmentId) {
+            toast.error("Department is required for Sections.")
+            return
+        }
+        if (!Number.isFinite(yearLevel) || yearLevel <= 0) {
+            toast.error("Year level must be a valid number.")
+            return
+        }
+        if (!name) {
+            toast.error("Section name is required.")
+            return
+        }
+        if (!SECTION_NAME_OPTIONS.includes(name as any)) {
+            toast.error(`Invalid section name. Use A-Z or "Others".`)
+            return
+        }
+
+        const programId = str(secProgId) === "__none__" ? null : str(secProgId)
+        const studentCount = str(secStudentCount) ? num(secStudentCount, 0) : null
+
+        const payload: any = {
+            termId,
+            departmentId,
+            programId,
+            yearLevel,
+            name,
+            studentCount,
+            isActive: Boolean(secActive),
+        }
+
+        // ✅ optional local uniqueness check to avoid duplicate index errors
+        const conflict = sections.find((s) => {
+            if (secEditing?.$id && s.$id === secEditing.$id) return false
+            return (
+                str(s.termId) === termId &&
+                str(s.departmentId) === departmentId &&
+                num(s.yearLevel, 0) === yearLevel &&
+                str(s.name).toUpperCase() === name.toUpperCase()
+            )
+        })
+
+        if (conflict) {
+            toast.error(`Section already exists for this term/department/year/name.`)
+            return
+        }
+
+        try {
+            if (secEditing) {
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, secEditing.$id, payload)
+                toast.success("Section updated.")
+            } else {
+                await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), payload)
+                toast.success("Section created.")
+            }
+
+            setSecOpen(false)
+            setSecEditing(null)
+            await refreshAll()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to save section.")
+        }
+    }
+
+    // -----------------------------
     // DELETE (ShadCN AlertDialog)
     // -----------------------------
     async function confirmDelete() {
@@ -564,6 +767,12 @@ export default function AdminMasterDataManagementPage() {
             if (deleteIntent.type === "faculty") {
                 await databases.deleteDocument(DATABASE_ID, COLLECTIONS.FACULTY_PROFILES, deleteIntent.doc.$id)
                 toast.success("Faculty profile deleted.")
+            }
+
+            // ✅ NEW: delete section
+            if (deleteIntent.type === "section") {
+                await databases.deleteDocument(DATABASE_ID, COLLECTIONS.SECTIONS, deleteIntent.doc.$id)
+                toast.success("Section deleted.")
             }
 
             setDeleteIntent(null)
@@ -602,11 +811,32 @@ export default function AdminMasterDataManagementPage() {
         })
     }, [facultyProfiles, q, facultyUserMap])
 
+    const visibleSectionsByTerm = React.useMemo(() => {
+        const termId = str(selectedTermId)
+        if (!termId) return sections
+        return sections.filter((s) => str(s.termId) === termId)
+    }, [sections, selectedTermId])
+
+    const filteredSections = React.useMemo(() => {
+        const base = visibleSectionsByTerm
+        if (!q) return base
+        return base.filter((s) => {
+            const dept = deptLabel(departments, s.departmentId)
+            const prog = programLabel(programs, s.programId ?? null)
+            const term = termLabel(terms, s.termId)
+            const main = `Y${s.yearLevel} ${s.name}`
+            return `${main} ${dept} ${prog} ${term} ${s.studentCount ?? ""}`
+                .toLowerCase()
+                .includes(q)
+        })
+    }, [visibleSectionsByTerm, q, departments, programs, terms])
+
     const stats = [
         { label: "Departments", value: departments.length },
         { label: "Programs/Courses", value: programs.length },
         { label: "Subjects", value: subjects.length },
         { label: "Faculty Profiles", value: facultyProfiles.length },
+        { label: "Sections", value: sections.length },
     ]
 
     const deleteTitle =
@@ -618,7 +848,9 @@ export default function AdminMasterDataManagementPage() {
                     ? `Delete Subject`
                     : deleteIntent?.type === "faculty"
                         ? `Delete Faculty Profile`
-                        : "Delete"
+                        : deleteIntent?.type === "section"
+                            ? `Delete Section`
+                            : "Delete"
 
     const deleteText =
         deleteIntent?.type === "department"
@@ -629,7 +861,9 @@ export default function AdminMasterDataManagementPage() {
                     ? `This will permanently delete "${deleteIntent.doc.code} — ${deleteIntent.doc.title}".`
                     : deleteIntent?.type === "faculty"
                         ? `This will permanently delete faculty profile for userId "${deleteIntent.doc.userId}".`
-                        : "This action cannot be undone."
+                        : deleteIntent?.type === "section"
+                            ? `This will permanently delete section "Y${deleteIntent.doc.yearLevel} ${deleteIntent.doc.name}".`
+                            : "This action cannot be undone."
 
     return (
         <DashboardLayout
@@ -654,7 +888,7 @@ export default function AdminMasterDataManagementPage() {
                 </Alert>
 
                 {/* Stats */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                     {stats.map((s) => (
                         <Card key={s.label}>
                             <CardHeader className="pb-2">
@@ -674,7 +908,7 @@ export default function AdminMasterDataManagementPage() {
                             <div>
                                 <CardTitle>Manage Records</CardTitle>
                                 <CardDescription>
-                                    Add, edit, and maintain Departments, Programs, Subjects, and Faculty Profiles.
+                                    Add, edit, and maintain Departments, Programs, Subjects, Faculty Profiles, and Sections.
                                 </CardDescription>
                             </div>
 
@@ -691,11 +925,12 @@ export default function AdminMasterDataManagementPage() {
 
                     <CardContent>
                         <Tabs value={tab} onValueChange={(v: any) => setTab(v)} className="w-full">
-                            <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4">
+                            <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
                                 <TabsTrigger value="departments">Departments</TabsTrigger>
                                 <TabsTrigger value="programs">Programs/Courses</TabsTrigger>
                                 <TabsTrigger value="subjects">Subjects</TabsTrigger>
                                 <TabsTrigger value="faculty">Faculty Profiles</TabsTrigger>
+                                <TabsTrigger value="sections">Sections</TabsTrigger>
                             </TabsList>
 
                             <Separator className="my-4" />
@@ -1204,10 +1439,12 @@ export default function AdminMasterDataManagementPage() {
                                                             </TableCell>
                                                             <TableCell>
                                                                 <div className="text-xs text-muted-foreground">
-                                                                    Units: <span className="font-medium text-foreground">{f.maxUnits ?? "—"}</span>
+                                                                    Units:{" "}
+                                                                    <span className="font-medium text-foreground">{f.maxUnits ?? "—"}</span>
                                                                 </div>
                                                                 <div className="text-xs text-muted-foreground">
-                                                                    Hours: <span className="font-medium text-foreground">{f.maxHours ?? "—"}</span>
+                                                                    Hours:{" "}
+                                                                    <span className="font-medium text-foreground">{f.maxHours ?? "—"}</span>
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="text-right">
@@ -1289,7 +1526,8 @@ export default function AdminMasterDataManagementPage() {
                                                         <div className="text-muted-foreground">Selected Faculty</div>
                                                         <div className="mt-1 font-medium">{facultyDisplay(selectedFacultyUser)}</div>
                                                         <div className="mt-1 text-muted-foreground">
-                                                            userId: <span className="font-medium text-foreground">{selectedFacultyUser.userId}</span>
+                                                            userId:{" "}
+                                                            <span className="font-medium text-foreground">{selectedFacultyUser.userId}</span>
                                                         </div>
                                                     </div>
                                                 ) : (
@@ -1369,6 +1607,275 @@ export default function AdminMasterDataManagementPage() {
                                                 Cancel
                                             </Button>
                                             <Button onClick={() => void saveFacultyProfile()}>Save</Button>
+                                        </DialogFooter>
+                                    </DialogContent>
+                                </Dialog>
+                            </TabsContent>
+
+                            {/* ---------------- SECTIONS (NEW) ---------------- */}
+                            <TabsContent value="sections" className="space-y-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <div className="font-medium">Sections</div>
+                                        <div className="text-sm text-muted-foreground">
+                                            Manage class sections per term (A–Z + Others), including year level and student count.
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                                        <div className="w-full sm:w-80">
+                                            <Select value={selectedTermId} onValueChange={setSelectedTermId}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select Academic Term" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {terms.length === 0 ? (
+                                                        <SelectItem value="__none__" disabled>
+                                                            No academic terms found
+                                                        </SelectItem>
+                                                    ) : (
+                                                        terms.map((t) => (
+                                                            <SelectItem key={t.$id} value={t.$id}>
+                                                                {termLabel(terms, t.$id)}{t.isActive ? " • Active" : ""}
+                                                            </SelectItem>
+                                                        ))
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <Button
+                                            size="sm"
+                                            onClick={() => {
+                                                setSecEditing(null)
+                                                setSecOpen(true)
+                                            }}
+                                            disabled={terms.length === 0}
+                                        >
+                                            <Plus className="h-4 w-4 mr-2" />
+                                            Add Section
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {loading ? (
+                                    <div className="space-y-3">
+                                        <Skeleton className="h-10 w-full" />
+                                        <Skeleton className="h-10 w-full" />
+                                        <Skeleton className="h-10 w-full" />
+                                    </div>
+                                ) : terms.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground">
+                                        No academic terms found. Create an Academic Term first to manage Sections.
+                                    </div>
+                                ) : filteredSections.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground">
+                                        No sections found for this term.
+                                    </div>
+                                ) : (
+                                    <div className="rounded-md border overflow-hidden">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead className="w-40">Section</TableHead>
+                                                    <TableHead className="w-72">Department</TableHead>
+                                                    <TableHead>Program (optional)</TableHead>
+                                                    <TableHead className="w-32">Students</TableHead>
+                                                    <TableHead className="w-24">Active</TableHead>
+                                                    <TableHead className="w-40 text-right">Actions</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {filteredSections
+                                                    .slice()
+                                                    .sort((a, b) => {
+                                                        const left = `${a.departmentId}-${a.yearLevel}-${a.name}`
+                                                        const right = `${b.departmentId}-${b.yearLevel}-${b.name}`
+                                                        return left.localeCompare(right)
+                                                    })
+                                                    .map((s) => (
+                                                        <TableRow key={s.$id}>
+                                                            <TableCell className="font-medium">
+                                                                {`Y${s.yearLevel} ${s.name}`}
+                                                            </TableCell>
+                                                            <TableCell className="text-muted-foreground">
+                                                                {deptLabel(departments, s.departmentId)}
+                                                            </TableCell>
+                                                            <TableCell className="text-muted-foreground">
+                                                                {programLabel(programs, s.programId ?? null)}
+                                                            </TableCell>
+                                                            <TableCell className="text-muted-foreground">
+                                                                {s.studentCount != null ? s.studentCount : "—"}
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Badge variant={s.isActive ? "default" : "secondary"}>
+                                                                    {s.isActive ? "Yes" : "No"}
+                                                                </Badge>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <div className="flex justify-end gap-2">
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => {
+                                                                            setSecEditing(s)
+                                                                            setSecOpen(true)
+                                                                        }}
+                                                                    >
+                                                                        <Pencil className="h-4 w-4 mr-2" />
+                                                                        Edit
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="destructive"
+                                                                        size="sm"
+                                                                        onClick={() => setDeleteIntent({ type: "section", doc: s })}
+                                                                    >
+                                                                        <Trash2 className="h-4 w-4 mr-2" />
+                                                                        Delete
+                                                                    </Button>
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                )}
+
+                                {/* Section Dialog */}
+                                <Dialog open={secOpen} onOpenChange={setSecOpen}>
+                                    <DialogContent className={DIALOG_CONTENT_CLASS}>
+                                        <DialogHeader>
+                                            <DialogTitle>{secEditing ? "Edit Section" : "Add Section"}</DialogTitle>
+                                            <DialogDescription>
+                                                Sections are linked to a Term and Department, with year level + name (A-Z / Others).
+                                            </DialogDescription>
+                                        </DialogHeader>
+
+                                        <div className="grid gap-4 py-2">
+                                            <div className="grid gap-2">
+                                                <Label>Academic Term</Label>
+                                                {secEditing ? (
+                                                    <div className="grid gap-2">
+                                                        <Input value={termLabel(terms, secTermId)} disabled />
+                                                        <div className="text-xs text-muted-foreground">
+                                                            Term cannot be changed once created (recommended).
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <Select value={secTermId} onValueChange={setSecTermId}>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select Academic Term" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {terms.map((t) => (
+                                                                <SelectItem key={t.$id} value={t.$id}>
+                                                                    {termLabel(terms, t.$id)}{t.isActive ? " • Active" : ""}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                )}
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>Department</Label>
+                                                <Select value={secDeptId} onValueChange={setSecDeptId}>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select Department" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {departments.map((d) => (
+                                                            <SelectItem key={d.$id} value={d.$id}>
+                                                                {d.code} — {d.name}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>Program (optional)</Label>
+                                                <Select
+                                                    value={secProgId}
+                                                    onValueChange={setSecProgId}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="No Program" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="__none__">No Program</SelectItem>
+                                                        {programsForSelectedDept.map((p) => (
+                                                            <SelectItem key={p.$id} value={p.$id}>
+                                                                {p.code} — {p.name}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Optional, but recommended if your schedule rules are program-based.
+                                                </div>
+                                            </div>
+
+                                            <div className="grid gap-4 sm:grid-cols-2">
+                                                <div className="grid gap-2">
+                                                    <Label>Year Level</Label>
+                                                    <Select value={secYear} onValueChange={setSecYear}>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select Year Level" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {YEAR_LEVEL_OPTIONS.map((y) => (
+                                                                <SelectItem key={y} value={String(y)}>
+                                                                    Year {y}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="grid gap-2">
+                                                    <Label>Section Name</Label>
+                                                    <Select value={secName} onValueChange={setSecName}>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select Section Name" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {SECTION_NAME_OPTIONS.map((n) => (
+                                                                <SelectItem key={n} value={n}>
+                                                                    {n}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>Student Count (optional)</Label>
+                                                <Input
+                                                    value={secStudentCount}
+                                                    onChange={(e) => setSecStudentCount(e.target.value)}
+                                                    inputMode="numeric"
+                                                    placeholder="e.g. 35"
+                                                />
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                <Checkbox
+                                                    checked={secActive}
+                                                    onCheckedChange={(v) => setSecActive(Boolean(v))}
+                                                    id="sec-active"
+                                                />
+                                                <Label htmlFor="sec-active">Active</Label>
+                                            </div>
+                                        </div>
+
+                                        <DialogFooter>
+                                            <Button variant="outline" onClick={() => setSecOpen(false)}>
+                                                Cancel
+                                            </Button>
+                                            <Button onClick={() => void saveSection()}>Save</Button>
                                         </DialogFooter>
                                     </DialogContent>
                                 </Dialog>
