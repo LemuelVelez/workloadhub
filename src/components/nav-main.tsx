@@ -18,6 +18,7 @@ import {
     ClipboardList,
     AlertTriangle,
     BadgeCheck,
+    FileText,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -274,6 +275,14 @@ export default function NavMain({ className }: { className?: string }) {
             title: "Approval & Finalization",
             href: "/dashboard/department-head/approval/finalization",
             icon: BadgeCheck,
+            roles: ["chair"],
+        },
+
+        // ✅ NEW: Reports Module
+        {
+            title: "Reports Module",
+            href: "/dashboard/department-head/reports",
+            icon: FileText,
             roles: ["chair"],
         },
     ]

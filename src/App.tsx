@@ -91,6 +91,11 @@ const DepartmentHeadApprovalFinalizationPage = React.lazy(
   () => import("./pages/dashboard/department-head/approval/finalization")
 )
 
+// ✅ NEW: Reports Module
+const DepartmentHeadReportsModulePage = React.lazy(
+  () => import("./pages/dashboard/department-head/reports-module")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -483,10 +488,16 @@ export default function App() {
                     element={<DepartmentHeadConflictCheckerPage />}
                   />
 
-                  {/* ✅ NEW: Approval / Finalization */}
+                  {/* ✅ Approval / Finalization */}
                   <Route
                     path="approval/finalization"
                     element={<DepartmentHeadApprovalFinalizationPage />}
+                  />
+
+                  {/* ✅ NEW: Reports Module */}
+                  <Route
+                    path="reports"
+                    element={<DepartmentHeadReportsModulePage />}
                   />
                 </Route>
 

@@ -236,7 +236,6 @@ export const departmentHeadApi = {
                 const status = safeStr(r?.status)
 
                 if (!id) continue
-
                 if (id === versionId) continue
 
                 if (status === "Active") {
@@ -388,12 +387,16 @@ export const departmentHeadApi = {
     classes: {
         async listByVersion(termId: string, departmentId: string, versionId: string) {
             if (!termId || !departmentId || !versionId) return []
-            return listAllRows(COLLECTIONS.CLASSES, [
-                Query.equal("termId", termId),
-                Query.equal("departmentId", departmentId),
-                Query.equal("versionId", versionId),
-                Query.orderDesc("$updatedAt"),
-            ])
+            return listAllRows(
+                COLLECTIONS.CLASSES,
+                [
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.equal("versionId", versionId),
+                    Query.orderDesc("$updatedAt"),
+                ],
+                5000
+            )
         },
 
         async unassign(classId: string) {
@@ -508,10 +511,11 @@ export const departmentHeadApi = {
     classMeetings: {
         async listByVersion(versionId: string) {
             if (!versionId) return []
-            return listAllRows(COLLECTIONS.CLASS_MEETINGS, [
-                Query.equal("versionId", versionId),
-                Query.orderDesc("$updatedAt"),
-            ])
+            return listAllRows(
+                COLLECTIONS.CLASS_MEETINGS,
+                [Query.equal("versionId", versionId), Query.orderDesc("$updatedAt")],
+                12000
+            )
         },
 
         async create(args: {
@@ -565,6 +569,24 @@ export const departmentHeadApi = {
                 tableId: COLLECTIONS.CLASS_MEETINGS,
                 rowId: meetingId,
             })
+        },
+    },
+
+    /**
+     * ✅ NEW: Changes / Requests list for Reports Module
+     */
+    changeRequests: {
+        async listByTermDepartment(termId: string, departmentId: string) {
+            if (!termId || !departmentId) return []
+            return listAllRows(
+                COLLECTIONS.CHANGE_REQUESTS,
+                [
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.orderDesc("$updatedAt"),
+                ],
+                2500
+            )
         },
     },
 }
