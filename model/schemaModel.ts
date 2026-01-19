@@ -14,6 +14,42 @@
 export const SCHEMA_MIGRATION_ID = "002_first_login_users" as const;
 
 /**
+ * ✅ Section hardcoded options (A-Z) + Others (last)
+ */
+export const SECTION_LETTERS_A_TO_Z = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+] as const;
+
+export const SECTION_NAME_OPTIONS = [...SECTION_LETTERS_A_TO_Z, "Others"] as const;
+
+export type SectionNameOption = (typeof SECTION_NAME_OPTIONS)[number];
+
+/**
  * Appwrite Collection IDs (must match migration IDs exactly)
  */
 export const COLLECTIONS = {
@@ -292,7 +328,10 @@ export const INDEX = {
 
     SECTIONS: {
         termDepartment: "idx_sections_term_department",
-        termNameUnique: "idx_sections_term_name_unique",
+    
+        // ✅ NEW unique key (termId + departmentId + yearLevel + name)
+        // Appwrite key must be <= 36 chars
+        termDeptYearNameUnique: "idx_sec_term_dept_yr_name_u",
     },
     SCHEDULE_VERSIONS: {
         termDept: "idx_versions_term_dept",
@@ -468,7 +507,13 @@ export type Section = {
     departmentId: string;
     programId?: string | null;
     yearLevel: number;
+
+    /**
+     * ✅ Section name should be A-Z or Others (frontend enforced)
+     * Appwrite cannot enforce enum values.
+     */
     name: string;
+
     studentCount?: number | null;
     isActive: boolean;
 };

@@ -66,6 +66,11 @@ const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-workload-assignment")
 )
 
+// ✅ NEW: Department Head Class Scheduling
+const DepartmentHeadClassSchedulingPage = React.lazy(
+  () => import("./pages/dashboard/department-head/class-scheduling")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -115,9 +120,7 @@ function getMustChangePasswordFromPrefs(user: any) {
 
 /**
  * ✅ Role Resolver
- * IMPORTANT:
- * Role is now merged from `user_profiles.role` inside useSession(),
- * so we only need to read `user.role` here.
+ * Role merged from user_profiles.role inside useSession()
  */
 type RoleKey = "admin" | "chair" | "faculty" | "unknown"
 type AllowedRoleKey = Exclude<RoleKey, "unknown">
@@ -347,10 +350,6 @@ function RequireNeedsPasswordChange() {
   return <Outlet />
 }
 
-/**
- * ✅ Role-based Guard
- * If not allowed, reroute to the user's OWN role home page (discriminated).
- */
 function RequireRole(props: { allow: AllowedRoleKey[] }) {
   const location = useLocation()
   const snap = useAuthSnapshot()
@@ -365,7 +364,6 @@ function RequireRole(props: { allow: AllowedRoleKey[] }) {
 
   const role = resolveRoleKey(snap.user)
 
-  // ✅ If role is unknown, don't redirect-loop -> show loader instead
   if (role === "unknown") {
     return <Loading title="Resolving role…" message="Loading your profile permissions." fullscreen />
   }
@@ -388,7 +386,6 @@ function DashboardIndexRedirect() {
   const snap = useAuthSnapshot()
   const role = resolveRoleKey(snap.user)
 
-  // ✅ prevent redirect-loop when role isn't ready yet
   if (role === "unknown") {
     return <Loading title="Resolving role…" message="Loading your dashboard route." fullscreen />
   }
@@ -421,16 +418,13 @@ export default function App() {
                 <Route index element={<DashboardIndexRedirect />} />
                 <Route path="overview" element={<DashboardIndexRedirect />} />
 
-                {/* ✅ Shared pages for all roles */}
                 <Route path="accounts" element={<DashboardAccountsPage />} />
                 <Route path="settings" element={<DashboardSettingsPage />} />
 
-                {/* ✅ These point into admin area; unauthorized roles will be rerouted by RequireRole */}
                 <Route path="users" element={<Navigate to="admin/users" replace />} />
                 <Route path="requests" element={<Navigate to="admin/requests" replace />} />
                 <Route path="schedules" element={<Navigate to="admin/schedules" replace />} />
 
-                {/* ✅ ADMIN Area (protects ALL future /dashboard/admin/* routes) */}
                 <Route path="admin" element={<RequireRole allow={["admin"]} />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AdminOverviewPage />} />
@@ -444,12 +438,19 @@ export default function App() {
                   <Route path="schedules" element={<AdminSchedulesPage />} />
                 </Route>
 
-                {/* ✅ CHAIR Area (protects ALL future /dashboard/department-head/* routes) */}
+                {/* ✅ CHAIR Area */}
                 <Route path="department-head" element={<RequireRole allow={["chair"]} />}>
                   <Route index element={<Navigate to="faculty-workload-assignment" replace />} />
+
                   <Route
                     path="faculty-workload-assignment"
                     element={<DepartmentHeadFacultyWorkloadAssignmentPage />}
+                  />
+
+                  {/* ✅ NEW: Class Scheduling Page */}
+                  <Route
+                    path="class-scheduling"
+                    element={<DepartmentHeadClassSchedulingPage />}
                   />
                 </Route>
 

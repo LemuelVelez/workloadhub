@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 
 import { departmentHeadApi } from "@/api/department-head"
 import { useSession } from "@/hooks/use-session"
+import { SECTION_LETTERS_A_TO_Z, SECTION_NAME_OPTIONS } from "@/model/schemaModel"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -73,6 +74,9 @@ type AssignmentRow = AnyDoc & {
     classCode?: string | null
     status?: string | null
 }
+
+// ✅ Special sentinel used by Select value when user chooses "Others"
+const OTHER_SECTION_SENTINEL = "__OTHERS__"
 
 function safeStr(v: any) {
     return String(v ?? "").trim()
@@ -149,6 +153,62 @@ function subjectHours(sub: AnyDoc | undefined | null) {
     const total = sub?.totalHours
     if (total !== null && total !== undefined) return safeNum(total, 0)
     return safeNum(sub?.lectureHours, 0) + safeNum(sub?.labHours, 0)
+}
+
+/**
+ * ✅ Section label from DB:
+ * "Year 1 - A"
+ */
+function sectionLabel(s: AnyDoc | undefined | null) {
+    if (!s) return "—"
+    const yl = safeNum(s?.yearLevel, 0)
+    const nm = safeStr(s?.name)
+    if (yl && nm) return `Year ${yl} - ${nm}`
+    return nm || "—"
+}
+
+/**
+ * ✅ Sort sections A-Z then Others (DB-driven list)
+ */
+function sortSectionsAtoZOthers(sections: AnyDoc[]) {
+    const normalized = (s: AnyDoc) => safeStr(s?.name).toUpperCase()
+
+    const buckets = new Map<string, AnyDoc[]>()
+    SECTION_LETTERS_A_TO_Z.forEach((l) => buckets.set(l, []))
+
+    const others: AnyDoc[] = []
+
+    sections.forEach((s) => {
+        const n = normalized(s)
+        if (n.length === 1 && buckets.has(n)) {
+            buckets.get(n)!.push(s)
+        } else {
+            others.push(s)
+        }
+    })
+
+    const out: AnyDoc[] = []
+
+    SECTION_LETTERS_A_TO_Z.forEach((l) => {
+        const items = buckets.get(l) ?? []
+        items.sort((a, b) => {
+            const ya = safeNum(a?.yearLevel, 0)
+            const yb = safeNum(b?.yearLevel, 0)
+            if (ya !== yb) return ya - yb
+            return safeStr(a?.name).localeCompare(safeStr(b?.name))
+        })
+        out.push(...items)
+    })
+
+    others.sort((a, b) => {
+        const ya = safeNum(a?.yearLevel, 0)
+        const yb = safeNum(b?.yearLevel, 0)
+        const n = safeStr(a?.name).localeCompare(safeStr(b?.name))
+        if (n !== 0) return n
+        return ya - yb
+    })
+
+    return [...out, ...others]
 }
 
 export default function FacultyWorkloadAssignmentPage() {
@@ -230,6 +290,7 @@ export default function FacultyWorkloadAssignmentPage() {
     // Assign dialog
     const [assignOpen, setAssignOpen] = React.useState(false)
     const [assignSectionId, setAssignSectionId] = React.useState("")
+    const [assignOtherSection, setAssignOtherSection] = React.useState("") // ✅ NEW
     const [assignSubjectId, setAssignSubjectId] = React.useState("")
     const [assignClassCode, setAssignClassCode] = React.useState("")
     const [assignRemarks, setAssignRemarks] = React.useState("")
@@ -248,6 +309,40 @@ export default function FacultyWorkloadAssignmentPage() {
         sections.forEach((s) => m.set(s.$id, s))
         return m
     }, [sections])
+
+    const sortedSections = React.useMemo(() => {
+        return sortSectionsAtoZOthers(sections)
+    }, [sections])
+
+    /**
+     * ✅ Section select options:
+     * - DB sections (if available) + Others
+     * - fallback A-Z + Others
+     */
+    const sectionSelectOptions = React.useMemo(() => {
+        if (sortedSections.length > 0) {
+            const opts = sortedSections.map((s) => ({
+                value: safeStr(s.$id),
+                label: sectionLabel(s),
+            }))
+
+            opts.push({ value: OTHER_SECTION_SENTINEL, label: "Others" })
+            return opts
+        }
+
+        const fallback = SECTION_NAME_OPTIONS.map((n) => {
+            if (safeStr(n).toLowerCase() === "others") {
+                return { value: OTHER_SECTION_SENTINEL, label: "Others" }
+            }
+            return { value: safeStr(n), label: safeStr(n) }
+        })
+
+        if (!fallback.some((x) => x.value === OTHER_SECTION_SENTINEL)) {
+            fallback.push({ value: OTHER_SECTION_SENTINEL, label: "Others" })
+        }
+
+        return fallback
+    }, [sortedSections])
 
     const facultyProfileMap = React.useMemo(() => {
         const m = new Map<string, AnyDoc>()
@@ -352,7 +447,14 @@ export default function FacultyWorkloadAssignmentPage() {
                 setClasses([])
             }
 
-            setSelectedFacultyId((prev) => (prev ? prev : safeStr(fac.users?.[0]?.$id)))
+            /**
+             * ✅ FIX: selectedFacultyId should be Appwrite Auth userId (NOT profile doc $id)
+             */
+            setSelectedFacultyId((prev) => {
+                if (prev) return prev
+                const first = fac.users?.[0]
+                return safeStr(first?.userId || first?.$id)
+            })
         } catch (e: any) {
             setError(e?.message || "Failed to load data.")
         } finally {
@@ -396,8 +498,11 @@ export default function FacultyWorkloadAssignmentPage() {
         })
     }, [facultyUsers, q])
 
+    /**
+     * ✅ FIX: match faculty by userId (auth user id)
+     */
     const selectedFaculty = React.useMemo(() => {
-        return facultyUsers.find((u) => safeStr(u?.$id) === safeStr(selectedFacultyId)) ?? null
+        return facultyUsers.find((u) => safeStr(u?.userId || u?.$id) === safeStr(selectedFacultyId)) ?? null
     }, [facultyUsers, selectedFacultyId])
 
     const selectedFacultyAssignments = React.useMemo<AssignmentRow[]>(() => {
@@ -417,7 +522,11 @@ export default function FacultyWorkloadAssignmentPage() {
                     _hours: subjectHours(sub),
                 }
             })
-            .sort((a, b) => safeStr(a?._section?.name).localeCompare(safeStr(b?._section?.name)))
+            .sort((a, b) => {
+                const aLabel = a?._section ? sectionLabel(a?._section) : safeStr(a?.sectionId)
+                const bLabel = b?._section ? sectionLabel(b?._section) : safeStr(b?.sectionId)
+                return aLabel.localeCompare(bLabel)
+            })
     }, [classes, selectedFacultyId, subjectMap, sectionMap])
 
     const selectedTotals = React.useMemo(() => {
@@ -455,13 +564,22 @@ export default function FacultyWorkloadAssignmentPage() {
             if (!assignSectionId) throw new Error("Please select a section.")
             if (!assignSubjectId) throw new Error("Please select a subject.")
 
+            const resolvedAssignSectionId =
+                assignSectionId === OTHER_SECTION_SENTINEL
+                    ? safeStr(assignOtherSection)
+                    : safeStr(assignSectionId)
+
+            if (assignSectionId === OTHER_SECTION_SENTINEL && !resolvedAssignSectionId) {
+                throw new Error("Please type the section name for Others.")
+            }
+
             await departmentHeadApi.classes.assignOrCreate({
                 versionId: selectedVersionId,
                 termId: activeTerm.$id,
                 departmentId,
-                sectionId: assignSectionId,
+                sectionId: resolvedAssignSectionId,
                 subjectId: assignSubjectId,
-                facultyUserId: selectedFacultyId,
+                facultyUserId: selectedFacultyId, // ✅ userId (auth id)
                 classCode: assignClassCode.trim() || null,
                 deliveryMode: null,
                 remarks: assignRemarks.trim() || null,
@@ -471,6 +589,7 @@ export default function FacultyWorkloadAssignmentPage() {
             setAssignOpen(false)
 
             setAssignSectionId("")
+            setAssignOtherSection("")
             setAssignSubjectId("")
             setAssignClassCode("")
             setAssignRemarks("")
@@ -641,7 +760,7 @@ export default function FacultyWorkloadAssignmentPage() {
                                             </div>
                                         ) : (
                                             filteredFaculty.map((f) => {
-                                                const id = safeStr(f?.$id)
+                                                const id = safeStr(f?.userId || f?.$id)
                                                 const t = totalsByFaculty.get(id) ?? { units: 0, hours: 0, count: 0 }
                                                 const prof = facultyProfileMap.get(id)
 
@@ -758,35 +877,64 @@ export default function FacultyWorkloadAssignmentPage() {
                                                 <Input value={selectedFaculty ? facultyDisplayName(selectedFaculty) : ""} disabled />
                                             </div>
 
-                                            {/* ✅ FIX: min-w-0 on grid + items prevents overflow */}
+                                            {/* ✅ DB-driven Sections in selection (with year) + Others => Input */}
                                             <div className="grid gap-4 sm:grid-cols-2 min-w-0">
                                                 <div className="space-y-2 min-w-0">
-                                                    <Label>Section</Label>
-                                                    <Select value={assignSectionId} onValueChange={setAssignSectionId}>
-                                                        {/* ✅ FIX: overflow-hidden + truncate for selected value */}
-                                                        <SelectTrigger className="w-full min-w-0 overflow-hidden">
-                                                            <SelectValue placeholder="Select section" className="truncate" />
-                                                        </SelectTrigger>
+                                                    {assignSectionId === OTHER_SECTION_SENTINEL ? (
+                                                        <>
+                                                            <Label>Section (Others)</Label>
+                                                            <Input
+                                                                value={assignOtherSection}
+                                                                onChange={(e) => setAssignOtherSection(e.target.value)}
+                                                                placeholder="Type section name (e.g. Night Section, Special A1)"
+                                                            />
 
-                                                        <SelectContent
-                                                            className="max-w-full"
-                                                            style={{ width: "var(--radix-select-trigger-width)" }}
-                                                        >
-                                                            {sections.map((s) => (
-                                                                <SelectItem key={s.$id} value={s.$id} className="max-w-full">
-                                                                    <span className="block max-w-full truncate">
-                                                                        {safeStr(s?.name)}
-                                                                    </span>
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    setAssignSectionId("")
+                                                                    setAssignOtherSection("")
+                                                                }}
+                                                            >
+                                                                Choose from list
+                                                            </Button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Label>Section</Label>
+                                                            <Select
+                                                                value={assignSectionId}
+                                                                onValueChange={(v) => {
+                                                                    setAssignSectionId(v)
+                                                                    if (v !== OTHER_SECTION_SENTINEL) setAssignOtherSection("")
+                                                                }}
+                                                            >
+                                                                <SelectTrigger className="w-full min-w-0 overflow-hidden">
+                                                                    <SelectValue placeholder="Select section" className="truncate" />
+                                                                </SelectTrigger>
+
+                                                                <SelectContent
+                                                                    className="max-w-full"
+                                                                    style={{ width: "var(--radix-select-trigger-width)" }}
+                                                                >
+                                                                    {sectionSelectOptions.map((opt) => (
+                                                                        <SelectItem key={opt.value} value={opt.value} className="max-w-full">
+                                                                            <span className="block max-w-full truncate">
+                                                                                {opt.label}
+                                                                            </span>
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </>
+                                                    )}
                                                 </div>
 
                                                 <div className="space-y-2 min-w-0">
                                                     <Label>Subject</Label>
                                                     <Select value={assignSubjectId} onValueChange={setAssignSubjectId}>
-                                                        {/* ✅ FIX: overflow-hidden + truncate for selected value */}
                                                         <SelectTrigger className="w-full min-w-0 overflow-hidden">
                                                             <SelectValue placeholder="Select subject" className="truncate" />
                                                         </SelectTrigger>
@@ -828,7 +976,6 @@ export default function FacultyWorkloadAssignmentPage() {
                                             </div>
                                         </div>
 
-                                        {/* ✅ FIX: buttons spacing */}
                                         <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-2">
                                             <Button variant="secondary" onClick={() => setAssignOpen(false)}>
                                                 Cancel
@@ -948,11 +1095,12 @@ export default function FacultyWorkloadAssignmentPage() {
                                             {selectedFacultyAssignments.map((c) => {
                                                 const sec = c?._section
                                                 const sub = c?._subject
+                                                const sectionText = sec ? sectionLabel(sec) : (safeStr(c?.sectionId) || "—")
 
                                                 return (
                                                     <TableRow key={c.$id}>
                                                         <TableCell className="font-medium">
-                                                            {safeStr(sec?.name || "—")}
+                                                            {sectionText}
                                                         </TableCell>
 
                                                         <TableCell className="min-w-0">

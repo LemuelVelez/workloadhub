@@ -46,10 +46,7 @@ function getAreaFromPath(pathname: string): DashboardArea {
     if (!pathname) return null
     if (pathname.startsWith("/dashboard/admin")) return "admin"
 
-    // ✅ New Department Head area
     if (pathname.startsWith("/dashboard/department-head")) return "chair"
-
-    // ✅ Backward compatibility (old chair route)
     if (pathname.startsWith("/dashboard/chair")) return "chair"
 
     if (pathname.startsWith("/dashboard/faculty")) return "faculty"
@@ -116,7 +113,6 @@ function isOverviewRoute(pathname: string) {
     if (!pathname) return false
     if (pathname === "/dashboard") return true
 
-    // ✅ Include department-head area
     return /^\/dashboard\/(admin|department-head|chair|faculty)\/overview\/?$/.test(pathname)
 }
 
@@ -132,7 +128,6 @@ export default function NavMain({ className }: { className?: string }) {
     const { pathname } = useLocation()
     const { user } = useSession()
 
-    // ✅ store last area per-user (prevents admin sticky leaking to chair account)
     const userKey = String(user?.$id || user?.id || user?.userId || "anon").trim()
     const LAST_DASHBOARD_AREA_KEY = `workloadhub:lastDashboardArea:${userKey}`
 
@@ -173,10 +168,6 @@ export default function NavMain({ className }: { className?: string }) {
 
     const effectiveArea = areaFromPath || stickyArea
 
-    /**
-     * ✅ FIX: Role fallback resolver
-     * If user role is missing/unknown, infer from URL area.
-     */
     const roleFromUser = React.useMemo(() => getRoleFromUser(user), [user])
 
     const role: RoleKey = React.useMemo(() => {
@@ -188,63 +179,18 @@ export default function NavMain({ className }: { className?: string }) {
     }, [roleFromUser, effectiveArea])
 
     const adminMenu: NavItem[] = [
-        {
-            title: "Overview",
-            href: "/dashboard/admin/overview",
-            icon: LayoutDashboard,
-            roles: ["admin"],
-        },
-        {
-            title: "Schedules",
-            href: "/dashboard/admin/schedules",
-            icon: CalendarDays,
-            roles: ["admin"],
-        },
-        {
-            title: "Requests",
-            href: "/dashboard/admin/requests",
-            icon: Clock,
-            roles: ["admin"],
-        },
-        {
-            title: "Master Data",
-            href: "/dashboard/admin/master-data-management",
-            icon: Database,
-            roles: ["admin"],
-        },
-        {
-            title: "Academic Term Setup",
-            href: "/dashboard/admin/academic-term-setup",
-            icon: CalendarDays,
-            roles: ["admin"],
-        },
-        {
-            title: "Rooms & Facilities",
-            href: "/dashboard/admin/rooms-and-facilities",
-            icon: DoorOpen,
-            roles: ["admin"],
-        },
-        {
-            title: "Rules & Policies",
-            href: "/dashboard/admin/rules-and-policies",
-            icon: Scale,
-            roles: ["admin"],
-        },
-        {
-            title: "Users",
-            href: "/dashboard/admin/users",
-            icon: Users,
-            roles: ["admin"],
-        },
-        {
-            title: "Audit Logs",
-            href: "/dashboard/admin/audit-logs",
-            icon: FileClock,
-            roles: ["admin"],
-        },
+        { title: "Overview", href: "/dashboard/admin/overview", icon: LayoutDashboard, roles: ["admin"] },
+        { title: "Schedules", href: "/dashboard/admin/schedules", icon: CalendarDays, roles: ["admin"] },
+        { title: "Requests", href: "/dashboard/admin/requests", icon: Clock, roles: ["admin"] },
+        { title: "Master Data", href: "/dashboard/admin/master-data-management", icon: Database, roles: ["admin"] },
+        { title: "Academic Term Setup", href: "/dashboard/admin/academic-term-setup", icon: CalendarDays, roles: ["admin"] },
+        { title: "Rooms & Facilities", href: "/dashboard/admin/rooms-and-facilities", icon: DoorOpen, roles: ["admin"] },
+        { title: "Rules & Policies", href: "/dashboard/admin/rules-and-policies", icon: Scale, roles: ["admin"] },
+        { title: "Users", href: "/dashboard/admin/users", icon: Users, roles: ["admin"] },
+        { title: "Audit Logs", href: "/dashboard/admin/audit-logs", icon: FileClock, roles: ["admin"] },
     ]
 
-    // ✅ Department Head (Chair) menu
+    // ✅ UPDATED: Department Head menu now includes Class Scheduling
     const chairMenu: NavItem[] = [
         {
             title: "Faculty Workload Assignment",
@@ -252,32 +198,21 @@ export default function NavMain({ className }: { className?: string }) {
             icon: ClipboardList,
             roles: ["chair"],
         },
+        {
+            title: "Class Scheduling",
+            href: "/dashboard/department-head/class-scheduling",
+            icon: CalendarDays,
+            roles: ["chair"],
+        },
     ]
 
-    // ✅ Faculty menu (so Faculty isn't empty)
     const facultyMenu: NavItem[] = [
-        {
-            title: "Overview",
-            href: "/dashboard/faculty/overview",
-            icon: LayoutDashboard,
-            roles: ["faculty"],
-        },
+        { title: "Overview", href: "/dashboard/faculty/overview", icon: LayoutDashboard, roles: ["faculty"] },
     ]
 
-    /**
-     * ✅ Preferences ALWAYS SHOW
-     */
     const preferencesMenu: NavItem[] = [
-        {
-            title: "Account",
-            href: "/dashboard/accounts",
-            icon: UserCircle2,
-        },
-        {
-            title: "Settings",
-            href: "/dashboard/settings",
-            icon: Settings,
-        },
+        { title: "Account", href: "/dashboard/accounts", icon: UserCircle2 },
+        { title: "Settings", href: "/dashboard/settings", icon: Settings },
     ]
 
     const visible = (it: NavItem) => {
@@ -348,7 +283,6 @@ export default function NavMain({ className }: { className?: string }) {
                 </>
             ) : null}
 
-            {/* ✅ ALWAYS SHOW PREFERENCES */}
             <SidebarGroup>
                 <SidebarGroupLabel>Preferences</SidebarGroupLabel>
                 <SidebarGroupContent>

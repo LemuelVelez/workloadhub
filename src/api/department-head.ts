@@ -55,8 +55,8 @@ export const departmentHeadApi = {
     },
 
     /**
-     * ✅ NEW: Current user's profile lookup
-     * We use USER_PROFILES as source of truth for:
+     * ✅ Current user's profile lookup
+     * Source of truth:
      * - role
      * - departmentId
      */
@@ -106,6 +106,9 @@ export const departmentHeadApi = {
                 Query.equal("termId", termId),
                 Query.equal("departmentId", departmentId),
                 Query.equal("isActive", true),
+
+                // ✅ Better ordering: Year Level then Name (prevents confusing duplicates)
+                Query.orderAsc("yearLevel"),
                 Query.orderAsc("name"),
             ])
             return docs
@@ -135,6 +138,17 @@ export const departmentHeadApi = {
         },
     },
 
+    // ✅ NEW: Rooms loader (for scheduling room selection)
+    rooms: {
+        async listActive() {
+            const docs = await listAllDocuments(COLLECTIONS.ROOMS, [
+                Query.equal("isActive", true),
+                Query.orderAsc("code"),
+            ])
+            return docs
+        },
+    },
+
     classes: {
         async listByVersion(termId: string, departmentId: string, versionId: string) {
             if (!termId || !departmentId || !versionId) return []
@@ -155,8 +169,38 @@ export const departmentHeadApi = {
         },
 
         /**
+         * ✅ NEW: Find an existing class offering by (version+term+dept+section+subject)
+         * Used by Class Scheduling to avoid duplicating assignment logic.
+         */
+        async findOffering(args: {
+            versionId: string
+            termId: string
+            departmentId: string
+            sectionId: string
+            subjectId: string
+        }) {
+            const { versionId, termId, departmentId, sectionId, subjectId } = args
+
+            if (!versionId || !termId || !departmentId || !sectionId || !subjectId) return null
+
+            const existing = await listAllDocuments(
+                COLLECTIONS.CLASSES,
+                [
+                    Query.equal("versionId", versionId),
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.equal("sectionId", sectionId),
+                    Query.equal("subjectId", subjectId),
+                ],
+                5
+            )
+
+            return existing?.[0] ?? null
+        },
+
+        /**
          * ✅ Assign logic:
-         * If an offering for (versionId+sectionId+subjectId) exists -> update facultyUserId
+         * If offering for (versionId+sectionId+subjectId) exists -> update facultyUserId
          * else -> create new class offering with facultyUserId
          */
         async assignOrCreate(args: {
@@ -187,13 +231,17 @@ export const departmentHeadApi = {
             }
 
             // Try find existing class offering
-            const existing = await listAllDocuments(COLLECTIONS.CLASSES, [
-                Query.equal("versionId", versionId),
-                Query.equal("termId", termId),
-                Query.equal("departmentId", departmentId),
-                Query.equal("sectionId", sectionId),
-                Query.equal("subjectId", subjectId),
-            ], 5)
+            const existing = await listAllDocuments(
+                COLLECTIONS.CLASSES,
+                [
+                    Query.equal("versionId", versionId),
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.equal("sectionId", sectionId),
+                    Query.equal("subjectId", subjectId),
+                ],
+                5
+            )
 
             if (existing?.[0]?.$id) {
                 return databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASSES, existing[0].$id, {
@@ -217,6 +265,56 @@ export const departmentHeadApi = {
                 status: "Planned",
                 remarks: remarks ?? null,
             })
+        },
+    },
+
+    // ✅ NEW: Meeting schedules CRUD (CLASS_MEETINGS)
+    classMeetings: {
+        async listByVersion(versionId: string) {
+            if (!versionId) return []
+            const docs = await listAllDocuments(COLLECTIONS.CLASS_MEETINGS, [
+                Query.equal("versionId", versionId),
+                Query.orderDesc("$updatedAt"),
+            ])
+            return docs
+        },
+
+        async create(args: {
+            versionId: string
+            classId: string
+            dayOfWeek: string
+            startTime: string
+            endTime: string
+            roomId?: string | null
+            meetingType?: string | null
+            notes?: string | null
+        }) {
+            const { versionId, classId, dayOfWeek, startTime, endTime, roomId, meetingType, notes } = args
+
+            if (!versionId || !classId || !dayOfWeek || !startTime || !endTime) {
+                throw new Error("Missing required meeting fields.")
+            }
+
+            return databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                versionId,
+                classId,
+                dayOfWeek,
+                startTime,
+                endTime,
+                roomId: roomId ?? null,
+                meetingType: meetingType ?? "LECTURE",
+                notes: notes ?? null,
+            })
+        },
+
+        async update(meetingId: string, data: any) {
+            if (!meetingId) throw new Error("Missing meetingId.")
+            return databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meetingId, data)
+        },
+
+        async delete(meetingId: string) {
+            if (!meetingId) throw new Error("Missing meetingId.")
+            return databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meetingId)
         },
     },
 }
