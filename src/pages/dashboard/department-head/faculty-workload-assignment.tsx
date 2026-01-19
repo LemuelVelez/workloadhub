@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils"
 
 import { departmentHeadApi } from "@/api/department-head"
 import { useSession } from "@/hooks/use-session"
-import { SECTION_LETTERS_A_TO_Z, SECTION_NAME_OPTIONS } from "@/model/schemaModel"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -74,9 +73,6 @@ type AssignmentRow = AnyDoc & {
     classCode?: string | null
     status?: string | null
 }
-
-// ✅ Special sentinel used by Select value when user chooses "Others"
-const OTHER_SECTION_SENTINEL = "__OTHERS__"
 
 function safeStr(v: any) {
     return String(v ?? "").trim()
@@ -167,56 +163,11 @@ function sectionLabel(s: AnyDoc | undefined | null) {
     return nm || "—"
 }
 
-/**
- * ✅ Sort sections A-Z then Others (DB-driven list)
- */
-function sortSectionsAtoZOthers(sections: AnyDoc[]) {
-    const normalized = (s: AnyDoc) => safeStr(s?.name).toUpperCase()
-
-    const buckets = new Map<string, AnyDoc[]>()
-    SECTION_LETTERS_A_TO_Z.forEach((l) => buckets.set(l, []))
-
-    const others: AnyDoc[] = []
-
-    sections.forEach((s) => {
-        const n = normalized(s)
-        if (n.length === 1 && buckets.has(n)) {
-            buckets.get(n)!.push(s)
-        } else {
-            others.push(s)
-        }
-    })
-
-    const out: AnyDoc[] = []
-
-    SECTION_LETTERS_A_TO_Z.forEach((l) => {
-        const items = buckets.get(l) ?? []
-        items.sort((a, b) => {
-            const ya = safeNum(a?.yearLevel, 0)
-            const yb = safeNum(b?.yearLevel, 0)
-            if (ya !== yb) return ya - yb
-            return safeStr(a?.name).localeCompare(safeStr(b?.name))
-        })
-        out.push(...items)
-    })
-
-    others.sort((a, b) => {
-        const ya = safeNum(a?.yearLevel, 0)
-        const yb = safeNum(b?.yearLevel, 0)
-        const n = safeStr(a?.name).localeCompare(safeStr(b?.name))
-        if (n !== 0) return n
-        return ya - yb
-    })
-
-    return [...out, ...others]
-}
-
 export default function FacultyWorkloadAssignmentPage() {
     const { user, loading: sessionLoading } = useSession()
 
     /**
-     * ✅ FIX: Always load current user's profile from USER_PROFILES
-     * This is the source of truth for role + departmentId.
+     * ✅ Always load current user's profile from USER_PROFILES
      */
     const userId = React.useMemo(() => resolveUserId(user), [user])
 
@@ -290,7 +241,6 @@ export default function FacultyWorkloadAssignmentPage() {
     // Assign dialog
     const [assignOpen, setAssignOpen] = React.useState(false)
     const [assignSectionId, setAssignSectionId] = React.useState("")
-    const [assignOtherSection, setAssignOtherSection] = React.useState("") // ✅ NEW
     const [assignSubjectId, setAssignSubjectId] = React.useState("")
     const [assignClassCode, setAssignClassCode] = React.useState("")
     const [assignRemarks, setAssignRemarks] = React.useState("")
@@ -310,39 +260,21 @@ export default function FacultyWorkloadAssignmentPage() {
         return m
     }, [sections])
 
-    const sortedSections = React.useMemo(() => {
-        return sortSectionsAtoZOthers(sections)
-    }, [sections])
-
     /**
-     * ✅ Section select options:
-     * - DB sections (if available) + Others
-     * - fallback A-Z + Others
+     * ✅ IMPORTANT CHANGE:
+     * Sections are now ONLY from SECTIONS TABLE (DB)
+     * No more hardcoded A-Z fallback.
      */
-    const sectionSelectOptions = React.useMemo(() => {
-        if (sortedSections.length > 0) {
-            const opts = sortedSections.map((s) => ({
-                value: safeStr(s.$id),
-                label: sectionLabel(s),
-            }))
-
-            opts.push({ value: OTHER_SECTION_SENTINEL, label: "Others" })
-            return opts
-        }
-
-        const fallback = SECTION_NAME_OPTIONS.map((n) => {
-            if (safeStr(n).toLowerCase() === "others") {
-                return { value: OTHER_SECTION_SENTINEL, label: "Others" }
-            }
-            return { value: safeStr(n), label: safeStr(n) }
+    const sortedSections = React.useMemo(() => {
+        const copy = [...sections]
+        copy.sort((a, b) => {
+            const ya = safeNum(a?.yearLevel, 0)
+            const yb = safeNum(b?.yearLevel, 0)
+            if (ya !== yb) return ya - yb
+            return safeStr(a?.name).localeCompare(safeStr(b?.name))
         })
-
-        if (!fallback.some((x) => x.value === OTHER_SECTION_SENTINEL)) {
-            fallback.push({ value: OTHER_SECTION_SENTINEL, label: "Others" })
-        }
-
-        return fallback
-    }, [sortedSections])
+        return copy
+    }, [sections])
 
     const facultyProfileMap = React.useMemo(() => {
         const m = new Map<string, AnyDoc>()
@@ -386,12 +318,7 @@ export default function FacultyWorkloadAssignmentPage() {
     const totalsByFaculty = React.useMemo(() => computeTotalsByFaculty(), [computeTotalsByFaculty])
 
     /**
-     * ✅ IMPORTANT:
-     * Only load data when:
-     * - session done
-     * - profile done
-     * - role ok
-     * - department exists
+     * ✅ Load only when session/profile ready & has role + dept
      */
     const ready = !sessionLoading && !profileLoading
     const canLoad = ready && myRoleOk && Boolean(departmentId)
@@ -448,7 +375,7 @@ export default function FacultyWorkloadAssignmentPage() {
             }
 
             /**
-             * ✅ FIX: selectedFacultyId should be Appwrite Auth userId (NOT profile doc $id)
+             * ✅ selectedFacultyId = auth userId
              */
             setSelectedFacultyId((prev) => {
                 if (prev) return prev
@@ -462,9 +389,6 @@ export default function FacultyWorkloadAssignmentPage() {
         }
     }, [canLoad, departmentId])
 
-    /**
-     * ✅ Load when ready + valid role + valid department
-     */
     React.useEffect(() => {
         if (!ready) return
         if (!myRoleOk) return
@@ -499,7 +423,7 @@ export default function FacultyWorkloadAssignmentPage() {
     }, [facultyUsers, q])
 
     /**
-     * ✅ FIX: match faculty by userId (auth user id)
+     * ✅ selectedFaculty matched by auth userId
      */
     const selectedFaculty = React.useMemo(() => {
         return facultyUsers.find((u) => safeStr(u?.userId || u?.$id) === safeStr(selectedFacultyId)) ?? null
@@ -564,20 +488,18 @@ export default function FacultyWorkloadAssignmentPage() {
             if (!assignSectionId) throw new Error("Please select a section.")
             if (!assignSubjectId) throw new Error("Please select a subject.")
 
-            const resolvedAssignSectionId =
-                assignSectionId === OTHER_SECTION_SENTINEL
-                    ? safeStr(assignOtherSection)
-                    : safeStr(assignSectionId)
-
-            if (assignSectionId === OTHER_SECTION_SENTINEL && !resolvedAssignSectionId) {
-                throw new Error("Please type the section name for Others.")
-            }
+            /**
+             * ✅ REQUIRED:
+             * Section must be a valid DB section row id (from SECTIONS TABLE).
+             */
+            const sec = sectionMap.get(safeStr(assignSectionId))
+            if (!sec) throw new Error("Selected section is not found in the database. Please refresh and try again.")
 
             await departmentHeadApi.classes.assignOrCreate({
                 versionId: selectedVersionId,
                 termId: activeTerm.$id,
                 departmentId,
-                sectionId: resolvedAssignSectionId,
+                sectionId: safeStr(assignSectionId),
                 subjectId: assignSubjectId,
                 facultyUserId: selectedFacultyId, // ✅ userId (auth id)
                 classCode: assignClassCode.trim() || null,
@@ -589,7 +511,6 @@ export default function FacultyWorkloadAssignmentPage() {
             setAssignOpen(false)
 
             setAssignSectionId("")
-            setAssignOtherSection("")
             setAssignSubjectId("")
             setAssignClassCode("")
             setAssignRemarks("")
@@ -632,6 +553,9 @@ export default function FacultyWorkloadAssignmentPage() {
     const noDept = ready && myRoleOk && !departmentId
     const noVersion = Boolean(activeTerm?.$id) && versions.length === 0
     const showRoleError = ready && !myRoleOk
+
+    const noSections = Boolean(activeTerm?.$id) && sections.length === 0
+    const noSubjects = Boolean(activeTerm?.$id) && subjects.length === 0
 
     return (
         <DashboardLayout
@@ -735,6 +659,26 @@ export default function FacultyWorkloadAssignmentPage() {
                                         <AlertTitle>No schedule version</AlertTitle>
                                         <AlertDescription>
                                             Create a schedule version first so assignments can be linked to a version.
+                                        </AlertDescription>
+                                    </Alert>
+                                ) : null}
+
+                                {noSections ? (
+                                    <Alert>
+                                        <AlertTriangle className="h-4 w-4" />
+                                        <AlertTitle>No sections found</AlertTitle>
+                                        <AlertDescription>
+                                            Please add sections in the <b>SECTIONS</b> table for this term + department.
+                                        </AlertDescription>
+                                    </Alert>
+                                ) : null}
+
+                                {noSubjects ? (
+                                    <Alert>
+                                        <AlertTriangle className="h-4 w-4" />
+                                        <AlertTitle>No subjects found</AlertTitle>
+                                        <AlertDescription>
+                                            Please add subjects in the <b>SUBJECTS</b> table for this department.
                                         </AlertDescription>
                                     </Alert>
                                 ) : null}
@@ -855,7 +799,9 @@ export default function FacultyWorkloadAssignmentPage() {
                                                 !selectedVersionId ||
                                                 !departmentId ||
                                                 versions.length === 0 ||
-                                                !canLoad
+                                                !canLoad ||
+                                                sections.length === 0 ||
+                                                subjects.length === 0
                                             }
                                         >
                                             <Plus className="h-4 w-4" />
@@ -877,59 +823,42 @@ export default function FacultyWorkloadAssignmentPage() {
                                                 <Input value={selectedFaculty ? facultyDisplayName(selectedFaculty) : ""} disabled />
                                             </div>
 
-                                            {/* ✅ DB-driven Sections in selection (with year) + Others => Input */}
+                                            {/* ✅ Sections are now ONLY from DB */}
                                             <div className="grid gap-4 sm:grid-cols-2 min-w-0">
                                                 <div className="space-y-2 min-w-0">
-                                                    {assignSectionId === OTHER_SECTION_SENTINEL ? (
-                                                        <>
-                                                            <Label>Section (Others)</Label>
-                                                            <Input
-                                                                value={assignOtherSection}
-                                                                onChange={(e) => setAssignOtherSection(e.target.value)}
-                                                                placeholder="Type section name (e.g. Night Section, Special A1)"
-                                                            />
+                                                    <Label>Section</Label>
+                                                    <Select
+                                                        value={assignSectionId}
+                                                        onValueChange={(v) => setAssignSectionId(v)}
+                                                        disabled={sortedSections.length === 0}
+                                                    >
+                                                        <SelectTrigger className="w-full min-w-0 overflow-hidden">
+                                                            <SelectValue placeholder="Select section" className="truncate" />
+                                                        </SelectTrigger>
 
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => {
-                                                                    setAssignSectionId("")
-                                                                    setAssignOtherSection("")
-                                                                }}
-                                                            >
-                                                                Choose from list
-                                                            </Button>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Label>Section</Label>
-                                                            <Select
-                                                                value={assignSectionId}
-                                                                onValueChange={(v) => {
-                                                                    setAssignSectionId(v)
-                                                                    if (v !== OTHER_SECTION_SENTINEL) setAssignOtherSection("")
-                                                                }}
-                                                            >
-                                                                <SelectTrigger className="w-full min-w-0 overflow-hidden">
-                                                                    <SelectValue placeholder="Select section" className="truncate" />
-                                                                </SelectTrigger>
+                                                        <SelectContent
+                                                            className="max-w-full"
+                                                            style={{ width: "var(--radix-select-trigger-width)" }}
+                                                        >
+                                                            {sortedSections.length === 0 ? (
+                                                                <SelectItem value="none" disabled>
+                                                                    No sections available
+                                                                </SelectItem>
+                                                            ) : (
+                                                                sortedSections.map((s) => (
+                                                                    <SelectItem key={s.$id} value={s.$id} className="max-w-full">
+                                                                        <span className="block max-w-full truncate">
+                                                                            {sectionLabel(s)}
+                                                                        </span>
+                                                                    </SelectItem>
+                                                                ))
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
 
-                                                                <SelectContent
-                                                                    className="max-w-full"
-                                                                    style={{ width: "var(--radix-select-trigger-width)" }}
-                                                                >
-                                                                    {sectionSelectOptions.map((opt) => (
-                                                                        <SelectItem key={opt.value} value={opt.value} className="max-w-full">
-                                                                            <span className="block max-w-full truncate">
-                                                                                {opt.label}
-                                                                            </span>
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </>
-                                                    )}
+                                                    <div className="text-xs opacity-70">
+                                                        Sections come from the <b>SECTIONS</b> table. If missing, add them in Admin → Sections.
+                                                    </div>
                                                 </div>
 
                                                 <div className="space-y-2 min-w-0">

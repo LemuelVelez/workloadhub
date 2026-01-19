@@ -103,6 +103,24 @@ function safeNum(v: any, fallback = 0) {
     return Number.isFinite(n) ? n : fallback
 }
 
+function resolveDepartmentIdFrom(profile: any, sessionUser: any) {
+    const candidates = [
+        profile?.departmentId,
+        profile?.deptId,
+        sessionUser?.departmentId,
+        sessionUser?.profile?.departmentId,
+        sessionUser?.prefs?.departmentId,
+        sessionUser?.prefs?.deptId,
+        sessionUser?.prefs?.department,
+    ]
+
+    for (const c of candidates) {
+        const v = safeStr(c)
+        if (v) return v
+    }
+    return ""
+}
+
 function timeToSortable(t: string) {
     // "HH:MM" -> number HHMM for sorting
     const s = safeStr(t)
@@ -176,7 +194,7 @@ function buildTimeOptions(stepMinutes = 30) {
 const TIME_OPTIONS = buildTimeOptions(30)
 
 export default function DepartmentHeadClassSchedulingPage() {
-    const { user } = useSession()
+    const { user, loading: sessionLoading } = useSession()
 
     const userId = React.useMemo(() => {
         return safeStr(user?.$id || user?.id || user?.userId)
@@ -188,7 +206,7 @@ export default function DepartmentHeadClassSchedulingPage() {
     const [activeTerm, setActiveTerm] = React.useState<AnyDoc | null>(null)
     const [myProfile, setMyProfile] = React.useState<AnyDoc | null>(null)
 
-    const departmentId = React.useMemo(() => safeStr(myProfile?.departmentId), [myProfile])
+    const departmentId = React.useMemo(() => resolveDepartmentIdFrom(myProfile, user), [myProfile, user])
 
     const [versions, setVersions] = React.useState<AnyDoc[]>([])
     const [selectedVersionId, setSelectedVersionId] = React.useState<string>("")
@@ -212,10 +230,6 @@ export default function DepartmentHeadClassSchedulingPage() {
     const [saving, setSaving] = React.useState(false)
     const [editing, setEditing] = React.useState<ScheduleRow | null>(null)
 
-    /**
-     * ✅ Scheduling form only handles MEETING fields now
-     * ✅ You schedule an existing CLASS OFFERING
-     */
     const [form, setForm] = React.useState({
         classId: "",
         dayOfWeek: "Monday",
@@ -249,11 +263,6 @@ export default function DepartmentHeadClassSchedulingPage() {
         return copy
     }, [sections])
 
-    /**
-     * ✅ FIX: Make faculty map compatible with BOTH:
-     * - userId (auth user id)
-     * - $id (legacy)
-     */
     const facultyByUserId = React.useMemo(() => {
         const map = new Map<string, AnyDoc>()
         facultyUsers.forEach((f) => {
@@ -425,6 +434,7 @@ export default function DepartmentHeadClassSchedulingPage() {
     }, [offerings, scheduledClassIds])
 
     async function loadBase() {
+        if (sessionLoading) return
         if (!userId) return
 
         setBootLoading(true)
@@ -438,7 +448,7 @@ export default function DepartmentHeadClassSchedulingPage() {
             setMyProfile(profile)
 
             const termId = safeStr(term?.$id)
-            const deptId = safeStr(profile?.departmentId)
+            const deptId = resolveDepartmentIdFrom(profile, user)
 
             if (!termId || !deptId) {
                 setVersions([])
@@ -501,7 +511,7 @@ export default function DepartmentHeadClassSchedulingPage() {
     React.useEffect(() => {
         void loadBase()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId])
+    }, [sessionLoading, userId])
 
     React.useEffect(() => {
         if (!selectedVersionId) return
@@ -654,7 +664,7 @@ export default function DepartmentHeadClassSchedulingPage() {
             subtitle="Create and manage meeting schedules (day/time/room) for existing class offerings (from Faculty Workload Assignment)."
             actions={
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={onRefresh} disabled={refreshing || bootLoading}>
+                    <Button variant="outline" onClick={onRefresh} disabled={refreshing || bootLoading || sessionLoading}>
                         <RefreshCcw className={cn("mr-2 h-4 w-4", (refreshing || bootLoading) && "animate-spin")} />
                         Refresh
                     </Button>
@@ -1009,7 +1019,6 @@ export default function DepartmentHeadClassSchedulingPage() {
 
                                         <ScrollArea className="max-h-[70vh] pr-3">
                                             <div className="space-y-5">
-                                                {/* ✅ Class Offering Selection */}
                                                 <div className="space-y-2 min-w-0">
                                                     <Label>Class Offering (from Workload Assignment)</Label>
                                                     <Select
@@ -1058,7 +1067,6 @@ export default function DepartmentHeadClassSchedulingPage() {
 
                                                 <Separator />
 
-                                                {/* ✅ FIX OVERLAP: add min-w-0 on columns + truncate selects */}
                                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                                     <div className="space-y-2 min-w-0">
                                                         <Label>Meeting Type</Label>
@@ -1121,7 +1129,6 @@ export default function DepartmentHeadClassSchedulingPage() {
                                                         </Select>
                                                     </div>
 
-                                                    {/* ✅ Start Time (ShadCN Select Dropdown) */}
                                                     <div className="space-y-2 min-w-0">
                                                         <Label>Start Time</Label>
                                                         <Select
@@ -1145,7 +1152,6 @@ export default function DepartmentHeadClassSchedulingPage() {
                                                         </Select>
                                                     </div>
 
-                                                    {/* ✅ End Time (ShadCN Select Dropdown) */}
                                                     <div className="space-y-2 min-w-0">
                                                         <Label>End Time</Label>
                                                         <Select
