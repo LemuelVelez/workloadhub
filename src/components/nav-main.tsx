@@ -19,6 +19,7 @@ import {
     AlertTriangle,
     BadgeCheck,
     FileText,
+    Megaphone,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -275,6 +276,14 @@ export default function NavMain({ className }: { className?: string }) {
             title: "Approval & Finalization",
             href: "/dashboard/department-head/approval/finalization",
             icon: BadgeCheck,
+            roles: ["chair"],
+        },
+
+        // ✅ NEW: Announcements / Notifications
+        {
+            title: "Announcements",
+            href: "/dashboard/department-head/announcements/notifications",
+            icon: Megaphone,
             roles: ["chair"],
         },
 

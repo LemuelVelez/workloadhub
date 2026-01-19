@@ -96,6 +96,11 @@ const DepartmentHeadReportsModulePage = React.lazy(
   () => import("./pages/dashboard/department-head/reports-module")
 )
 
+// ✅ NEW: Department Head Announcements / Notifications
+const DepartmentHeadNotificationsPage = React.lazy(
+  () => import("./pages/dashboard/department-head/announcements/notifications")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -498,6 +503,12 @@ export default function App() {
                   <Route
                     path="reports"
                     element={<DepartmentHeadReportsModulePage />}
+                  />
+
+                  {/* ✅ NEW: Announcements / Notifications */}
+                  <Route
+                    path="announcements/notifications"
+                    element={<DepartmentHeadNotificationsPage />}
                   />
                 </Route>
 

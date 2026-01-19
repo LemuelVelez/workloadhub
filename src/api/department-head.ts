@@ -52,6 +52,19 @@ function safeStr(v: any) {
     return String(v ?? "").trim()
 }
 
+function uniqStrings(values: any[]) {
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const v of values ?? []) {
+        const s = safeStr(v)
+        if (!s) continue
+        if (seen.has(s)) continue
+        seen.add(s)
+        out.push(s)
+    }
+    return out
+}
+
 export const departmentHeadApi = {
     terms: {
         async getActive() {
@@ -569,6 +582,105 @@ export const departmentHeadApi = {
                 tableId: COLLECTIONS.CLASS_MEETINGS,
                 rowId: meetingId,
             })
+        },
+    },
+
+    /**
+     * ✅ NEW: Announcements / Notifications
+     * Department Head sends updates to Faculty users via:
+     * - notifications table (message payload)
+     * - notification_recipients table (fan-out per user)
+     */
+    notifications: {
+        async listByDepartmentTerm(args: { departmentId: string; termId?: string | null }) {
+            const { departmentId, termId } = args
+            if (!departmentId) return []
+
+            const queries: any[] = [Query.equal("departmentId", departmentId), Query.orderDesc("$createdAt")]
+
+            if (safeStr(termId)) {
+                queries.splice(1, 0, Query.equal("termId", safeStr(termId)))
+            }
+
+            return listAllRows(COLLECTIONS.NOTIFICATIONS, queries, 1500)
+        },
+
+        async createAndSend(args: {
+            departmentId: string
+            termId?: string | null
+            createdBy: string
+            type: string
+            title: string
+            message: string
+            link?: string | null
+            recipientUserIds: string[]
+        }) {
+            const departmentId = safeStr(args.departmentId)
+            const termId = safeStr(args.termId)
+            const createdBy = safeStr(args.createdBy)
+            const type = safeStr(args.type) || "Announcement"
+            const title = safeStr(args.title)
+            const message = safeStr(args.message)
+            const link = safeStr(args.link)
+
+            if (!departmentId || !createdBy || !title || !message) {
+                throw new Error("Missing required fields (departmentId, createdBy, title, message).")
+            }
+
+            const recipientIds = uniqStrings(args.recipientUserIds ?? [])
+            if (recipientIds.length === 0) {
+                throw new Error("No recipients found.")
+            }
+
+            const notification: any = await tablesDB.createRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.NOTIFICATIONS,
+                rowId: ID.unique(),
+                data: {
+                    departmentId,
+                    termId: termId || null,
+                    createdBy,
+                    type,
+                    title,
+                    message,
+                    link: link || null,
+                },
+            })
+
+            const notificationId = safeStr(notification?.$id)
+            if (!notificationId) {
+                throw new Error("Failed to create notification.")
+            }
+
+            // Fan-out recipients
+            let createdCount = 0
+            for (const userId of recipientIds) {
+                await tablesDB.createRow({
+                    databaseId: DATABASE_ID,
+                    tableId: COLLECTIONS.NOTIFICATION_RECIPIENTS,
+                    rowId: ID.unique(),
+                    data: {
+                        notificationId,
+                        userId,
+                        isRead: false,
+                        readAt: null,
+                    },
+                })
+                createdCount++
+            }
+
+            return { notification, recipientsCreated: createdCount }
+        },
+
+        async listRecipients(notificationId: string) {
+            const id = safeStr(notificationId)
+            if (!id) return []
+
+            return listAllRows(
+                COLLECTIONS.NOTIFICATION_RECIPIENTS,
+                [Query.equal("notificationId", id), Query.orderDesc("$createdAt")],
+                5000
+            )
         },
     },
 
