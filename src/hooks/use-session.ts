@@ -2,10 +2,15 @@
 import * as React from "react"
 import { authApi } from "@/api/auth"
 
+// ✅ NEW: Fetch role from user_profiles table
+import { databases, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
+import { ATTR } from "@/model/schemaModel"
+
 export type SessionUser = {
     $id: string
     name?: string
     email?: string
+    role?: string
     [key: string]: any
 }
 
@@ -30,6 +35,10 @@ const AUTH_PENDING_KEY = "workloadhub:auth:pendingAt"
 const AUTH_PENDING_GRACE_MS = 8000
 const ME_TIMEOUT_MS = 4500
 const REVALIDATE_TTL_MS = 30000
+
+// ✅ Role fetch cache (avoid spamming DB)
+const ROLE_CACHE_TTL_MS = 5 * 60 * 1000
+const roleCache = new Map<string, { role: string | null; at: number }>()
 
 function isBrowser() {
     return typeof window !== "undefined"
@@ -87,6 +96,47 @@ function unwrapUser(u: any): SessionUser | null {
     return u as SessionUser
 }
 
+function resolveUserId(u: any): string {
+    const me = unwrapUser(u)
+    return String(me?.$id || me?.id || me?.userId || "").trim()
+}
+
+/**
+ * ✅ Fetch role from USER_PROFILES table
+ * - returns string like "ADMIN" | "CHAIR" | "FACULTY"
+ */
+async function fetchRoleFromUserProfiles(userId: string): Promise<string | null> {
+    const cleanId = String(userId || "").trim()
+    if (!cleanId) return null
+
+    const cached = roleCache.get(cleanId)
+    if (cached) {
+        const age = Date.now() - cached.at
+        if (age >= 0 && age < ROLE_CACHE_TTL_MS) return cached.role
+    }
+
+    try {
+        const res: any = await databases.listDocuments(DATABASE_ID, COLLECTIONS.USER_PROFILES, [
+            Query.equal(ATTR.USER_PROFILES.userId, cleanId),
+            Query.limit(1),
+        ])
+
+        const docs = (res?.documents ?? res?.rows ?? []) as any[]
+        const row = docs?.[0] ?? null
+
+        const roleRaw = row?.[ATTR.USER_PROFILES.role] ?? row?.role ?? ""
+        const role = String(roleRaw || "").trim()
+
+        const finalRole = role ? role : null
+
+        roleCache.set(cleanId, { role: finalRole, at: Date.now() })
+        return finalRole
+    } catch {
+        roleCache.set(cleanId, { role: null, at: Date.now() })
+        return null
+    }
+}
+
 function setCache(nextUser: SessionUser | null | undefined, nextError: string | null) {
     cachedUser = nextUser
     cachedError = nextError
@@ -125,9 +175,20 @@ async function fetchCurrentUserInternal(force = false): Promise<SessionUser | nu
                 const me = unwrapUser(meRaw)
 
                 if (me) {
+                    const userId = resolveUserId(me)
+
+                    // ✅ IMPORTANT: merge role from USER_PROFILES
+                    let finalMe: any = me
+                    if (userId) {
+                        const dbRole = await fetchRoleFromUserProfiles(userId).catch(() => null)
+                        if (dbRole) {
+                            finalMe = { ...me, role: dbRole }
+                        }
+                    }
+
                     lastFetchAt = Date.now()
-                    setCache(me, null)
-                    return me
+                    setCache(finalMe, null)
+                    return finalMe
                 }
             }
 
@@ -170,8 +231,6 @@ async function fetchCurrentUserInternal(force = false): Promise<SessionUser | nu
 
 /**
  * ✅ Public API: refresh session
- * - cancels old inflight by nonce increment
- * - forces new fetch
  */
 export function refreshSession() {
     fetchNonce += 1
@@ -193,10 +252,6 @@ export function clearSessionCache() {
 
 /**
  * useSession()
- * - user: current logged in user or null
- * - loading: true while checking session
- * - isAuthenticated: boolean
- * - refresh(): forces re-check
  */
 export function useSession(opts?: { auto?: boolean }) {
     const auto = opts?.auto ?? true
@@ -220,9 +275,7 @@ export function useSession(opts?: { auto?: boolean }) {
     }, [auto])
 
     /**
-     * ✅ Listen to refresh signals:
-     * - custom event: "workloadhub:session-refresh"
-     * - storage key: "workloadhub:sessionRefreshAt" (cross-tab)
+     * ✅ Listen to refresh signals
      */
     React.useEffect(() => {
         if (!isBrowser()) return

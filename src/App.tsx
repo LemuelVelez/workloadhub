@@ -56,21 +56,12 @@ const AdminAuditLogsPage = React.lazy(
   () => import("./pages/dashboard/admin/audit-logs")
 )
 
-// ✅ Admin Requests Page
-const AdminRequestsPage = React.lazy(
-  () => import("./pages/dashboard/admin/requests")
-)
+const AdminRequestsPage = React.lazy(() => import("./pages/dashboard/admin/requests"))
+const AdminSchedulesPage = React.lazy(() => import("./pages/dashboard/admin/schedules"))
 
-// ✅ NEW: Admin Schedules Page
-const AdminSchedulesPage = React.lazy(
-  () => import("./pages/dashboard/admin/schedules")
-)
-
-// ✅ NEW: Accounts + Settings pages
 const DashboardAccountsPage = React.lazy(() => import("./pages/dashboard/accounts"))
 const DashboardSettingsPage = React.lazy(() => import("./pages/dashboard/settings"))
 
-// ✅ NEW: Department Head (Chair) page
 const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-workload-assignment")
 )
@@ -79,36 +70,79 @@ function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
 
-function safeParsePrefs(prefs: any) {
-  if (!prefs) return {}
-  if (typeof prefs === "string") {
+function safeParseObjectMaybe(v: any) {
+  if (!v) return {}
+  if (typeof v === "object") return v
+  if (typeof v === "string") {
     try {
-      const parsed = JSON.parse(prefs)
+      const parsed = JSON.parse(v)
       return parsed && typeof parsed === "object" ? parsed : {}
     } catch {
       return {}
     }
   }
-  if (typeof prefs === "object") return prefs
   return {}
 }
 
+function unwrapUserLike(u: any) {
+  if (!u) return null
+  if (u?.$id || u?.id || u?.userId) return u
+  if (u?.data && (u.data.$id || u.data.id || u.data.userId)) return u.data
+  if (u?.user && (u.user.$id || u.user.id || u.user.userId)) return u.user
+  return u
+}
+
 function resolveUserId(user: any) {
-  return String(user?.$id || user?.id || user?.userId || "").trim()
+  const u = unwrapUserLike(user)
+  return String(u?.$id || u?.id || u?.userId || "").trim()
 }
 
 function getMustChangePasswordFromPrefs(user: any) {
+  const u = unwrapUserLike(user)
+
   const rawPrefs =
-    user?.prefs ??
-    user?.preferences ??
-    user?.profile?.prefs ??
-    user?.profile?.preferences ??
-    user?.data?.prefs ??
-    user?.data?.preferences ??
+    u?.prefs ??
+    u?.preferences ??
+    u?.profile?.prefs ??
+    u?.profile?.preferences ??
+    u?.data?.prefs ??
+    u?.data?.preferences ??
     {}
 
-  const prefs = safeParsePrefs(rawPrefs)
-  return readBool(prefs?.mustChangePassword ?? user?.mustChangePassword)
+  const prefs = safeParseObjectMaybe(rawPrefs)
+  return readBool(prefs?.mustChangePassword ?? u?.mustChangePassword)
+}
+
+/**
+ * ✅ Role Resolver
+ * IMPORTANT:
+ * Role is now merged from `user_profiles.role` inside useSession(),
+ * so we only need to read `user.role` here.
+ */
+type RoleKey = "admin" | "chair" | "faculty" | "unknown"
+type AllowedRoleKey = Exclude<RoleKey, "unknown">
+
+function resolveRoleKey(user: any): RoleKey {
+  const u = unwrapUserLike(user)
+  if (!u) return "unknown"
+
+  const rawRole = u?.role || u?.type || u?.accountType || ""
+  const role = String(rawRole || "").toLowerCase().trim()
+
+  if (role.includes("admin")) return "admin"
+  if (role.includes("chair") || role.includes("department head") || role.includes("dept head") || role.includes("scheduler")) {
+    return "chair"
+  }
+  if (role.includes("faculty")) return "faculty"
+
+  return "unknown"
+}
+
+function roleHomePath(role: RoleKey) {
+  if (role === "admin") return "/dashboard/admin/overview"
+  if (role === "chair") return "/dashboard/department-head/faculty-workload-assignment"
+  if (role === "faculty") return "/dashboard/faculty/overview"
+  return "/dashboard"
 }
 
 function useAuthSnapshot() {
@@ -152,7 +186,8 @@ function useAuthSnapshot() {
         .me()
         .then((me: any) => {
           if (!alive) return
-          if (me) setFallbackUser(me)
+          const unwrapped = unwrapUserLike(me)
+          if (unwrapped) setFallbackUser(unwrapped)
         })
         .catch(() => null)
         .finally(() => {
@@ -176,8 +211,8 @@ function useAuthSnapshot() {
     }
   }, [sessionLoading, isAuthenticated, user])
 
-  const authed = Boolean(isAuthenticated || user || fallbackUser)
-  const effectiveUser = user || fallbackUser
+  const effectiveUser = unwrapUserLike(user) || unwrapUserLike(fallbackUser)
+  const authed = Boolean(isAuthenticated || effectiveUser)
 
   const loading = !authed && !sessionStuck && (sessionLoading || fallbackLoading)
 
@@ -312,26 +347,53 @@ function RequireNeedsPasswordChange() {
   return <Outlet />
 }
 
-function DashboardIndexRedirect() {
+/**
+ * ✅ Role-based Guard
+ * If not allowed, reroute to the user's OWN role home page (discriminated).
+ */
+function RequireRole(props: { allow: AllowedRoleKey[] }) {
+  const location = useLocation()
   const snap = useAuthSnapshot()
 
-  const rawRole =
-    (snap.user as any)?.role ||
-    (snap.user as any)?.type ||
-    (snap.user as any)?.accountType ||
-    (snap.user as any)?.prefs?.role ||
-    "ADMIN"
-
-  const role = String(rawRole).toLowerCase()
-
-  // ✅ Department Head (Chair) goes to department-head area
-  if (role.includes("chair") || role.includes("department head") || role.includes("dept head")) {
-    return <Navigate to="/dashboard/department-head/faculty-workload-assignment" replace />
+  if (!snap.authed && snap.loading) {
+    return <Loading title="Checking access…" message="Verifying your login session." fullscreen />
   }
 
-  if (role.includes("faculty")) return <Navigate to="/dashboard/faculty/overview" replace />
+  if (!snap.authed) {
+    return <Navigate to="/auth/login" replace state={{ from: `${location.pathname}${location.search}` }} />
+  }
 
-  return <Navigate to="/dashboard/admin/overview" replace />
+  const role = resolveRoleKey(snap.user)
+
+  // ✅ If role is unknown, don't redirect-loop -> show loader instead
+  if (role === "unknown") {
+    return <Loading title="Resolving role…" message="Loading your profile permissions." fullscreen />
+  }
+
+  const allowed = props.allow.includes(role)
+  if (!allowed) {
+    return (
+      <Navigate
+        to={roleHomePath(role)}
+        replace
+        state={{ denied: location.pathname }}
+      />
+    )
+  }
+
+  return <Outlet />
+}
+
+function DashboardIndexRedirect() {
+  const snap = useAuthSnapshot()
+  const role = resolveRoleKey(snap.user)
+
+  // ✅ prevent redirect-loop when role isn't ready yet
+  if (role === "unknown") {
+    return <Loading title="Resolving role…" message="Loading your dashboard route." fullscreen />
+  }
+
+  return <Navigate to={roleHomePath(role)} replace />
 }
 
 export default function App() {
@@ -359,51 +421,31 @@ export default function App() {
                 <Route index element={<DashboardIndexRedirect />} />
                 <Route path="overview" element={<DashboardIndexRedirect />} />
 
-                {/* ✅ Dashboard Preferences Pages */}
+                {/* ✅ Shared pages for all roles */}
                 <Route path="accounts" element={<DashboardAccountsPage />} />
                 <Route path="settings" element={<DashboardSettingsPage />} />
 
+                {/* ✅ These point into admin area; unauthorized roles will be rerouted by RequireRole */}
                 <Route path="users" element={<Navigate to="admin/users" replace />} />
                 <Route path="requests" element={<Navigate to="admin/requests" replace />} />
                 <Route path="schedules" element={<Navigate to="admin/schedules" replace />} />
 
-                {/* ✅ Admin Area */}
-                <Route path="admin" element={<Outlet />}>
+                {/* ✅ ADMIN Area (protects ALL future /dashboard/admin/* routes) */}
+                <Route path="admin" element={<RequireRole allow={["admin"]} />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AdminOverviewPage />} />
                   <Route path="users" element={<AdminUsersPage />} />
-
-                  <Route
-                    path="master-data-management"
-                    element={<AdminMasterDataManagementPage />}
-                  />
-
-                  <Route
-                    path="rooms-and-facilities"
-                    element={<AdminRoomsAndFacilitiesPage />}
-                  />
-
-                  <Route
-                    path="academic-term-setup"
-                    element={<AdminAcademicTermSetupPage />}
-                  />
-
-                  <Route
-                    path="rules-and-policies"
-                    element={<AdminRulesAndPoliciesPage />}
-                  />
-
-                  <Route
-                    path="audit-logs"
-                    element={<AdminAuditLogsPage />}
-                  />
-
+                  <Route path="master-data-management" element={<AdminMasterDataManagementPage />} />
+                  <Route path="rooms-and-facilities" element={<AdminRoomsAndFacilitiesPage />} />
+                  <Route path="academic-term-setup" element={<AdminAcademicTermSetupPage />} />
+                  <Route path="rules-and-policies" element={<AdminRulesAndPoliciesPage />} />
+                  <Route path="audit-logs" element={<AdminAuditLogsPage />} />
                   <Route path="requests" element={<AdminRequestsPage />} />
                   <Route path="schedules" element={<AdminSchedulesPage />} />
                 </Route>
 
-                {/* ✅ Department Head (Chair) Area */}
-                <Route path="department-head" element={<Outlet />}>
+                {/* ✅ CHAIR Area (protects ALL future /dashboard/department-head/* routes) */}
+                <Route path="department-head" element={<RequireRole allow={["chair"]} />}>
                   <Route index element={<Navigate to="faculty-workload-assignment" replace />} />
                   <Route
                     path="faculty-workload-assignment"
