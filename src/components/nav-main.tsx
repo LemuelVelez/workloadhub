@@ -242,14 +242,12 @@ export default function NavMain({ className }: { className?: string }) {
     ]
 
     const chairMenu: NavItem[] = [
-        // ✅ NEW: Overview
         {
             title: "Overview",
             href: "/dashboard/department-head/overview",
             icon: LayoutDashboard,
             roles: ["chair"],
         },
-
         {
             title: "Faculty Workload Assignment",
             href: "/dashboard/department-head/faculty-workload-assignment",
@@ -286,16 +284,12 @@ export default function NavMain({ className }: { className?: string }) {
             icon: BadgeCheck,
             roles: ["chair"],
         },
-
-        // ✅ NEW: Announcements / Notifications
         {
             title: "Announcements",
             href: "/dashboard/department-head/announcements/notifications",
             icon: Megaphone,
             roles: ["chair"],
         },
-
-        // ✅ NEW: Reports Module
         {
             title: "Reports Module",
             href: "/dashboard/department-head/reports",
@@ -309,6 +303,12 @@ export default function NavMain({ className }: { className?: string }) {
             title: "Overview",
             href: "/dashboard/faculty/overview",
             icon: LayoutDashboard,
+            roles: ["faculty"],
+        },
+        {
+            title: "My Schedule",
+            href: "/dashboard/faculty/my-schedule",
+            icon: CalendarDays,
             roles: ["faculty"],
         },
     ]

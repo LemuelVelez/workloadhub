@@ -66,45 +66,41 @@ const DepartmentHeadFacultyWorkloadAssignmentPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-workload-assignment")
 )
 
-// ✅ NEW: Department Head Overview
 const DepartmentHeadOverviewPage = React.lazy(
   () => import("./pages/dashboard/department-head/overview")
 )
 
-// ✅ Department Head Faculty Availability
 const DepartmentHeadFacultyAvailabilityPage = React.lazy(
   () => import("./pages/dashboard/department-head/faculty-availability")
 )
 
-// ✅ Department Head Class Scheduling
 const DepartmentHeadClassSchedulingPage = React.lazy(
   () => import("./pages/dashboard/department-head/class-scheduling")
 )
 
-// ✅ Department Head Room Utilization View
 const DepartmentHeadRoomUtilizationViewPage = React.lazy(
   () => import("./pages/dashboard/department-head/room-utilization-view")
 )
 
-// ✅ Conflict Checker
 const DepartmentHeadConflictCheckerPage = React.lazy(
   () => import("./pages/dashboard/department-head/conflict-checker")
 )
 
-// ✅ NEW: Approval / Finalization
 const DepartmentHeadApprovalFinalizationPage = React.lazy(
   () => import("./pages/dashboard/department-head/approval/finalization")
 )
 
-// ✅ NEW: Reports Module
 const DepartmentHeadReportsModulePage = React.lazy(
   () => import("./pages/dashboard/department-head/reports-module")
 )
 
-// ✅ NEW: Department Head Announcements / Notifications
 const DepartmentHeadNotificationsPage = React.lazy(
   () => import("./pages/dashboard/department-head/announcements/notifications")
 )
+
+/** ✅ NEW: Faculty Pages */
+const FacultyOverviewPage = React.lazy(() => import("./pages/dashboard/faculty-member/overview"))
+const FacultyMySchedulePage = React.lazy(() => import("./pages/dashboard/faculty-member/my-schedule"))
 
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
@@ -469,11 +465,9 @@ export default function App() {
                   <Route path="schedules" element={<AdminSchedulesPage />} />
                 </Route>
 
-                {/* ✅ CHAIR Area */}
                 <Route path="department-head" element={<RequireRole allow={["chair"]} />}>
                   <Route index element={<Navigate to="faculty-workload-assignment" replace />} />
 
-                  {/* ✅ NEW: Overview */}
                   <Route path="overview" element={<DepartmentHeadOverviewPage />} />
 
                   <Route
@@ -501,23 +495,27 @@ export default function App() {
                     element={<DepartmentHeadConflictCheckerPage />}
                   />
 
-                  {/* ✅ Approval / Finalization */}
                   <Route
                     path="approval/finalization"
                     element={<DepartmentHeadApprovalFinalizationPage />}
                   />
 
-                  {/* ✅ NEW: Reports Module */}
                   <Route
                     path="reports"
                     element={<DepartmentHeadReportsModulePage />}
                   />
 
-                  {/* ✅ NEW: Announcements / Notifications */}
                   <Route
                     path="announcements/notifications"
                     element={<DepartmentHeadNotificationsPage />}
                   />
+                </Route>
+
+                {/* ✅ NEW: FACULTY Area */}
+                <Route path="faculty" element={<RequireRole allow={["faculty"]} />}>
+                  <Route index element={<Navigate to="overview" replace />} />
+                  <Route path="overview" element={<FacultyOverviewPage />} />
+                  <Route path="my-schedule" element={<FacultyMySchedulePage />} />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />
