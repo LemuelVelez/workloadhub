@@ -132,6 +132,12 @@ function humanTime(iso: string) {
     }
 }
 
+function chunkArray<T>(arr: T[], size: number) {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+    return out
+}
+
 export default function AdminAuditLogsPage() {
     const [loading, setLoading] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
@@ -152,6 +158,9 @@ export default function AdminAuditLogsPage() {
 
     const [pageSize, setPageSize] = React.useState<number>(25)
     const [page, setPage] = React.useState<number>(1)
+
+    // ✅ NEW: actorId -> name/email map (resolved from USER_PROFILES)
+    const [actorNameMap, setActorNameMap] = React.useState<Record<string, string>>({})
 
     const canResetFilters =
         Boolean(queryText.trim()) ||
@@ -179,9 +188,71 @@ export default function AdminAuditLogsPage() {
         return Array.from(set).sort((a, b) => a.localeCompare(b))
     }, [items])
 
+    const resolveActorLabel = React.useCallback(
+        (actorUserId: string) => {
+            const id = String(actorUserId || "").trim()
+            if (!id) return "—"
+            if (id === "SYSTEM") return "System"
+            return actorNameMap[id] || "Unknown"
+        },
+        [actorNameMap]
+    )
+
+    const hydrateActorNames = React.useCallback(
+        async (logs: AuditLogDoc[]) => {
+            try {
+                const actorIds = Array.from(
+                    new Set(
+                        logs
+                            .map((it) => String((it as any)?.actorUserId ?? "").trim())
+                            .filter(Boolean)
+                    )
+                ).filter((id) => id !== "SYSTEM")
+
+                if (actorIds.length === 0) return
+
+                // fetch only unknown actors
+                const unknown = actorIds.filter((id) => !(id in actorNameMap))
+                if (unknown.length === 0) return
+
+                const nextMap: Record<string, string> = {}
+
+                // batch to avoid long queries
+                for (const chunk of chunkArray(unknown, 100)) {
+                    const res: any = await databases.listDocuments(
+                        DATABASE_ID,
+                        COLLECTIONS.USER_PROFILES,
+                        [
+                            Query.equal("userId", chunk),
+                            Query.limit(200),
+                        ]
+                    )
+
+                    const docs = (res?.documents ?? []) as any[]
+                    for (const d of docs) {
+                        const uid = String(d?.userId ?? "").trim()
+                        if (!uid) continue
+                        const name = String(d?.name ?? "").trim()
+                        const email = String(d?.email ?? "").trim()
+
+                        // ✅ show friendly name first, fallback to email
+                        nextMap[uid] = name || email || uid
+                    }
+                }
+
+                if (Object.keys(nextMap).length > 0) {
+                    setActorNameMap((prev) => ({ ...prev, ...nextMap }))
+                }
+            } catch {
+                // ignore silently
+            }
+        },
+        [actorNameMap]
+    )
+
     const filtered = React.useMemo(() => {
         const q = queryText.trim().toLowerCase()
-        const actor = actorFilter.trim().toLowerCase()
+        const actorSearch = actorFilter.trim().toLowerCase()
 
         return items.filter((it) => {
             const action = String((it as any)?.action ?? "")
@@ -190,10 +261,16 @@ export default function AdminAuditLogsPage() {
             const actorUserId = String((it as any)?.actorUserId ?? "")
             const createdAt = String((it as any)?.$createdAt ?? "")
 
+            const actorName = resolveActorLabel(actorUserId)
+
             if (actionFilter !== "all" && action !== actionFilter) return false
             if (entityTypeFilter !== "all" && entityType !== entityTypeFilter) return false
 
-            if (actor && !actorUserId.toLowerCase().includes(actor)) return false
+            // ✅ Actor supports search by ID OR Name now
+            if (actorSearch) {
+                const hayActor = `${actorUserId} ${actorName}`.toLowerCase()
+                if (!hayActor.includes(actorSearch)) return false
+            }
 
             // date range (system $createdAt)
             if (fromDate) {
@@ -210,6 +287,7 @@ export default function AdminAuditLogsPage() {
                 entityType,
                 entityId,
                 actorUserId,
+                actorName,
                 String((it as any)?.meta ?? ""),
             ]
                 .join(" ")
@@ -217,7 +295,16 @@ export default function AdminAuditLogsPage() {
 
             return hay.includes(q)
         })
-    }, [items, queryText, actorFilter, actionFilter, entityTypeFilter, fromDate, toDate])
+    }, [
+        items,
+        queryText,
+        actorFilter,
+        actionFilter,
+        entityTypeFilter,
+        fromDate,
+        toDate,
+        resolveActorLabel,
+    ])
 
     const paged = React.useMemo(() => {
         const start = (page - 1) * pageSize
@@ -242,9 +329,11 @@ export default function AdminAuditLogsPage() {
         try {
             const queries: string[] = [Query.orderDesc("$createdAt"), Query.limit(500)]
 
-            const actor = actorFilter.trim()
-            if (actor) queries.push(Query.equal("actorUserId", actor))
-
+            // ✅ NOTE:
+            // Actor filter is now client-side so it can match BOTH:
+            // - actorUserId
+            // - actorName
+            // (server query can't filter actorName)
             if (actionFilter !== "all") queries.push(Query.equal("action", actionFilter))
             if (entityTypeFilter !== "all") queries.push(Query.equal("entityType", entityTypeFilter))
 
@@ -262,6 +351,9 @@ export default function AdminAuditLogsPage() {
             setTotal(Number(res?.total ?? docs.length))
             setLastRefreshAt(new Date().toISOString())
 
+            // ✅ NEW: resolve actor names
+            void hydrateActorNames(docs)
+
             if (docs.length === 0) {
                 toast.message("Audit Logs", { description: "No logs found." })
             }
@@ -272,7 +364,7 @@ export default function AdminAuditLogsPage() {
         } finally {
             setLoading(false)
         }
-    }, [actorFilter, actionFilter, entityTypeFilter, fromDate, toDate])
+    }, [actionFilter, entityTypeFilter, fromDate, toDate, hydrateActorNames])
 
     React.useEffect(() => {
         void load()
@@ -306,20 +398,22 @@ export default function AdminAuditLogsPage() {
         try {
             const rows = filtered.map((it) => {
                 const t = String((it as any)?.$createdAt ?? "")
-                const actor = String((it as any)?.actorUserId ?? "")
+                const actorUserId = String((it as any)?.actorUserId ?? "")
+                const actorName = resolveActorLabel(actorUserId)
                 const action = String((it as any)?.action ?? "")
                 const entityType = String((it as any)?.entityType ?? "")
                 const entityId = String((it as any)?.entityId ?? "")
                 return {
                     time: t,
-                    actorUserId: actor,
+                    actorName,
+                    actorUserId,
                     action,
                     entityType,
                     entityId,
                 }
             })
 
-            const headers = ["time", "actorUserId", "action", "entityType", "entityId"]
+            const headers = ["time", "actorName", "actorUserId", "action", "entityType", "entityId"]
             const csv = [
                 headers.join(","),
                 ...rows.map((r) =>
@@ -486,11 +580,11 @@ export default function AdminAuditLogsPage() {
                             </div>
 
                             <div className="lg:col-span-2 space-y-2">
-                                <Label>Actor User ID</Label>
+                                <Label>Actor (ID or Name)</Label>
                                 <Input
                                     value={actorFilter}
                                     onChange={(e) => setActorFilter(e.target.value)}
-                                    placeholder="e.g. 65ab…"
+                                    placeholder="e.g. Ibrahim or 65ab…"
                                 />
                             </div>
 
@@ -664,7 +758,7 @@ export default function AdminAuditLogsPage() {
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead className="w-48">Time</TableHead>
-                                                <TableHead className="w-44">Actor</TableHead>
+                                                <TableHead className="w-60">Actor</TableHead>
                                                 <TableHead className="w-40">Action</TableHead>
                                                 <TableHead className="w-40">Entity</TableHead>
                                                 <TableHead>Entity ID</TableHead>
@@ -682,6 +776,7 @@ export default function AdminAuditLogsPage() {
                                                 const actorUserId = String(
                                                     (it as any)?.actorUserId ?? ""
                                                 )
+                                                const actorName = resolveActorLabel(actorUserId)
                                                 const t = String((it as any)?.$createdAt ?? "")
 
                                                 return (
@@ -694,15 +789,24 @@ export default function AdminAuditLogsPage() {
                                                             {humanTime(t)}
                                                         </TableCell>
 
-                                                        <TableCell className="text-sm font-medium">
-                                                            <span className="inline-flex items-center gap-2">
-                                                                <Badge variant="outline">
-                                                                    {shortId(actorUserId)}
-                                                                </Badge>
-                                                                <span className="hidden lg:inline text-muted-foreground">
-                                                                    {actorUserId}
+                                                        {/* ✅ UPDATED: Actor shows NAME + ID */}
+                                                        <TableCell className="text-sm">
+                                                            <div className="flex flex-col gap-1 min-w-0">
+                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                    <span className="font-medium truncate">
+                                                                        {actorName}
+                                                                    </span>
+                                                                    <Badge
+                                                                        variant="outline"
+                                                                        className="font-mono shrink-0"
+                                                                    >
+                                                                        {shortId(actorUserId)}
+                                                                    </Badge>
+                                                                </div>
+                                                                <span className="text-xs text-muted-foreground font-mono truncate">
+                                                                    {actorUserId || "—"}
                                                                 </span>
-                                                            </span>
+                                                            </div>
                                                         </TableCell>
 
                                                         <TableCell className="text-sm">
@@ -861,154 +965,166 @@ export default function AdminAuditLogsPage() {
                 </Card>
             </div>
 
-            {/* Details Dialog */}
+            {/* ✅ Details Dialog */}
             <Dialog open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
-                <DialogContent className="max-w-4xl">
-                    <DialogHeader>
-                        <DialogTitle className="flex flex-wrap items-center gap-2">
-                            Audit Log Details
-                            {selected?.$id ? (
-                                <Badge variant="outline" className="font-mono">
-                                    {shortId(selected.$id)}
-                                </Badge>
-                            ) : null}
-                        </DialogTitle>
+                {/* ✅ NEW: Reduced height + vertical scrollbar */}
+                <DialogContent className="max-w-4xl p-0">
+                    <ScrollArea className="max-h-[85vh] p-6">
+                        <DialogHeader>
+                            <DialogTitle className="flex flex-wrap items-center gap-2">
+                                Audit Log Details
+                                {selected?.$id ? (
+                                    <Badge variant="outline" className="font-mono">
+                                        {shortId(selected.$id)}
+                                    </Badge>
+                                ) : null}
+                            </DialogTitle>
 
-                        <DialogDescription>
-                            Inspect the data captured during the change.
-                        </DialogDescription>
-                    </DialogHeader>
+                            <DialogDescription>
+                                Inspect the data captured during the change.
+                            </DialogDescription>
+                        </DialogHeader>
 
-                    {selected ? (
-                        <div className="space-y-4">
-                            <div className="grid gap-3 md:grid-cols-2">
+                        {selected ? (
+                            <div className="space-y-4 mt-4">
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <Card className="rounded-2xl">
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-sm">Event</CardTitle>
+                                            <CardDescription>What happened</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-2 text-sm">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-muted-foreground">Time</span>
+                                                <span className="font-medium">
+                                                    {humanTime(String((selected as any)?.$createdAt ?? ""))}
+                                                </span>
+                                            </div>
+
+                                            {/* ✅ UPDATED: Actor shows name + id */}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-muted-foreground">Actor</span>
+                                                <span className="text-right">
+                                                    <span className="font-medium block">
+                                                        {resolveActorLabel(String((selected as any)?.actorUserId ?? ""))}
+                                                    </span>
+                                                    <span className="text-xs text-muted-foreground font-mono block">
+                                                        {String((selected as any)?.actorUserId ?? "")}
+                                                    </span>
+                                                </span>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-muted-foreground">Action</span>
+                                                <Badge
+                                                    variant={actionBadgeVariant(
+                                                        String((selected as any)?.action ?? "")
+                                                    ) as any}
+                                                >
+                                                    {String((selected as any)?.action ?? "—")}
+                                                </Badge>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-muted-foreground">Entity</span>
+                                                <span className="font-medium">
+                                                    {String((selected as any)?.entityType ?? "—")}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-muted-foreground">Entity ID</span>
+                                                <span className="font-medium font-mono">
+                                                    {String((selected as any)?.entityId ?? "")}
+                                                </span>
+                                            </div>
+
+                                            <Separator />
+
+                                            <div className="flex flex-wrap gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="gap-2"
+                                                    onClick={() =>
+                                                        void copyText(selected.$id, "Log ID copied")
+                                                    }
+                                                >
+                                                    <Copy className="h-4 w-4" />
+                                                    Copy Log ID
+                                                </Button>
+
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="gap-2"
+                                                    onClick={() =>
+                                                        void copyText(
+                                                            String((selected as any)?.entityId ?? ""),
+                                                            "Entity ID copied"
+                                                        )
+                                                    }
+                                                >
+                                                    <Copy className="h-4 w-4" />
+                                                    Copy Entity ID
+                                                </Button>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="rounded-2xl">
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-sm">Meta</CardTitle>
+                                            <CardDescription>Extra context (optional)</CardDescription>
+                                        </CardHeader>
+
+                                        <CardContent>
+                                            {/* ✅ Reduced height */}
+                                            <ScrollArea className="h-48 rounded-xl border p-3">
+                                                <pre className="text-xs whitespace-pre-wrap break-words">
+                                                    {prettyJson((selected as any)?.meta ?? "") || "—"}
+                                                </pre>
+                                            </ScrollArea>
+                                        </CardContent>
+                                    </Card>
+                                </div>
+
                                 <Card className="rounded-2xl">
                                     <CardHeader className="pb-2">
-                                        <CardTitle className="text-sm">Event</CardTitle>
-                                        <CardDescription>What happened</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-2 text-sm">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-muted-foreground">Time</span>
-                                            <span className="font-medium">
-                                                {humanTime(String((selected as any)?.$createdAt ?? ""))}
-                                            </span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-muted-foreground">Actor</span>
-                                            <span className="font-medium font-mono">
-                                                {String((selected as any)?.actorUserId ?? "")}
-                                            </span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-muted-foreground">Action</span>
-                                            <Badge
-                                                variant={actionBadgeVariant(
-                                                    String((selected as any)?.action ?? "")
-                                                ) as any}
-                                            >
-                                                {String((selected as any)?.action ?? "—")}
-                                            </Badge>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-muted-foreground">Entity</span>
-                                            <span className="font-medium">
-                                                {String((selected as any)?.entityType ?? "—")}
-                                            </span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-muted-foreground">Entity ID</span>
-                                            <span className="font-medium font-mono">
-                                                {String((selected as any)?.entityId ?? "")}
-                                            </span>
-                                        </div>
-
-                                        <Separator />
-
-                                        <div className="flex flex-wrap gap-2">
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="gap-2"
-                                                onClick={() =>
-                                                    void copyText(selected.$id, "Log ID copied")
-                                                }
-                                            >
-                                                <Copy className="h-4 w-4" />
-                                                Copy Log ID
-                                            </Button>
-
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="gap-2"
-                                                onClick={() =>
-                                                    void copyText(
-                                                        String((selected as any)?.entityId ?? ""),
-                                                        "Entity ID copied"
-                                                    )
-                                                }
-                                            >
-                                                <Copy className="h-4 w-4" />
-                                                Copy Entity ID
-                                            </Button>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-2">
-                                        <CardTitle className="text-sm">Meta</CardTitle>
-                                        <CardDescription>Extra context (optional)</CardDescription>
+                                        <CardTitle className="text-sm">Payload</CardTitle>
+                                        <CardDescription>Before / After snapshots</CardDescription>
                                     </CardHeader>
 
                                     <CardContent>
-                                        <ScrollArea className="h-56 rounded-xl border p-3">
-                                            <pre className="text-xs whitespace-pre-wrap wrap-break-word">
-                                                {prettyJson((selected as any)?.meta ?? "") || "—"}
-                                            </pre>
-                                        </ScrollArea>
+                                        <Tabs defaultValue="after" className="w-full">
+                                            <TabsList className="grid w-full grid-cols-2">
+                                                <TabsTrigger value="before">Before</TabsTrigger>
+                                                <TabsTrigger value="after">After</TabsTrigger>
+                                            </TabsList>
+
+                                            <TabsContent value="before" className="mt-3">
+                                                {/* ✅ Reduced height + still scrollable */}
+                                                <ScrollArea className="h-56 rounded-xl border p-3">
+                                                    <pre className="text-xs whitespace-pre-wrap break-words">
+                                                        {prettyJson((selected as any)?.before ?? "") || "—"}
+                                                    </pre>
+                                                </ScrollArea>
+                                            </TabsContent>
+
+                                            <TabsContent value="after" className="mt-3">
+                                                {/* ✅ Reduced height + still scrollable */}
+                                                <ScrollArea className="h-56 rounded-xl border p-3">
+                                                    <pre className="text-xs whitespace-pre-wrap break-words">
+                                                        {prettyJson((selected as any)?.after ?? "") || "—"}
+                                                    </pre>
+                                                </ScrollArea>
+                                            </TabsContent>
+                                        </Tabs>
                                     </CardContent>
                                 </Card>
                             </div>
-
-                            <Card className="rounded-2xl">
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm">Payload</CardTitle>
-                                    <CardDescription>Before / After snapshots</CardDescription>
-                                </CardHeader>
-
-                                <CardContent>
-                                    <Tabs defaultValue="after" className="w-full">
-                                        <TabsList className="grid w-full grid-cols-2">
-                                            <TabsTrigger value="before">Before</TabsTrigger>
-                                            <TabsTrigger value="after">After</TabsTrigger>
-                                        </TabsList>
-
-                                        <TabsContent value="before" className="mt-3">
-                                            <ScrollArea className="h-72 rounded-xl border p-3">
-                                                <pre className="text-xs whitespace-pre-wrap wrap-break-word">
-                                                    {prettyJson((selected as any)?.before ?? "") || "—"}
-                                                </pre>
-                                            </ScrollArea>
-                                        </TabsContent>
-
-                                        <TabsContent value="after" className="mt-3">
-                                            <ScrollArea className="h-72 rounded-xl border p-3">
-                                                <pre className="text-xs whitespace-pre-wrap wrap-break-word">
-                                                    {prettyJson((selected as any)?.after ?? "") || "—"}
-                                                </pre>
-                                            </ScrollArea>
-                                        </TabsContent>
-                                    </Tabs>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    ) : null}
+                        ) : null}
+                    </ScrollArea>
                 </DialogContent>
             </Dialog>
         </DashboardLayout>

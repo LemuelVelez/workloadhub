@@ -67,7 +67,6 @@ let cachedActorAt = 0
 function isDevMode() {
     try {
         // Works in Vite
-
         return typeof import.meta !== "undefined" && (import.meta as any)?.env?.DEV
     } catch {
         return false
@@ -109,6 +108,35 @@ async function tryGetActorUserIdCached() {
     }
 }
 
+/**
+ * ✅ Normalize Databases API arguments
+ * Supports BOTH:
+ * - positional: (databaseId, collectionId, documentId, data, permissions?)
+ * - object: { databaseId, collectionId, documentId, data, permissions? }
+ */
+function normalizeDbArgs(params: any[]) {
+    // object-style
+    if (params.length === 1 && params[0] && typeof params[0] === "object") {
+        const a = params[0]
+        return {
+            databaseId: a.databaseId,
+            collectionId: a.collectionId,
+            documentId: a.documentId,
+            data: a.data,
+            permissions: a.permissions,
+        }
+    }
+
+    // positional
+    return {
+        databaseId: params[0],
+        collectionId: params[1],
+        documentId: params[2],
+        data: params[3],
+        permissions: params[4],
+    }
+}
+
 async function writeAuditLogInternal(args: {
     action: string
     entityType: string
@@ -132,24 +160,34 @@ async function writeAuditLogInternal(args: {
 
         if (!args.entityType || !args.entityId || !args.action) return
 
-        await tablesDBRaw.createRow({
-            databaseId: DATABASE_ID,
-            tableId: COLLECTIONS.AUDIT_LOGS,
-            rowId: ID.unique(),
-            data: {
-                actorUserId: actor,
-                action: args.action,
-                entityType: args.entityType,
-                entityId: args.entityId,
-                before: beforeStr,
-                after: afterStr,
-                meta: metaStr,
-                createdAt,
-            },
-        })
+        const payload = {
+            actorUserId: actor,
+            action: args.action,
+            entityType: args.entityType,
+            entityId: args.entityId,
+            before: beforeStr,
+            after: afterStr,
+            meta: metaStr,
+            createdAt,
+        }
+
+        // ✅ Preferred: Appwrite Tables (if audit_logs is a Table)
+        try {
+            await tablesDBRaw.createRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.AUDIT_LOGS,
+                rowId: ID.unique(),
+                data: payload,
+            })
+            return
+        } catch {
+            // ignore and fallback below
+        }
+
+        // ✅ Fallback: Appwrite Collections (if audit_logs is a Collection)
+        await databasesRaw.createDocument(DATABASE_ID, COLLECTIONS.AUDIT_LOGS, ID.unique(), payload)
     } catch (err) {
         if (isDevMode()) {
-
             console.warn("[AUDIT_LOGS] Failed to write audit log:", err)
         }
     }
@@ -158,25 +196,29 @@ async function writeAuditLogInternal(args: {
 /**
  * ✅ Backwards compatibility: OLD Databases API
  * Now automatically logs CREATE/UPDATE/DELETE operations into AUDIT_LOGS.
+ *
+ * ✅ FIXED: Supports positional Appwrite SDK args correctly
  */
 export const databases = new Proxy(databasesRaw as any, {
     get(target, prop) {
         if (prop === "createDocument") {
-            return async (args: any) => {
-                const res = await target.createDocument(args)
+            return async (...params: any[]) => {
+                const { databaseId, collectionId, documentId, data, permissions } = normalizeDbArgs(params)
 
-                const collectionId = String(args?.collectionId || "")
-                if (collectionId && collectionId !== COLLECTIONS.AUDIT_LOGS) {
+                const res = await target.createDocument(databaseId, collectionId, documentId, data, permissions)
+
+                const coll = String(collectionId || "")
+                if (coll && coll !== COLLECTIONS.AUDIT_LOGS) {
                     await writeAuditLogInternal({
                         action: "CREATE",
-                        entityType: collectionId,
-                        entityId: String(res?.$id || args?.documentId || ""),
+                        entityType: coll,
+                        entityId: String(res?.$id || documentId || ""),
                         before: null,
                         after: res,
                         meta: {
                             source: "Databases.createDocument",
-                            databaseId: args?.databaseId,
-                            collectionId,
+                            databaseId,
+                            collectionId: coll,
                         },
                     })
                 }
@@ -186,32 +228,34 @@ export const databases = new Proxy(databasesRaw as any, {
         }
 
         if (prop === "updateDocument") {
-            return async (args: any) => {
-                const collectionId = String(args?.collectionId || "")
-                const documentId = String(args?.documentId || "")
+            return async (...params: any[]) => {
+                const { databaseId, collectionId, documentId, data, permissions } = normalizeDbArgs(params)
+
+                const coll = String(collectionId || "")
+                const docId = String(documentId || "")
 
                 let before: any = null
                 try {
-                    if (collectionId && documentId && collectionId !== COLLECTIONS.AUDIT_LOGS) {
-                        before = await target.getDocument(args.databaseId, collectionId, documentId)
+                    if (coll && docId && coll !== COLLECTIONS.AUDIT_LOGS) {
+                        before = await target.getDocument(databaseId, coll, docId)
                     }
                 } catch {
                     // ignore
                 }
 
-                const res = await target.updateDocument(args)
+                const res = await target.updateDocument(databaseId, coll, docId, data, permissions)
 
-                if (collectionId && documentId && collectionId !== COLLECTIONS.AUDIT_LOGS) {
+                if (coll && docId && coll !== COLLECTIONS.AUDIT_LOGS) {
                     await writeAuditLogInternal({
                         action: "UPDATE",
-                        entityType: collectionId,
-                        entityId: documentId,
+                        entityType: coll,
+                        entityId: docId,
                         before,
                         after: res,
                         meta: {
                             source: "Databases.updateDocument",
-                            databaseId: args?.databaseId,
-                            collectionId,
+                            databaseId,
+                            collectionId: coll,
                         },
                     })
                 }
@@ -221,32 +265,34 @@ export const databases = new Proxy(databasesRaw as any, {
         }
 
         if (prop === "deleteDocument") {
-            return async (args: any) => {
-                const collectionId = String(args?.collectionId || "")
-                const documentId = String(args?.documentId || "")
+            return async (...params: any[]) => {
+                const { databaseId, collectionId, documentId } = normalizeDbArgs(params)
+
+                const coll = String(collectionId || "")
+                const docId = String(documentId || "")
 
                 let before: any = null
                 try {
-                    if (collectionId && documentId && collectionId !== COLLECTIONS.AUDIT_LOGS) {
-                        before = await target.getDocument(args.databaseId, collectionId, documentId)
+                    if (coll && docId && coll !== COLLECTIONS.AUDIT_LOGS) {
+                        before = await target.getDocument(databaseId, coll, docId)
                     }
                 } catch {
                     // ignore
                 }
 
-                const res = await target.deleteDocument(args)
+                const res = await target.deleteDocument(databaseId, coll, docId)
 
-                if (collectionId && documentId && collectionId !== COLLECTIONS.AUDIT_LOGS) {
+                if (coll && docId && coll !== COLLECTIONS.AUDIT_LOGS) {
                     await writeAuditLogInternal({
                         action: "DELETE",
-                        entityType: collectionId,
-                        entityId: documentId,
+                        entityType: coll,
+                        entityId: docId,
                         before,
                         after: null,
                         meta: {
                             source: "Databases.deleteDocument",
-                            databaseId: args?.databaseId,
-                            collectionId,
+                            databaseId,
+                            collectionId: coll,
                         },
                     })
                 }
