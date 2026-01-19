@@ -106,10 +106,6 @@ function chunk<T>(arr: T[], size = 50) {
     return out
 }
 
-function pickRowDateKey(r: AnyRow) {
-    return safeStr(r?.$updatedAt || r?.$createdAt || "")
-}
-
 export type FacultyScheduleItem = {
     meetingId: string
     classId: string
@@ -165,6 +161,27 @@ export type FacultyAvailabilityItem = {
     endTime: string
     preference: string
     notes?: string | null
+}
+
+export type FacultyChangeRequestItem = {
+    $id: string
+    $createdAt?: string
+    $updatedAt?: string
+
+    termId: string
+    departmentId: string
+    requestedBy: string
+
+    classId?: string | null
+    meetingId?: string | null
+
+    type: string
+    details: string
+    status: string
+
+    reviewedBy?: string | null
+    reviewedAt?: string | null
+    resolutionNotes?: string | null
 }
 
 export type FacultyNotificationItem = {
@@ -745,6 +762,151 @@ export const facultyMemberApi = {
     },
 
     /**
+     * ✅ NEW: Change Requests (Faculty)
+     * - Faculty submits requests for schedule/load changes
+     * - Department head approves/rejects
+     */
+    changeRequests: {
+        async listMy(args: { userId: string }) {
+            const userId = safeStr(args.userId)
+            if (!userId) {
+                return { term: null, profile: null, items: [] as FacultyChangeRequestItem[] }
+            }
+
+            const term = await facultyMemberApi.terms.getActive().catch(() => null)
+            const termId = safeStr(term?.$id)
+
+            const profile = await facultyMemberApi.profiles.getByUserId(userId).catch(() => null)
+            const departmentId = safeStr(profile?.departmentId)
+
+            if (!termId || !departmentId) {
+                return { term, profile, items: [] as FacultyChangeRequestItem[] }
+            }
+
+            const rows = await listAllRows(
+                COLLECTIONS.CHANGE_REQUESTS,
+                [
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.equal("requestedBy", userId),
+                    Query.orderDesc("$createdAt"),
+                ],
+                6000
+            )
+
+            const items: FacultyChangeRequestItem[] = rows
+                .map((r) => {
+                    return {
+                        $id: safeStr(r?.$id),
+                        $createdAt: safeStr(r?.$createdAt),
+                        $updatedAt: safeStr(r?.$updatedAt),
+
+                        termId: safeStr(r?.termId),
+                        departmentId: safeStr(r?.departmentId),
+                        requestedBy: safeStr(r?.requestedBy),
+
+                        classId: safeStr(r?.classId) || null,
+                        meetingId: safeStr(r?.meetingId) || null,
+
+                        type: safeStr(r?.type) || "Request",
+                        details: safeStr(r?.details) || "",
+                        status: safeStr(r?.status) || "Pending",
+
+                        reviewedBy: safeStr(r?.reviewedBy) || null,
+                        reviewedAt: safeStr(r?.reviewedAt) || null,
+                        resolutionNotes: safeStr(r?.resolutionNotes) || null,
+                    } as FacultyChangeRequestItem
+                })
+                .filter((x) => x.$id && x.termId && x.departmentId && x.requestedBy)
+                .sort((a, b) => {
+                    const ad = safeStr(a.$updatedAt || a.$createdAt || "")
+                    const bd = safeStr(b.$updatedAt || b.$createdAt || "")
+                    return bd.localeCompare(ad)
+                })
+
+            return { term, profile, items }
+        },
+
+        async createMy(args: {
+            userId: string
+            type: string
+            details: string
+            classId?: string
+            meetingId?: string
+        }) {
+            const userId = safeStr(args.userId)
+            if (!userId) throw new Error("Missing userId")
+
+            const type = safeStr(args.type)
+            const details = safeStr(args.details)
+
+            if (!type) throw new Error("Missing request type")
+            if (!details) throw new Error("Missing details")
+
+            const term = await facultyMemberApi.terms.getActive().catch(() => null)
+            const termId = safeStr(term?.$id)
+            if (!termId) throw new Error("No active term")
+
+            const profile = await facultyMemberApi.profiles.getByUserId(userId).catch(() => null)
+            const departmentId = safeStr(profile?.departmentId)
+            if (!departmentId) throw new Error("Missing department")
+
+            const payload = {
+                termId,
+                departmentId,
+                requestedBy: userId,
+
+                classId: safeStr(args.classId) || null,
+                meetingId: safeStr(args.meetingId) || null,
+
+                type,
+                details,
+                status: "Pending",
+
+                reviewedBy: null,
+                reviewedAt: null,
+                resolutionNotes: null,
+            }
+
+            return await tablesDB.createRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.CHANGE_REQUESTS,
+                rowId: ID.unique(),
+                data: payload,
+            })
+        },
+
+        async cancelMy(args: { userId: string; rowId: string }) {
+            const userId = safeStr(args.userId)
+            const rowId = safeStr(args.rowId)
+            if (!userId) throw new Error("Missing userId")
+            if (!rowId) throw new Error("Missing rowId")
+
+            // ✅ Ensure it's actually theirs (basic guard)
+            const existing = await tablesDB
+                .getRow({
+                    databaseId: DATABASE_ID,
+                    tableId: COLLECTIONS.CHANGE_REQUESTS,
+                    rowId,
+                })
+                .catch(() => null)
+
+            if (!existing) throw new Error("Request not found")
+            if (safeStr(existing?.requestedBy) !== userId) throw new Error("Not allowed")
+
+            const status = safeStr(existing?.status || "Pending").toLowerCase()
+            if (status !== "pending") throw new Error("Only pending requests can be cancelled")
+
+            return await tablesDB.updateRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.CHANGE_REQUESTS,
+                rowId,
+                data: { status: "Cancelled" },
+            })
+        },
+    },
+
+    /**
      * ✅ NEW: Notifications (Faculty View)
      * Joins:
      * - NOTIFICATIONS
@@ -836,12 +998,6 @@ export const facultyMemberApi = {
                 const notif = notifMap.get(nid)
                 const rec = recipientMap.get(nid)
                 if (!notif || !rec) continue
-
-                // optional: keep same-term first, but do not hard-exclude
-                const nTerm = safeStr(notif?.termId || "")
-                if (termId && nTerm && nTerm !== termId) {
-                    // allow, but lower priority
-                }
 
                 joined.push({
                     notificationId: safeStr(notif?.$id),

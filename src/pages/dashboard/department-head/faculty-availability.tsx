@@ -26,6 +26,13 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 import {
     RefreshCw,
@@ -35,6 +42,7 @@ import {
     Search,
     AlertTriangle,
     UserCircle2,
+    Check,
 } from "lucide-react"
 
 import {
@@ -50,7 +58,6 @@ import {
     CommandItem,
     CommandList,
 } from "@/components/ui/command"
-import { Check } from "lucide-react"
 
 type AnyDoc = {
     $id: string
@@ -87,6 +94,8 @@ const DAY_ORDER: Record<string, number> = DAYS.reduce((acc, d, i) => {
     acc[d.toLowerCase()] = i
     return acc
 }, {} as Record<string, number>)
+
+const PREFERENCE_OPTIONS = ["All", "Preferred", "Neutral", "Unavailable"] as const
 
 function safeStr(v: any) {
     return String(v ?? "").trim()
@@ -404,7 +413,8 @@ export default function FacultyAvailabilityPage() {
                         </CardHeader>
                         <CardContent className="space-y-2">
                             <div className="text-sm text-muted-foreground">
-                                Department ID: <span className="font-medium text-foreground">{departmentId || "—"}</span>
+                                Department ID:{" "}
+                                <span className="font-medium text-foreground">{departmentId || "—"}</span>
                             </div>
                         </CardContent>
                     </Card>
@@ -420,7 +430,9 @@ export default function FacultyAvailabilityPage() {
                         <CardContent className="space-y-3">
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-muted-foreground">Submitted</span>
-                                <span className="font-medium">{facultyStats.withPrefs} / {facultyStats.total}</span>
+                                <span className="font-medium">
+                                    {facultyStats.withPrefs} / {facultyStats.total}
+                                </span>
                             </div>
                             <Progress value={facultyStats.pct} />
                             <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -441,7 +453,8 @@ export default function FacultyAvailabilityPage() {
                         <CardContent className="space-y-2">
                             <div className="text-3xl font-semibold">{availability.length}</div>
                             <div className="text-sm text-muted-foreground">
-                                Unsubmitted: <span className="font-medium text-foreground">{facultyStats.withoutPrefs}</span>
+                                Unsubmitted:{" "}
+                                <span className="font-medium text-foreground">{facultyStats.withoutPrefs}</span>
                             </div>
                         </CardContent>
                     </Card>
@@ -484,8 +497,11 @@ export default function FacultyAvailabilityPage() {
                                         <UserCircle2 className="h-4 w-4" />
                                         Faculty Selector
                                     </CardTitle>
-                                    <CardDescription>Select a faculty member to view their submitted preferences.</CardDescription>
+                                    <CardDescription>
+                                        Select a faculty member to view their submitted preferences.
+                                    </CardDescription>
                                 </CardHeader>
+
                                 <CardContent className="space-y-4">
                                     <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                                         {/* Faculty combobox */}
@@ -498,34 +514,39 @@ export default function FacultyAvailabilityPage() {
                                             />
                                         </div>
 
+                                        {/* ✅ ShadCN Select: Day */}
                                         <div>
                                             <div className="text-sm font-medium mb-2">Day</div>
-                                            <select
-                                                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                                value={filterDay}
-                                                onChange={(e) => setFilterDay(e.target.value)}
-                                            >
-                                                <option value="All">All</option>
-                                                {DAYS.map((d) => (
-                                                    <option key={d} value={d}>
-                                                        {d}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                            <Select value={filterDay} onValueChange={setFilterDay}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="All" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="All">All</SelectItem>
+                                                    {DAYS.map((d) => (
+                                                        <SelectItem key={d} value={d}>
+                                                            {d}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
 
+                                        {/* ✅ ShadCN Select: Preference */}
                                         <div>
                                             <div className="text-sm font-medium mb-2">Preference</div>
-                                            <select
-                                                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                                value={filterPref}
-                                                onChange={(e) => setFilterPref(e.target.value)}
-                                            >
-                                                <option value="All">All</option>
-                                                <option value="Preferred">Preferred</option>
-                                                <option value="Neutral">Neutral</option>
-                                                <option value="Unavailable">Unavailable</option>
-                                            </select>
+                                            <Select value={filterPref} onValueChange={setFilterPref}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="All" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {PREFERENCE_OPTIONS.map((p) => (
+                                                        <SelectItem key={p} value={p}>
+                                                            {p}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
                                     </div>
 
@@ -554,9 +575,7 @@ export default function FacultyAvailabilityPage() {
                                         </div>
 
                                         <div className="flex items-center gap-2">
-                                            <Badge variant="secondary">
-                                                Entries: {selectedFacultyAvail.length}
-                                            </Badge>
+                                            <Badge variant="secondary">Entries: {selectedFacultyAvail.length}</Badge>
                                             {selectedFacultyAvail.length === 0 ? (
                                                 <Badge variant="outline">No submission</Badge>
                                             ) : (
@@ -595,7 +614,9 @@ export default function FacultyAvailabilityPage() {
                                                                 {prettyTime(r.startTime)} - {prettyTime(r.endTime)}
                                                             </TableCell>
                                                             <TableCell>
-                                                                <Badge variant={badgeVariantForPreference(r.preference) as any}>
+                                                                <Badge
+                                                                    variant={badgeVariantForPreference(r.preference) as any}
+                                                                >
                                                                     {normalizePreference(r.preference)}
                                                                 </Badge>
                                                             </TableCell>
@@ -623,7 +644,9 @@ export default function FacultyAvailabilityPage() {
                             <Card>
                                 <CardHeader className="pb-3">
                                     <CardTitle className="text-base">Faculty Without Submission</CardTitle>
-                                    <CardDescription>These faculty have not submitted preferences for the active term.</CardDescription>
+                                    <CardDescription>
+                                        These faculty have not submitted preferences for the active term.
+                                    </CardDescription>
                                 </CardHeader>
                                 <CardContent>
                                     {facultyNoPrefs.length === 0 ? (
@@ -663,6 +686,7 @@ export default function FacultyAvailabilityPage() {
                                         Browse all submitted availability blocks for faculty in your department.
                                     </CardDescription>
                                 </CardHeader>
+
                                 <CardContent className="space-y-4">
                                     <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                                         <div className="md:col-span-2">
@@ -678,34 +702,39 @@ export default function FacultyAvailabilityPage() {
                                             </div>
                                         </div>
 
+                                        {/* ✅ ShadCN Select: Day */}
                                         <div>
                                             <div className="text-sm font-medium mb-2">Day</div>
-                                            <select
-                                                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                                value={filterDay}
-                                                onChange={(e) => setFilterDay(e.target.value)}
-                                            >
-                                                <option value="All">All</option>
-                                                {DAYS.map((d) => (
-                                                    <option key={d} value={d}>
-                                                        {d}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                            <Select value={filterDay} onValueChange={setFilterDay}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="All" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="All">All</SelectItem>
+                                                    {DAYS.map((d) => (
+                                                        <SelectItem key={d} value={d}>
+                                                            {d}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
 
+                                        {/* ✅ ShadCN Select: Preference */}
                                         <div>
                                             <div className="text-sm font-medium mb-2">Preference</div>
-                                            <select
-                                                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                                value={filterPref}
-                                                onChange={(e) => setFilterPref(e.target.value)}
-                                            >
-                                                <option value="All">All</option>
-                                                <option value="Preferred">Preferred</option>
-                                                <option value="Neutral">Neutral</option>
-                                                <option value="Unavailable">Unavailable</option>
-                                            </select>
+                                            <Select value={filterPref} onValueChange={setFilterPref}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="All" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {PREFERENCE_OPTIONS.map((p) => (
+                                                        <SelectItem key={p} value={p}>
+                                                            {p}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
                                     </div>
 
@@ -744,7 +773,9 @@ export default function FacultyAvailabilityPage() {
                                                                     {prettyTime(r.startTime)} - {prettyTime(r.endTime)}
                                                                 </TableCell>
                                                                 <TableCell>
-                                                                    <Badge variant={badgeVariantForPreference(r.preference) as any}>
+                                                                    <Badge
+                                                                        variant={badgeVariantForPreference(r.preference) as any}
+                                                                    >
                                                                         {normalizePreference(r.preference)}
                                                                     </Badge>
                                                                 </TableCell>

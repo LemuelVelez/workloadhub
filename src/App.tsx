@@ -113,6 +113,11 @@ const FacultyNotificationsPage = React.lazy(
   () => import("./pages/dashboard/faculty-member/notifications")
 )
 
+// ✅ NEW: Faculty Request Change
+const FacultyRequestChangePage = React.lazy(
+  () => import("./pages/dashboard/faculty-member/request-change")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -539,6 +544,12 @@ export default function App() {
                   <Route
                     path="notifications"
                     element={<FacultyNotificationsPage />}
+                  />
+
+                  {/* ✅ NEW: Request Change */}
+                  <Route
+                    path="request-change"
+                    element={<FacultyRequestChangePage />}
                   />
                 </Route>
 

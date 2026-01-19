@@ -334,6 +334,14 @@ export default function NavMain({ className }: { className?: string }) {
             icon: Bell,
             roles: ["faculty"],
         },
+
+        // ✅ NEW: Request Change
+        {
+            title: "Request Change",
+            href: "/dashboard/faculty/request-change",
+            icon: FileClock,
+            roles: ["faculty"],
+        },
     ]
 
     const preferencesMenu: NavItem[] = [

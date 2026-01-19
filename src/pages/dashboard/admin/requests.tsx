@@ -57,6 +57,7 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 
 type ChangeRequestStatus =
     | "Pending"
@@ -163,6 +164,28 @@ function statusIcon(status: string) {
     return Clock
 }
 
+function safeStr(v: any) {
+    return String(v ?? "").trim()
+}
+
+function chunk<T>(arr: T[], size: number) {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+    return out
+}
+
+function getProfilesCollectionId() {
+    const c: any = COLLECTIONS as any
+    return (
+        c.USER_PROFILES ??
+        c.PROFILES ??
+        c.USER_PROFILE ??
+        c.FACULTY_PROFILES ??
+        c.PROFILE ??
+        ""
+    )
+}
+
 export default function AdminRequestsPage() {
     const { user } = useSession()
     const isAdmin = resolveRole(user) === "admin"
@@ -181,14 +204,93 @@ export default function AdminRequestsPage() {
     const [resolutionNotes, setResolutionNotes] = React.useState("")
     const [saving, setSaving] = React.useState(false)
 
+    // ✅ userId -> name map
+    const [userNameMap, setUserNameMap] = React.useState<Record<string, string>>({})
+
+    function resolveUserName(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return userNameMap[k] || k
+    }
+
+    async function hydrateUserNames(docs: ChangeRequestDoc[]) {
+        const collectionId = getProfilesCollectionId()
+        if (!collectionId) return
+
+        const ids = Array.from(
+            new Set(
+                docs
+                    .flatMap((x) => [safeStr(x.requestedBy), safeStr(x.reviewedBy)])
+                    .filter(Boolean)
+            )
+        )
+
+        if (ids.length === 0) return
+
+        const map: Record<string, string> = {}
+
+        try {
+            // ✅ Preferred: query profiles by userId
+            for (const part of chunk(ids, 50)) {
+                const res = await databases.listDocuments(
+                    DATABASE_ID,
+                    collectionId,
+                    [Query.equal("userId", part), Query.limit(200)]
+                )
+
+                for (const p of (res?.documents ?? []) as any[]) {
+                    const uid = safeStr(p?.userId || p?.$id)
+                    const name =
+                        safeStr(p?.name) ||
+                        safeStr(p?.fullName) ||
+                        safeStr(p?.displayName) ||
+                        safeStr(`${p?.firstName || ""} ${p?.lastName || ""}`)
+
+                    if (uid) map[uid] = name || uid
+                }
+            }
+
+            // ✅ fallback: if still missing, try matching by $id
+            const missing = ids.filter((x) => !map[x])
+            if (missing.length) {
+                for (const part of chunk(missing, 50)) {
+                    try {
+                        const res2 = await databases.listDocuments(
+                            DATABASE_ID,
+                            collectionId,
+                            [Query.equal("$id", part), Query.limit(200)]
+                        )
+                        for (const p of (res2?.documents ?? []) as any[]) {
+                            const uid = safeStr(p?.userId || p?.$id)
+                            const name =
+                                safeStr(p?.name) ||
+                                safeStr(p?.fullName) ||
+                                safeStr(p?.displayName) ||
+                                safeStr(`${p?.firstName || ""} ${p?.lastName || ""}`)
+                            if (uid) map[uid] = name || uid
+                        }
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+
+            setUserNameMap((prev) => ({ ...prev, ...map }))
+        } catch {
+            // Ignore lookup errors, fallback to IDs
+        }
+    }
+
     const filtered = React.useMemo(() => {
         const q = search.trim().toLowerCase()
 
         return items.filter((it) => {
             const statusOk = tab === "all" ? true : String(it.status) === tab
-
             if (!statusOk) return false
             if (!q) return true
+
+            // ✅ include requester's name in search
+            const requesterName = safeStr(userNameMap[safeStr(it.requestedBy)] || "")
 
             const hay = [
                 it.$id,
@@ -196,6 +298,7 @@ export default function AdminRequestsPage() {
                 it.details,
                 it.status,
                 it.requestedBy,
+                requesterName,
                 it.departmentId,
                 it.termId,
                 it.classId ?? "",
@@ -206,7 +309,7 @@ export default function AdminRequestsPage() {
 
             return hay.includes(q)
         })
-    }, [items, tab, search])
+    }, [items, tab, search, userNameMap])
 
     const stats = React.useMemo(() => {
         const total = items.length
@@ -231,6 +334,9 @@ export default function AdminRequestsPage() {
 
             const docs = (res?.documents ?? []) as any[]
             setItems(docs as ChangeRequestDoc[])
+
+            // ✅ Fetch names instead of showing raw ids
+            await hydrateUserNames(docs as ChangeRequestDoc[])
         } catch (e: any) {
             setError(e?.message || "Failed to load requests.")
         } finally {
@@ -388,7 +494,7 @@ export default function AdminRequestsPage() {
                                     id="search"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Search by type, details, userId, term, department..."
+                                    placeholder="Search by type, details, requester name, term, department..."
                                 />
                             </div>
                         </div>
@@ -435,6 +541,8 @@ export default function AdminRequestsPage() {
                                     <TableBody>
                                         {filtered.map((it) => {
                                             const Icon = statusIcon(String(it.status))
+                                            const requester = resolveUserName(it.requestedBy)
+
                                             return (
                                                 <TableRow key={it.$id} className="align-top">
                                                     <TableCell className="font-medium">
@@ -458,7 +566,7 @@ export default function AdminRequestsPage() {
                                                     </TableCell>
 
                                                     <TableCell className="text-sm">
-                                                        {it.requestedBy || "—"}
+                                                        {requester || "—"}
                                                     </TableCell>
 
                                                     <TableCell className="text-sm">{it.termId || "—"}</TableCell>
@@ -580,7 +688,7 @@ export default function AdminRequestsPage() {
                                         </div>
                                         <div className="flex items-center justify-between gap-3">
                                             <span className="text-muted-foreground">Requested By</span>
-                                            <span className="font-medium">{active.requestedBy || "—"}</span>
+                                            <span className="font-medium">{resolveUserName(active.requestedBy)}</span>
                                         </div>
                                         <div className="flex items-center justify-between gap-3">
                                             <span className="text-muted-foreground">Term</span>
@@ -610,12 +718,14 @@ export default function AdminRequestsPage() {
                                         <CardTitle className="text-sm">Details</CardTitle>
                                         <CardDescription>What the requester wants to change</CardDescription>
                                     </CardHeader>
-                                    <CardContent className="text-sm leading-relaxed">{active.details || "—"}</CardContent>
+                                    <CardContent className="text-sm leading-relaxed whitespace-pre-wrap">
+                                        {active.details || "—"}
+                                    </CardContent>
                                 </Card>
 
                                 <div className="space-y-2">
                                     <Label htmlFor="notes">Resolution Notes</Label>
-                                    <Input
+                                    <Textarea
                                         id="notes"
                                         value={resolutionNotes}
                                         onChange={(e) => setResolutionNotes(e.target.value)}
@@ -636,7 +746,8 @@ export default function AdminRequestsPage() {
                                             {active.reviewedBy ? (
                                                 <>
                                                     {" "}
-                                                    by <span className="font-medium">{active.reviewedBy}</span>.
+                                                    by{" "}
+                                                    <span className="font-medium">{resolveUserName(active.reviewedBy)}</span>.
                                                 </>
                                             ) : null}
                                         </AlertDescription>

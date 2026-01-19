@@ -12,11 +12,17 @@ import {
     Lock,
     Archive,
     ArrowUpRight,
+    Eye,
+    CheckCircle2,
+    XCircle,
+    Clock,
 } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
 import { useSession } from "@/hooks/use-session"
 import { departmentHeadApi } from "@/api/department-head"
+
+import { databases, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -65,6 +71,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 type AnyRow = {
     $id: string
@@ -87,6 +94,36 @@ type VersionRow = AnyRow & {
     notes?: string | null
 }
 
+type ChangeRequestStatus =
+    | "Pending"
+    | "Approved"
+    | "Rejected"
+    | "Cancelled"
+    | (string & {})
+
+type ChangeRequestDoc = {
+    $id: string
+    $createdAt: string
+    $updatedAt: string
+
+    termId: string
+    departmentId: string
+    requestedBy: string
+
+    classId?: string | null
+    meetingId?: string | null
+
+    type: string
+    details: string
+    status: ChangeRequestStatus
+
+    reviewedBy?: string | null
+    reviewedAt?: string | null
+    resolutionNotes?: string | null
+}
+
+type RequestTabKey = "all" | "Pending" | "Approved" | "Rejected" | "Cancelled"
+
 function safeStr(v: any) {
     return String(v ?? "").trim()
 }
@@ -107,6 +144,44 @@ function statusBadgeVariant(status: string) {
     return "outline"
 }
 
+function reqBadgeVariant(status: string) {
+    const s = safeStr(status).toLowerCase()
+    if (s === "approved") return "default"
+    if (s === "rejected") return "destructive"
+    if (s === "cancelled") return "secondary"
+    if (s === "pending") return "outline"
+    return "outline"
+}
+
+function reqIcon(status: string) {
+    const s = safeStr(status).toLowerCase()
+    if (s === "approved") return CheckCircle2
+    if (s === "rejected") return XCircle
+    return Clock
+}
+
+function chunk<T>(arr: T[], size: number) {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+    return out
+}
+
+/**
+ * ✅ Fetch names for requestedBy / reviewedBy by loading Profiles collection.
+ * We try multiple possible collection keys, but safely fallback if not found.
+ */
+function getProfilesCollectionId() {
+    const c: any = COLLECTIONS as any
+    return (
+        c.USER_PROFILES ??
+        c.PROFILES ??
+        c.USER_PROFILE ??
+        c.FACULTY_PROFILES ??
+        c.PROFILE ??
+        ""
+    )
+}
+
 const COPY_NONE = "__none__"
 
 export default function DepartmentHeadFinalizationPage() {
@@ -124,6 +199,22 @@ export default function DepartmentHeadFinalizationPage() {
 
     const [versions, setVersions] = React.useState<VersionRow[]>([])
     const [search, setSearch] = React.useState("")
+
+    // ✅ Change Requests (from faculty-member/request-change.tsx)
+    const [reqLoading, setReqLoading] = React.useState(false)
+    const [reqError, setReqError] = React.useState<string | null>(null)
+    const [reqTab, setReqTab] = React.useState<RequestTabKey>("Pending")
+    const [reqSearch, setReqSearch] = React.useState("")
+    const [reqItems, setReqItems] = React.useState<ChangeRequestDoc[]>([])
+
+    // ✅ map userId -> name
+    const [userNameMap, setUserNameMap] = React.useState<Record<string, string>>({})
+
+    // View / Review Request Dialog
+    const [reqViewOpen, setReqViewOpen] = React.useState(false)
+    const [activeReq, setActiveReq] = React.useState<ChangeRequestDoc | null>(null)
+    const [reqNotes, setReqNotes] = React.useState("")
+    const [reqSaving, setReqSaving] = React.useState(false)
 
     // Create Version Dialog
     const [createOpen, setCreateOpen] = React.useState(false)
@@ -167,6 +258,133 @@ export default function DepartmentHeadFinalizationPage() {
         })
     }, [versions, search])
 
+    const filteredReqs = React.useMemo(() => {
+        const q = reqSearch.trim().toLowerCase()
+
+        return reqItems.filter((it) => {
+            const statusOk = reqTab === "all" ? true : safeStr(it.status) === reqTab
+            if (!statusOk) return false
+            if (!q) return true
+
+            const requestedByName = safeStr(userNameMap[safeStr(it.requestedBy)] || "")
+
+            const hay = [
+                it.$id,
+                it.type,
+                it.details,
+                it.status,
+                it.requestedBy,
+                requestedByName,
+                it.classId ?? "",
+                it.meetingId ?? "",
+            ]
+                .join(" ")
+                .toLowerCase()
+
+            return hay.includes(q)
+        })
+    }, [reqItems, reqTab, reqSearch, userNameMap])
+
+    function resolveUserName(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return userNameMap[k] || k
+    }
+
+    async function hydrateUserNames(changeReqDocs: ChangeRequestDoc[]) {
+        const collectionId = getProfilesCollectionId()
+        if (!collectionId) return
+
+        const ids = Array.from(
+            new Set(
+                changeReqDocs
+                    .flatMap((x) => [safeStr(x.requestedBy), safeStr(x.reviewedBy)])
+                    .filter(Boolean)
+            )
+        )
+
+        if (ids.length === 0) return
+
+        const map: Record<string, string> = {}
+
+        try {
+            // ✅ Preferred: query profiles by userId
+            for (const part of chunk(ids, 50)) {
+                const res = await databases.listDocuments(
+                    DATABASE_ID,
+                    collectionId,
+                    [Query.equal("userId", part), Query.limit(200)]
+                )
+
+                for (const p of (res?.documents ?? []) as any[]) {
+                    const uid = safeStr(p?.userId || p?.$id)
+                    const name =
+                        safeStr(p?.name) ||
+                        safeStr(p?.fullName) ||
+                        safeStr(p?.displayName) ||
+                        safeStr(`${p?.firstName || ""} ${p?.lastName || ""}`)
+
+                    if (uid) map[uid] = name || uid
+                }
+            }
+
+            // ✅ fallback: if still missing, try matching by $id
+            const missing = ids.filter((x) => !map[x])
+            if (missing.length) {
+                for (const part of chunk(missing, 50)) {
+                    try {
+                        const res2 = await databases.listDocuments(
+                            DATABASE_ID,
+                            collectionId,
+                            [Query.equal("$id", part), Query.limit(200)]
+                        )
+                        for (const p of (res2?.documents ?? []) as any[]) {
+                            const uid = safeStr(p?.userId || p?.$id)
+                            const name =
+                                safeStr(p?.name) ||
+                                safeStr(p?.fullName) ||
+                                safeStr(p?.displayName) ||
+                                safeStr(`${p?.firstName || ""} ${p?.lastName || ""}`)
+                            if (uid) map[uid] = name || uid
+                        }
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+
+            setUserNameMap((prev) => ({ ...prev, ...map }))
+        } catch {
+            // Ignore lookup errors, fallback to IDs
+        }
+    }
+
+    async function loadChangeRequests(termIdParam: string, deptIdParam: string) {
+        setReqLoading(true)
+        setReqError(null)
+        try {
+            const res = await databases.listDocuments(
+                DATABASE_ID,
+                COLLECTIONS.CHANGE_REQUESTS,
+                [
+                    Query.equal("termId", termIdParam),
+                    Query.equal("departmentId", deptIdParam),
+                    Query.orderDesc("$createdAt"),
+                    Query.limit(200),
+                ]
+            )
+
+            const docs = (res?.documents ?? []) as any[]
+            setReqItems(docs as ChangeRequestDoc[])
+            await hydrateUserNames(docs as ChangeRequestDoc[])
+        } catch (e: any) {
+            setReqItems([])
+            setReqError(e?.message || "Failed to load change requests.")
+        } finally {
+            setReqLoading(false)
+        }
+    }
+
     async function load() {
         setLoading(true)
         try {
@@ -178,17 +396,24 @@ export default function DepartmentHeadFinalizationPage() {
             setDepartmentId(deptId)
 
             if (t?.$id && deptId) {
-                const list = await departmentHeadApi.scheduleVersions.listByTermDepartment(
-                    safeStr(t.$id),
-                    deptId
-                )
+                const [list] = await Promise.all([
+                    departmentHeadApi.scheduleVersions.listByTermDepartment(
+                        safeStr(t.$id),
+                        deptId
+                    ),
+                ])
 
                 setVersions(Array.isArray(list) ? (list as VersionRow[]) : [])
+
+                // ✅ Load faculty change requests for THIS term + department
+                await loadChangeRequests(safeStr(t.$id), deptId)
             } else {
                 setVersions([])
+                setReqItems([])
             }
         } catch (err: any) {
             setVersions([])
+            setReqItems([])
             toast.error(err?.message || "Failed to load schedule versions.")
         } finally {
             setLoading(false)
@@ -332,6 +557,47 @@ export default function DepartmentHeadFinalizationPage() {
         }
     }
 
+    const openReqView = (it: ChangeRequestDoc) => {
+        setActiveReq(it)
+        setReqNotes(safeStr(it?.resolutionNotes))
+        setReqViewOpen(true)
+    }
+
+    async function updateReqStatus(next: ChangeRequestStatus) {
+        if (!activeReq) return
+        if (!userId) {
+            toast.error("Missing user session")
+            return
+        }
+
+        setReqSaving(true)
+        try {
+            const payload: any = {
+                status: next,
+                reviewedBy: userId || null,
+                reviewedAt: new Date().toISOString(),
+                resolutionNotes: safeStr(reqNotes) || null,
+            }
+
+            await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.CHANGE_REQUESTS,
+                activeReq.$id,
+                payload
+            )
+
+            toast.success(`Request ${safeStr(next)}`)
+            setReqViewOpen(false)
+            setActiveReq(null)
+            setReqNotes("")
+            await loadChangeRequests(termId, departmentId)
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to update request.")
+        } finally {
+            setReqSaving(false)
+        }
+    }
+
     const headerActions = (
         <div className="flex items-center gap-2">
             <Button
@@ -450,7 +716,7 @@ export default function DepartmentHeadFinalizationPage() {
     )
 
     const title = "Approval & Finalization"
-    const subtitle = "Approve, activate, lock, and manage schedule versions."
+    const subtitle = "Approve, activate, lock, and manage schedule versions and faculty change requests."
 
     return (
         <DashboardLayout title={title} subtitle={subtitle} actions={headerActions}>
@@ -460,7 +726,8 @@ export default function DepartmentHeadFinalizationPage() {
                     <AlertTitle>Finalization</AlertTitle>
                     <AlertDescription>
                         Set a schedule version to <b>Active</b> for editing. When ready, <b>Lock</b>{" "}
-                        the Active version to finalize and prevent further changes.
+                        the Active version to finalize and prevent further changes. You can also{" "}
+                        review and decide faculty <b>Change Requests</b>.
                     </AlertDescription>
                 </Alert>
 
@@ -516,6 +783,155 @@ export default function DepartmentHeadFinalizationPage() {
                     </CardContent>
                 </Card>
 
+                {/* ✅ NEW: Change Requests Section */}
+                <Card>
+                    <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <CardTitle>Change Requests</CardTitle>
+                            <CardDescription>
+                                Requests submitted by faculty from “Request Change” page.
+                            </CardDescription>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    if (!termId || !departmentId) return
+                                    void loadChangeRequests(termId, departmentId)
+                                }}
+                                disabled={reqLoading || !hasContext}
+                            >
+                                <RefreshCcw className="mr-2 h-4 w-4" />
+                                Refresh
+                            </Button>
+                        </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <Tabs
+                                value={reqTab}
+                                onValueChange={(v) => setReqTab(v as RequestTabKey)}
+                                className="w-full lg:w-auto"
+                            >
+                                <TabsList className="grid w-full grid-cols-5 lg:w-auto">
+                                    <TabsTrigger value="all">All</TabsTrigger>
+                                    <TabsTrigger value="Pending">Pending</TabsTrigger>
+                                    <TabsTrigger value="Approved">Approved</TabsTrigger>
+                                    <TabsTrigger value="Rejected">Rejected</TabsTrigger>
+                                    <TabsTrigger value="Cancelled">Cancelled</TabsTrigger>
+                                </TabsList>
+                            </Tabs>
+
+                            <div className="w-full lg:max-w-md">
+                                <Label className="sr-only" htmlFor="reqSearch">
+                                    Search
+                                </Label>
+                                <Input
+                                    id="reqSearch"
+                                    value={reqSearch}
+                                    onChange={(e) => setReqSearch(e.target.value)}
+                                    placeholder="Search by type, details, faculty name, classId..."
+                                />
+                            </div>
+                        </div>
+
+                        <Separator />
+
+                        {reqLoading ? (
+                            <div className="text-sm text-muted-foreground">Loading requests...</div>
+                        ) : reqError ? (
+                            <Alert variant="destructive">
+                                <AlertTitle>Error</AlertTitle>
+                                <AlertDescription>{reqError}</AlertDescription>
+                            </Alert>
+                        ) : filteredReqs.length === 0 ? (
+                            <div className="rounded-xl border border-dashed p-8 text-center">
+                                <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
+                                    <Clock className="size-5" />
+                                </div>
+                                <div className="mt-3 font-medium">No requests found</div>
+                                <div className="text-sm text-muted-foreground">
+                                    Try changing the tab or search query.
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="rounded-xl border overflow-hidden">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Request</TableHead>
+                                            <TableHead>Requested By</TableHead>
+                                            <TableHead>Status</TableHead>
+                                            <TableHead className="text-right">Submitted</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+
+                                    <TableBody>
+                                        {filteredReqs.map((it) => {
+                                            const Icon = reqIcon(String(it.status))
+                                            const requester = resolveUserName(it.requestedBy)
+
+                                            return (
+                                                <TableRow key={it.$id} className="align-top">
+                                                    <TableCell className="font-medium">
+                                                        <div className="flex items-center gap-2">
+                                                            <Icon className="size-4 text-muted-foreground" />
+                                                            <span className="truncate">{safeStr(it.type) || "—"}</span>
+                                                        </div>
+                                                        <div className="mt-1 text-xs text-muted-foreground truncate max-w-md">
+                                                            {safeStr(it.details) || "—"}
+                                                        </div>
+                                                    </TableCell>
+
+                                                    <TableCell className="text-sm">{requester}</TableCell>
+
+                                                    <TableCell>
+                                                        <Badge variant={reqBadgeVariant(String(it.status)) as any}>
+                                                            {safeStr(it.status) || "Pending"}
+                                                        </Badge>
+                                                    </TableCell>
+
+                                                    <TableCell className="text-right text-sm">
+                                                        {formatMaybeIso(it.$createdAt)}
+                                                    </TableCell>
+
+                                                    <TableCell className="text-right">
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="rounded-xl"
+                                                                >
+                                                                    <MoreHorizontal className="size-4" />
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end" className="w-52">
+                                                                <DropdownMenuLabel>Options</DropdownMenuLabel>
+                                                                <DropdownMenuSeparator />
+
+                                                                <DropdownMenuItem onClick={() => openReqView(it)}>
+                                                                    <Eye className="mr-2 size-4" />
+                                                                    View / Decide
+                                                                </DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Schedule Versions */}
                 <Card>
                     <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -670,7 +1086,7 @@ export default function DepartmentHeadFinalizationPage() {
                     </CardContent>
                 </Card>
 
-                {/* Action Dialog */}
+                {/* Action Dialog (Versions) */}
                 <Dialog open={actionOpen} onOpenChange={setActionOpen}>
                     <DialogContent className="sm:max-w-lg">
                         <DialogHeader>
@@ -737,6 +1153,158 @@ export default function DepartmentHeadFinalizationPage() {
                             >
                                 Confirm
                             </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* ✅ Request View / Decide Dialog */}
+                <Dialog
+                    open={reqViewOpen}
+                    onOpenChange={(v) => {
+                        if (!v) {
+                            setActiveReq(null)
+                            setReqNotes("")
+                        }
+                        setReqViewOpen(v)
+                    }}
+                >
+                    <DialogContent className="sm:max-w-xl">
+                        <DialogHeader>
+                            <DialogTitle>Change Request Details</DialogTitle>
+                            <DialogDescription>
+                                Review the request and decide to approve or reject.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        {!activeReq ? (
+                            <div className="text-sm text-muted-foreground">No request selected.</div>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <Card className="rounded-2xl">
+                                        <CardHeader className="pb-3">
+                                            <CardTitle className="text-sm">Status</CardTitle>
+                                            <CardDescription>Current state</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <Badge variant={reqBadgeVariant(String(activeReq.status)) as any}>
+                                                {safeStr(activeReq.status) || "Pending"}
+                                            </Badge>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="rounded-2xl">
+                                        <CardHeader className="pb-3">
+                                            <CardTitle className="text-sm">Requested By</CardTitle>
+                                            <CardDescription>Faculty member</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="text-sm font-medium">
+                                            {resolveUserName(activeReq.requestedBy)}
+                                        </CardContent>
+                                    </Card>
+                                </div>
+
+                                <Card className="rounded-2xl">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm">Summary</CardTitle>
+                                        <CardDescription>Request metadata</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2 text-sm">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-muted-foreground">Type</span>
+                                            <span className="font-medium">{safeStr(activeReq.type) || "—"}</span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-muted-foreground">Class ID</span>
+                                            <span className="font-medium">{safeStr(activeReq.classId) || "—"}</span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-muted-foreground">Meeting ID</span>
+                                            <span className="font-medium">{safeStr(activeReq.meetingId) || "—"}</span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-muted-foreground">Submitted</span>
+                                            <span className="font-medium">{formatMaybeIso(activeReq.$createdAt)}</span>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                <Card className="rounded-2xl">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm">Details</CardTitle>
+                                        <CardDescription>What the requester wants to change</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="text-sm leading-relaxed whitespace-pre-wrap">
+                                        {safeStr(activeReq.details) || "—"}
+                                    </CardContent>
+                                </Card>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="reqNotes">Resolution Notes</Label>
+                                    <Textarea
+                                        id="reqNotes"
+                                        value={reqNotes}
+                                        onChange={(e) => setReqNotes(e.target.value)}
+                                        placeholder="Add your notes / resolution (optional)"
+                                    />
+                                    <div className="text-xs text-muted-foreground">
+                                        This will be saved to{" "}
+                                        <span className="font-medium">resolutionNotes</span>.
+                                    </div>
+                                </div>
+
+                                {activeReq.reviewedAt ? (
+                                    <Alert>
+                                        <AlertTitle>Previously reviewed</AlertTitle>
+                                        <AlertDescription>
+                                            Reviewed at{" "}
+                                            <span className="font-medium">{formatMaybeIso(activeReq.reviewedAt)}</span>
+                                            {activeReq.reviewedBy ? (
+                                                <>
+                                                    {" "}
+                                                    by{" "}
+                                                    <span className="font-medium">{resolveUserName(activeReq.reviewedBy)}</span>.
+                                                </>
+                                            ) : null}
+                                        </AlertDescription>
+                                    </Alert>
+                                ) : null}
+                            </div>
+                        )}
+
+                        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setReqViewOpen(false)}
+                                disabled={reqSaving}
+                            >
+                                Close
+                            </Button>
+
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="destructive"
+                                    disabled={!activeReq || reqSaving || safeStr(activeReq?.status) !== "Pending"}
+                                    onClick={() => void updateReqStatus("Rejected")}
+                                >
+                                    <XCircle className="mr-2 size-4" />
+                                    Reject
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    disabled={!activeReq || reqSaving || safeStr(activeReq?.status) !== "Pending"}
+                                    onClick={() => void updateReqStatus("Approved")}
+                                >
+                                    <CheckCircle2 className="mr-2 size-4" />
+                                    Approve
+                                </Button>
+                            </div>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
