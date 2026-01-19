@@ -86,6 +86,11 @@ const DepartmentHeadConflictCheckerPage = React.lazy(
   () => import("./pages/dashboard/department-head/conflict-checker")
 )
 
+// ✅ NEW: Approval / Finalization
+const DepartmentHeadApprovalFinalizationPage = React.lazy(
+  () => import("./pages/dashboard/department-head/approval/finalization")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -468,7 +473,6 @@ export default function App() {
                     element={<DepartmentHeadClassSchedulingPage />}
                   />
 
-                  {/* ✅ NEW: Room Utilization View */}
                   <Route
                     path="room-utilization-view"
                     element={<DepartmentHeadRoomUtilizationViewPage />}
@@ -477,6 +481,12 @@ export default function App() {
                   <Route
                     path="conflict-checker"
                     element={<DepartmentHeadConflictCheckerPage />}
+                  />
+
+                  {/* ✅ NEW: Approval / Finalization */}
+                  <Route
+                    path="approval/finalization"
+                    element={<DepartmentHeadApprovalFinalizationPage />}
                   />
                 </Route>
 

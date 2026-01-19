@@ -17,6 +17,7 @@ import {
     UserCircle2,
     ClipboardList,
     AlertTriangle,
+    BadgeCheck,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -269,6 +270,12 @@ export default function NavMain({ className }: { className?: string }) {
             icon: AlertTriangle,
             roles: ["chair"],
         },
+        {
+            title: "Approval & Finalization",
+            href: "/dashboard/department-head/approval/finalization",
+            icon: BadgeCheck,
+            roles: ["chair"],
+        },
     ]
 
     const facultyMenu: NavItem[] = [
@@ -362,9 +369,7 @@ export default function NavMain({ className }: { className?: string }) {
             <SidebarGroup>
                 <SidebarGroupLabel>Preferences</SidebarGroupLabel>
                 <SidebarGroupContent>
-                    <SidebarMenu>
-                        {preferencesMenu.map(renderItem)}
-                    </SidebarMenu>
+                    <SidebarMenu>{preferencesMenu.map(renderItem)}</SidebarMenu>
                 </SidebarGroupContent>
             </SidebarGroup>
         </div>
