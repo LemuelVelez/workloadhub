@@ -20,6 +20,7 @@ import {
     BadgeCheck,
     FileText,
     Megaphone,
+    Bell,
 } from "lucide-react"
 
 import { useSession } from "@/hooks/use-session"
@@ -323,6 +324,14 @@ export default function NavMain({ className }: { className?: string }) {
             title: "Availability Preferences",
             href: "/dashboard/faculty/availability/preference-submission",
             icon: Clock,
+            roles: ["faculty"],
+        },
+
+        // ✅ NEW: Notifications
+        {
+            title: "Notifications",
+            href: "/dashboard/faculty/notifications",
+            icon: Bell,
             roles: ["faculty"],
         },
     ]

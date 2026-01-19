@@ -108,6 +108,11 @@ const FacultyPreferenceSubmissionPage = React.lazy(
   () => import("./pages/dashboard/faculty-member/availability/preference-submission")
 )
 
+// ✅ NEW: Faculty Notifications
+const FacultyNotificationsPage = React.lazy(
+  () => import("./pages/dashboard/faculty-member/notifications")
+)
+
 function readBool(v: any) {
   return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"
 }
@@ -528,6 +533,12 @@ export default function App() {
                   <Route
                     path="availability/preference-submission"
                     element={<FacultyPreferenceSubmissionPage />}
+                  />
+
+                  {/* ✅ NEW: Notifications */}
+                  <Route
+                    path="notifications"
+                    element={<FacultyNotificationsPage />}
                   />
                 </Route>
 

@@ -100,6 +100,16 @@ function normalizePreference(pref: any) {
     return p
 }
 
+function chunk<T>(arr: T[], size = 50) {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+    return out
+}
+
+function pickRowDateKey(r: AnyRow) {
+    return safeStr(r?.$updatedAt || r?.$createdAt || "")
+}
+
 export type FacultyScheduleItem = {
     meetingId: string
     classId: string
@@ -155,6 +165,26 @@ export type FacultyAvailabilityItem = {
     endTime: string
     preference: string
     notes?: string | null
+}
+
+export type FacultyNotificationItem = {
+    notificationId: string
+    recipientRowId: string
+
+    isRead: boolean
+    readAt?: string | null
+
+    type: string
+    title: string
+    message: string
+    link?: string | null
+
+    departmentId?: string | null
+    termId?: string | null
+    createdBy?: string | null
+
+    createdAt?: string | null
+    updatedAt?: string | null
 }
 
 export const facultyMemberApi = {
@@ -711,6 +741,197 @@ export const facultyMemberApi = {
                 tableId: COLLECTIONS.FACULTY_AVAILABILITY,
                 rowId,
             })
+        },
+    },
+
+    /**
+     * ✅ NEW: Notifications (Faculty View)
+     * Joins:
+     * - NOTIFICATIONS
+     * - NOTIFICATION_RECIPIENTS (per-user read state)
+     */
+    notifications: {
+        async listMy(args: { userId: string }) {
+            const userId = safeStr(args.userId)
+            if (!userId) {
+                return {
+                    term: null,
+                    profile: null,
+                    items: [] as FacultyNotificationItem[],
+                }
+            }
+
+            const term = await facultyMemberApi.terms.getActive().catch(() => null)
+            const termId = safeStr(term?.$id)
+
+            const profile = await facultyMemberApi.profiles.getByUserId(userId).catch(() => null)
+            const departmentId = safeStr(profile?.departmentId)
+
+            // 1) Load recipient rows for this user
+            const recipients = await listAllRows(
+                COLLECTIONS.NOTIFICATION_RECIPIENTS,
+                [
+                    Query.equal("userId", userId),
+                    Query.orderDesc("$updatedAt"),
+                ],
+                6000
+            )
+
+            const recipientMap = new Map<string, AnyRow>()
+            for (const r of recipients) {
+                const nid = safeStr(r?.notificationId)
+                if (!nid) continue
+                recipientMap.set(nid, r)
+            }
+
+            const notificationIds = Array.from(recipientMap.keys())
+            if (notificationIds.length === 0) {
+                return { term, profile, items: [] as FacultyNotificationItem[] }
+            }
+
+            // 2) Fetch notifications (try by IDs first, fallback to broad filter)
+            const notifSet = new Set(notificationIds)
+            const notificationsAll: AnyRow[] = []
+
+            // ✅ Attempt by ID chunks (fast)
+            let idQueryWorked = true
+            try {
+                for (const group of chunk(notificationIds, 50)) {
+                    const rows = await listAllRows(
+                        COLLECTIONS.NOTIFICATIONS,
+                        [
+                            Query.equal("$id", group),
+                            Query.orderDesc("$updatedAt"),
+                        ],
+                        2000
+                    )
+                    notificationsAll.push(...rows)
+                }
+            } catch {
+                idQueryWorked = false
+            }
+
+            // ✅ Fallback: broad filter by term + dept then filter by set
+            if (!idQueryWorked) {
+                const base: any[] = [Query.orderDesc("$updatedAt")]
+
+                if (termId) base.push(Query.equal("termId", termId))
+                if (departmentId) base.push(Query.equal("departmentId", departmentId))
+
+                const rows = await listAllRows(COLLECTIONS.NOTIFICATIONS, base, 8000)
+                notificationsAll.push(...rows.filter((n) => notifSet.has(safeStr(n?.$id))))
+            }
+
+            const notifMap = new Map<string, AnyRow>()
+            for (const n of notificationsAll) {
+                const id = safeStr(n?.$id)
+                if (!id) continue
+                notifMap.set(id, n)
+            }
+
+            // 3) Join recipient + notification
+            const joined: FacultyNotificationItem[] = []
+
+            for (const nid of notificationIds) {
+                const notif = notifMap.get(nid)
+                const rec = recipientMap.get(nid)
+                if (!notif || !rec) continue
+
+                // optional: keep same-term first, but do not hard-exclude
+                const nTerm = safeStr(notif?.termId || "")
+                if (termId && nTerm && nTerm !== termId) {
+                    // allow, but lower priority
+                }
+
+                joined.push({
+                    notificationId: safeStr(notif?.$id),
+                    recipientRowId: safeStr(rec?.$id),
+
+                    isRead: Boolean(rec?.isRead),
+                    readAt: safeStr(rec?.readAt) || null,
+
+                    type: safeStr(notif?.type),
+                    title: safeStr(notif?.title),
+                    message: safeStr(notif?.message),
+                    link: safeStr(notif?.link) || null,
+
+                    departmentId: safeStr(notif?.departmentId) || null,
+                    termId: safeStr(notif?.termId) || null,
+                    createdBy: safeStr(notif?.createdBy) || null,
+
+                    createdAt: safeStr(notif?.$createdAt) || null,
+                    updatedAt: safeStr(notif?.$updatedAt) || null,
+                })
+            }
+
+            // ✅ Sort: unread first, then newest
+            joined.sort((a, b) => {
+                const ar = a.isRead ? 1 : 0
+                const br = b.isRead ? 1 : 0
+                if (ar !== br) return ar - br
+
+                const ad = safeStr(a.updatedAt || a.createdAt || "")
+                const bd = safeStr(b.updatedAt || b.createdAt || "")
+                return bd.localeCompare(ad)
+            })
+
+            return { term, profile, items: joined }
+        },
+
+        async markRead(args: { userId: string; recipientRowId: string }) {
+            const userId = safeStr(args.userId)
+            const recipientRowId = safeStr(args.recipientRowId)
+            if (!userId) throw new Error("Missing userId")
+            if (!recipientRowId) throw new Error("Missing recipientRowId")
+
+            const payload = {
+                isRead: true,
+                readAt: new Date().toISOString(),
+            }
+
+            return await tablesDB.updateRow({
+                databaseId: DATABASE_ID,
+                tableId: COLLECTIONS.NOTIFICATION_RECIPIENTS,
+                rowId: recipientRowId,
+                data: payload,
+            })
+        },
+
+        async markAllRead(args: { userId: string }) {
+            const userId = safeStr(args.userId)
+            if (!userId) throw new Error("Missing userId")
+
+            const rows = await listAllRows(
+                COLLECTIONS.NOTIFICATION_RECIPIENTS,
+                [
+                    Query.equal("userId", userId),
+                    Query.equal("isRead", false),
+                    Query.orderDesc("$updatedAt"),
+                ],
+                6000
+            )
+
+            let updated = 0
+            const now = new Date().toISOString()
+
+            for (const r of rows) {
+                const rowId = safeStr(r?.$id)
+                if (!rowId) continue
+
+                try {
+                    await tablesDB.updateRow({
+                        databaseId: DATABASE_ID,
+                        tableId: COLLECTIONS.NOTIFICATION_RECIPIENTS,
+                        rowId,
+                        data: { isRead: true, readAt: now },
+                    })
+                    updated += 1
+                } catch {
+                    // ignore individual failures
+                }
+            }
+
+            return { updatedCount: updated }
         },
     },
 }
