@@ -66,6 +66,32 @@ function uniqStrings(values: any[]) {
 }
 
 export const departmentHeadApi = {
+    /**
+     * ✅ NEW: Departments helper (for displaying department NAME not ID)
+     */
+    departments: {
+        async getById(departmentId: string) {
+            const id = safeStr(departmentId)
+            if (!id) return null
+
+            const rows = await listAllRows(
+                COLLECTIONS.DEPARTMENTS,
+                [Query.equal("$id", id), Query.orderDesc("$updatedAt")],
+                5
+            )
+
+            return rows[0] ?? null
+        },
+
+        async listAll() {
+            return listAllRows(
+                COLLECTIONS.DEPARTMENTS,
+                [Query.orderAsc("name"), Query.orderAsc("$updatedAt")],
+                2000
+            )
+        },
+    },
+
     terms: {
         async getActive() {
             const rows = await listAllRows(COLLECTIONS.ACADEMIC_TERMS, [

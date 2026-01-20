@@ -49,6 +49,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 function safeStr(v: any) {
     return String(v ?? "").trim()
@@ -313,18 +314,21 @@ export default function DepartmentHeadNotificationsPage() {
             title="Announcements & Notifications"
             subtitle="Send updates to faculty members"
             actions={
-                <div className="flex items-center gap-2">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                     <Button
                         variant="outline"
                         onClick={onRefresh}
                         disabled={loading || refreshing}
-                        className="gap-2"
+                        className="w-full gap-2 sm:w-auto"
                     >
                         <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
                         Refresh
                     </Button>
 
-                    <Button onClick={() => setOpenCreate(true)} className="gap-2">
+                    <Button
+                        onClick={() => setOpenCreate(true)}
+                        className="w-full gap-2 sm:w-auto"
+                    >
                         <Megaphone className="h-4 w-4" />
                         New Announcement
                     </Button>
@@ -369,7 +373,7 @@ export default function DepartmentHeadNotificationsPage() {
 
                                 <Separator />
 
-                                <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="relative w-full sm:max-w-sm">
                                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                         <Input
@@ -415,11 +419,11 @@ export default function DepartmentHeadNotificationsPage() {
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead className="min-w-[160px]">Date</TableHead>
-                                                <TableHead className="min-w-[140px]">Type</TableHead>
-                                                <TableHead className="min-w-[220px]">Title</TableHead>
+                                                <TableHead className="min-w-40">Date</TableHead>
+                                                <TableHead className="min-w-36">Type</TableHead>
+                                                <TableHead className="min-w-56">Title</TableHead>
                                                 <TableHead>Message</TableHead>
-                                                <TableHead className="text-right min-w-[150px]">
+                                                <TableHead className="text-right min-w-40">
                                                     Actions
                                                 </TableHead>
                                             </TableRow>
@@ -451,38 +455,39 @@ export default function DepartmentHeadNotificationsPage() {
                                                         </TableCell>
 
                                                         <TableCell className="align-top">
-                                                            <div className="font-medium leading-tight">
+                                                            <div className="font-medium leading-tight break-words">
                                                                 {safeStr(r?.title) || "—"}
                                                             </div>
                                                             {safeStr(r?.link) ? (
-                                                                <div className="text-xs text-muted-foreground truncate max-w-[260px]">
+                                                                <div className="text-xs text-muted-foreground truncate max-w-64">
                                                                     Link: {safeStr(r?.link)}
                                                                 </div>
                                                             ) : null}
                                                         </TableCell>
 
                                                         <TableCell className="align-top">
-                                                            <div className="text-sm text-muted-foreground line-clamp-2">
+                                                            <div className="text-sm text-muted-foreground line-clamp-2 break-words">
                                                                 {safeStr(r?.message) || "—"}
                                                             </div>
                                                         </TableCell>
 
                                                         <TableCell className="align-top text-right">
-                                                            <div className="flex items-center justify-end gap-2">
+                                                            <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row sm:items-center">
                                                                 <Button
                                                                     variant="outline"
                                                                     size="sm"
-                                                                    className="gap-2"
+                                                                    className="w-full gap-2 sm:w-auto"
                                                                     onClick={() => openRecipientsDialog(r)}
                                                                 >
                                                                     <Eye className="h-4 w-4" />
-                                                                    View
+                                                                    <span className="hidden sm:inline">View</span>
+                                                                    <span className="sm:hidden">Details</span>
                                                                 </Button>
 
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="sm"
-                                                                    className="gap-2"
+                                                                    className="w-full gap-2 sm:w-auto"
                                                                     onClick={() =>
                                                                         copyText(
                                                                             `${safeStr(r?.title)}\n\n${safeStr(r?.message)}`
@@ -508,7 +513,7 @@ export default function DepartmentHeadNotificationsPage() {
 
             {/* ✅ CREATE ANNOUNCEMENT */}
             <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-                <DialogContent className="sm:max-w-2xl">
+                <DialogContent className="sm:max-w-2xl max-h-screen overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Megaphone className="h-5 w-5" />
@@ -579,8 +584,8 @@ export default function DepartmentHeadNotificationsPage() {
 
                         <div className="rounded-lg border p-3 bg-muted/30">
                             <div className="text-sm font-medium mb-1">Preview</div>
-                            <div className="text-sm">{safeStr(newTitle) || "—"}</div>
-                            <div className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                            <div className="text-sm break-words">{safeStr(newTitle) || "—"}</div>
+                            <div className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap max-h-32 overflow-y-auto break-words">
                                 {safeStr(newMessage) || "—"}
                             </div>
                         </div>
@@ -600,7 +605,7 @@ export default function DepartmentHeadNotificationsPage() {
 
             {/* ✅ DETAILS / RECIPIENTS */}
             <Dialog open={openDetails} onOpenChange={setOpenDetails}>
-                <DialogContent className="sm:max-w-3xl">
+                <DialogContent className="sm:max-w-3xl max-h-screen overflow-hidden">
                     <DialogHeader>
                         <DialogTitle>Announcement Details</DialogTitle>
                         <DialogDescription>
@@ -608,127 +613,132 @@ export default function DepartmentHeadNotificationsPage() {
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-3">
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base">
-                                    {safeStr(selected?.title) || "—"}
-                                </CardTitle>
-                                <CardDescription className="flex flex-wrap items-center gap-2">
-                                    <Badge variant="secondary">{safeStr(selected?.type) || "—"}</Badge>
-                                    <Badge variant="outline">
-                                        {formatDate(selected?.$createdAt || selected?.$updatedAt)}
-                                    </Badge>
-                                    <Badge>
-                                        Total: {recipientStats.total}
-                                    </Badge>
-                                    <Badge variant="secondary">
-                                        Read: {recipientStats.read}
-                                    </Badge>
-                                    <Badge variant="outline">
-                                        Unread: {recipientStats.unread}
-                                    </Badge>
-                                </CardDescription>
-                            </CardHeader>
+                    <ScrollArea className="max-h-[80vh] pr-4">
+                        <div className="space-y-3">
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base break-words">
+                                        {safeStr(selected?.title) || "—"}
+                                    </CardTitle>
+                                    <CardDescription className="flex flex-wrap items-center gap-2">
+                                        <Badge variant="secondary">{safeStr(selected?.type) || "—"}</Badge>
+                                        <Badge variant="outline">
+                                            {formatDate(selected?.$createdAt || selected?.$updatedAt)}
+                                        </Badge>
+                                        <Badge>
+                                            Total: {recipientStats.total}
+                                        </Badge>
+                                        <Badge variant="secondary">
+                                            Read: {recipientStats.read}
+                                        </Badge>
+                                        <Badge variant="outline">
+                                            Unread: {recipientStats.unread}
+                                        </Badge>
+                                    </CardDescription>
+                                </CardHeader>
 
-                            <CardContent className="space-y-2">
-                                <div className="text-sm text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto">
-                                    {safeStr(selected?.message) || "—"}
-                                </div>
-
-                                {safeStr(selected?.link) ? (
-                                    <div className="text-xs text-muted-foreground">
-                                        Link: {safeStr(selected?.link)}
+                                <CardContent className="space-y-2">
+                                    <div className="text-sm text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto break-words">
+                                        {safeStr(selected?.message) || "—"}
                                     </div>
-                                ) : null}
 
-                                <div className="flex items-center gap-2 pt-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="gap-2"
-                                        onClick={() =>
-                                            copyText(
-                                                `${safeStr(selected?.title)}\n\n${safeStr(selected?.message)}`
-                                            )
-                                        }
-                                    >
-                                        <Copy className="h-4 w-4" />
-                                        Copy Message
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
+                                    {safeStr(selected?.link) ? (
+                                        <div className="text-xs text-muted-foreground break-words">
+                                            Link: {safeStr(selected?.link)}
+                                        </div>
+                                    ) : null}
 
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base">Recipients</CardTitle>
-                                <CardDescription>
-                                    Faculty read status
-                                </CardDescription>
-                            </CardHeader>
-
-                            <CardContent className="p-0">
-                                {recipientsLoading ? (
-                                    <div className="p-4 space-y-2">
-                                        <Skeleton className="h-10 w-full" />
-                                        <Skeleton className="h-10 w-full" />
-                                        <Skeleton className="h-10 w-full" />
+                                    <div className="flex items-center gap-2 pt-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="gap-2"
+                                            onClick={() =>
+                                                copyText(
+                                                    `${safeStr(selected?.title)}\n\n${safeStr(selected?.message)}`
+                                                )
+                                            }
+                                        >
+                                            <Copy className="h-4 w-4" />
+                                            Copy Message
+                                        </Button>
                                     </div>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead className="min-w-[220px]">Faculty</TableHead>
-                                                    <TableHead className="min-w-[240px]">Email</TableHead>
-                                                    <TableHead className="min-w-[120px]">Status</TableHead>
-                                                    <TableHead className="min-w-[220px]">Read At</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
+                                </CardContent>
+                            </Card>
 
-                                            <TableBody>
-                                                {recipients.length === 0 ? (
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base">Recipients</CardTitle>
+                                    <CardDescription>
+                                        Faculty read status
+                                    </CardDescription>
+                                </CardHeader>
+
+                                <CardContent className="p-0">
+                                    {recipientsLoading ? (
+                                        <div className="p-4 space-y-2">
+                                            <Skeleton className="h-10 w-full" />
+                                            <Skeleton className="h-10 w-full" />
+                                            <Skeleton className="h-10 w-full" />
+                                        </div>
+                                    ) : (
+                                        <div className="overflow-x-auto">
+                                            <Table>
+                                                <TableHeader>
                                                     <TableRow>
-                                                        <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-                                                            No recipients found.
-                                                        </TableCell>
+                                                        <TableHead className="min-w-56">Faculty</TableHead>
+                                                        <TableHead className="min-w-56">Email</TableHead>
+                                                        <TableHead className="min-w-32">Status</TableHead>
+                                                        <TableHead className="min-w-56">Read At</TableHead>
                                                     </TableRow>
-                                                ) : (
-                                                    recipients.map((r) => {
-                                                        const u = facultyMap.get(safeStr(r?.userId))
-                                                        const name = safeStr(u?.name) || safeStr(u?.email) || safeStr(r?.userId)
-                                                        const email = safeStr(u?.email) || "—"
+                                                </TableHeader>
 
-                                                        return (
-                                                            <TableRow key={r.$id}>
-                                                                <TableCell className="font-medium">
-                                                                    {name}
-                                                                </TableCell>
-                                                                <TableCell className="text-muted-foreground">
-                                                                    {email}
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    {r?.isRead ? (
-                                                                        <Badge>Read</Badge>
-                                                                    ) : (
-                                                                        <Badge variant="secondary">Unread</Badge>
-                                                                    )}
-                                                                </TableCell>
-                                                                <TableCell className="text-muted-foreground">
-                                                                    {r?.isRead ? formatDate(r?.readAt) : "—"}
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        )
-                                                    })
-                                                )}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
+                                                <TableBody>
+                                                    {recipients.length === 0 ? (
+                                                        <TableRow>
+                                                            <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
+                                                                No recipients found.
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ) : (
+                                                        recipients.map((r) => {
+                                                            const u = facultyMap.get(safeStr(r?.userId))
+                                                            const name =
+                                                                safeStr(u?.name) ||
+                                                                safeStr(u?.email) ||
+                                                                safeStr(r?.userId)
+                                                            const email = safeStr(u?.email) || "—"
+
+                                                            return (
+                                                                <TableRow key={r.$id}>
+                                                                    <TableCell className="font-medium break-words">
+                                                                        {name}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-muted-foreground break-words">
+                                                                        {email}
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        {r?.isRead ? (
+                                                                            <Badge>Read</Badge>
+                                                                        ) : (
+                                                                            <Badge variant="secondary">Unread</Badge>
+                                                                        )}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-muted-foreground">
+                                                                        {r?.isRead ? formatDate(r?.readAt) : "—"}
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            )
+                                                        })
+                                                    )}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </ScrollArea>
                 </DialogContent>
             </Dialog>
         </DashboardLayout>

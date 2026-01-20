@@ -72,6 +72,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 type AnyRow = {
     $id: string
@@ -168,7 +169,6 @@ function chunk<T>(arr: T[], size: number) {
 
 /**
  * ✅ Fetch names for requestedBy / reviewedBy by loading Profiles collection.
- * We try multiple possible collection keys, but safely fallback if not found.
  */
 function getProfilesCollectionId() {
     const c: any = COLLECTIONS as any
@@ -197,10 +197,13 @@ export default function DepartmentHeadFinalizationPage() {
     const [activeTerm, setActiveTerm] = React.useState<AnyRow | null>(null)
     const [departmentId, setDepartmentId] = React.useState<string>("")
 
+    // ✅ NEW: department row (to show name)
+    const [departmentRow, setDepartmentRow] = React.useState<AnyRow | null>(null)
+
     const [versions, setVersions] = React.useState<VersionRow[]>([])
     const [search, setSearch] = React.useState("")
 
-    // ✅ Change Requests (from faculty-member/request-change.tsx)
+    // ✅ Change Requests
     const [reqLoading, setReqLoading] = React.useState(false)
     const [reqError, setReqError] = React.useState<string | null>(null)
     const [reqTab, setReqTab] = React.useState<RequestTabKey>("Pending")
@@ -223,7 +226,6 @@ export default function DepartmentHeadFinalizationPage() {
     const [copyFromVersionId, setCopyFromVersionId] = React.useState<string>(COPY_NONE)
     const [setActiveAfterCreate, setSetActiveAfterCreate] = React.useState(true)
 
-    // Action Dialog (Lock / Archive / Activate)
     type PendingAction =
         | null
         | { type: "activate" | "lock" | "archive"; versionId: string }
@@ -308,7 +310,6 @@ export default function DepartmentHeadFinalizationPage() {
         const map: Record<string, string> = {}
 
         try {
-            // ✅ Preferred: query profiles by userId
             for (const part of chunk(ids, 50)) {
                 const res = await databases.listDocuments(
                     DATABASE_ID,
@@ -328,7 +329,6 @@ export default function DepartmentHeadFinalizationPage() {
                 }
             }
 
-            // ✅ fallback: if still missing, try matching by $id
             const missing = ids.filter((x) => !map[x])
             if (missing.length) {
                 for (const part of chunk(missing, 50)) {
@@ -355,7 +355,7 @@ export default function DepartmentHeadFinalizationPage() {
 
             setUserNameMap((prev) => ({ ...prev, ...map }))
         } catch {
-            // Ignore lookup errors, fallback to IDs
+            // Ignore lookup errors
         }
     }
 
@@ -394,6 +394,14 @@ export default function DepartmentHeadFinalizationPage() {
             const profile = await departmentHeadApi.profiles.getByUserId(userId)
             const deptId = safeStr(profile?.departmentId)
             setDepartmentId(deptId)
+
+            // ✅ Fetch department row (for name)
+            if (deptId) {
+                const deptRow = await departmentHeadApi.departments.getById(deptId)
+                setDepartmentRow(deptRow ?? null)
+            } else {
+                setDepartmentRow(null)
+            }
 
             if (t?.$id && deptId) {
                 const [list] = await Promise.all([
@@ -652,7 +660,6 @@ export default function DepartmentHeadFinalizationPage() {
                         <div className="space-y-2">
                             <Label>Copy From (optional)</Label>
 
-                            {/* ✅ ShadCN Select (NO native <select>) */}
                             <Select
                                 value={copyFromVersionId}
                                 onValueChange={(v) => setCopyFromVersionId(v)}
@@ -718,6 +725,8 @@ export default function DepartmentHeadFinalizationPage() {
     const title = "Approval & Finalization"
     const subtitle = "Approve, activate, lock, and manage schedule versions and faculty change requests."
 
+    const departmentName = safeStr(departmentRow?.name)
+
     return (
         <DashboardLayout title={title} subtitle={subtitle} actions={headerActions}>
             <div className="p-6 space-y-6">
@@ -754,13 +763,14 @@ export default function DepartmentHeadFinalizationPage() {
                                 </div>
                             </div>
 
+                            {/* ✅ Department NAME (not ID) */}
                             <div className="rounded-lg border p-3">
-                                <div className="text-xs text-muted-foreground">Department ID</div>
+                                <div className="text-xs text-muted-foreground">Department</div>
                                 <div className="mt-1 font-medium">
-                                    {departmentId ? departmentId : "Not assigned"}
+                                    {departmentName ? departmentName : "Not assigned"}
                                 </div>
                                 <div className="text-xs text-muted-foreground mt-1">
-                                    Loaded from user profile
+                                    Loaded from your profile
                                 </div>
                             </div>
 
@@ -783,7 +793,7 @@ export default function DepartmentHeadFinalizationPage() {
                     </CardContent>
                 </Card>
 
-                {/* ✅ NEW: Change Requests Section */}
+                {/* Change Requests */}
                 <Card>
                     <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -1157,7 +1167,7 @@ export default function DepartmentHeadFinalizationPage() {
                     </DialogContent>
                 </Dialog>
 
-                {/* ✅ Request View / Decide Dialog */}
+                {/* ✅ Request View / Decide Dialog (shorter + scroll) */}
                 <Dialog
                     open={reqViewOpen}
                     onOpenChange={(v) => {
@@ -1176,104 +1186,108 @@ export default function DepartmentHeadFinalizationPage() {
                             </DialogDescription>
                         </DialogHeader>
 
-                        {!activeReq ? (
-                            <div className="text-sm text-muted-foreground">No request selected.</div>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <Card className="rounded-2xl">
-                                        <CardHeader className="pb-3">
-                                            <CardTitle className="text-sm">Status</CardTitle>
-                                            <CardDescription>Current state</CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <Badge variant={reqBadgeVariant(String(activeReq.status)) as any}>
-                                                {safeStr(activeReq.status) || "Pending"}
-                                            </Badge>
-                                        </CardContent>
-                                    </Card>
-
-                                    <Card className="rounded-2xl">
-                                        <CardHeader className="pb-3">
-                                            <CardTitle className="text-sm">Requested By</CardTitle>
-                                            <CardDescription>Faculty member</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="text-sm font-medium">
-                                            {resolveUserName(activeReq.requestedBy)}
-                                        </CardContent>
-                                    </Card>
+                        <ScrollArea className="h-96 pr-4">
+                            {!activeReq ? (
+                                <div className="text-sm text-muted-foreground">
+                                    No request selected.
                                 </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <Card className="rounded-2xl">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-sm">Status</CardTitle>
+                                                <CardDescription>Current state</CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <Badge variant={reqBadgeVariant(String(activeReq.status)) as any}>
+                                                    {safeStr(activeReq.status) || "Pending"}
+                                                </Badge>
+                                            </CardContent>
+                                        </Card>
 
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Summary</CardTitle>
-                                        <CardDescription>Request metadata</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-2 text-sm">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Type</span>
-                                            <span className="font-medium">{safeStr(activeReq.type) || "—"}</span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Class ID</span>
-                                            <span className="font-medium">{safeStr(activeReq.classId) || "—"}</span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Meeting ID</span>
-                                            <span className="font-medium">{safeStr(activeReq.meetingId) || "—"}</span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Submitted</span>
-                                            <span className="font-medium">{formatMaybeIso(activeReq.$createdAt)}</span>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Details</CardTitle>
-                                        <CardDescription>What the requester wants to change</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="text-sm leading-relaxed whitespace-pre-wrap">
-                                        {safeStr(activeReq.details) || "—"}
-                                    </CardContent>
-                                </Card>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="reqNotes">Resolution Notes</Label>
-                                    <Textarea
-                                        id="reqNotes"
-                                        value={reqNotes}
-                                        onChange={(e) => setReqNotes(e.target.value)}
-                                        placeholder="Add your notes / resolution (optional)"
-                                    />
-                                    <div className="text-xs text-muted-foreground">
-                                        This will be saved to{" "}
-                                        <span className="font-medium">resolutionNotes</span>.
+                                        <Card className="rounded-2xl">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-sm">Requested By</CardTitle>
+                                                <CardDescription>Faculty member</CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="text-sm font-medium">
+                                                {resolveUserName(activeReq.requestedBy)}
+                                            </CardContent>
+                                        </Card>
                                     </div>
-                                </div>
 
-                                {activeReq.reviewedAt ? (
-                                    <Alert>
-                                        <AlertTitle>Previously reviewed</AlertTitle>
-                                        <AlertDescription>
-                                            Reviewed at{" "}
-                                            <span className="font-medium">{formatMaybeIso(activeReq.reviewedAt)}</span>
-                                            {activeReq.reviewedBy ? (
-                                                <>
-                                                    {" "}
-                                                    by{" "}
-                                                    <span className="font-medium">{resolveUserName(activeReq.reviewedBy)}</span>.
-                                                </>
-                                            ) : null}
-                                        </AlertDescription>
-                                    </Alert>
-                                ) : null}
-                            </div>
-                        )}
+                                    <Card className="rounded-2xl">
+                                        <CardHeader className="pb-3">
+                                            <CardTitle className="text-sm">Summary</CardTitle>
+                                            <CardDescription>Request metadata</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-2 text-sm">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-muted-foreground">Type</span>
+                                                <span className="font-medium">{safeStr(activeReq.type) || "—"}</span>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-muted-foreground">Class ID</span>
+                                                <span className="font-medium">{safeStr(activeReq.classId) || "—"}</span>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-muted-foreground">Meeting ID</span>
+                                                <span className="font-medium">{safeStr(activeReq.meetingId) || "—"}</span>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-muted-foreground">Submitted</span>
+                                                <span className="font-medium">{formatMaybeIso(activeReq.$createdAt)}</span>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="rounded-2xl">
+                                        <CardHeader className="pb-3">
+                                            <CardTitle className="text-sm">Details</CardTitle>
+                                            <CardDescription>What the requester wants to change</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="text-sm leading-relaxed whitespace-pre-wrap">
+                                            {safeStr(activeReq.details) || "—"}
+                                        </CardContent>
+                                    </Card>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="reqNotes">Resolution Notes</Label>
+                                        <Textarea
+                                            id="reqNotes"
+                                            value={reqNotes}
+                                            onChange={(e) => setReqNotes(e.target.value)}
+                                            placeholder="Add your notes / resolution (optional)"
+                                        />
+                                        <div className="text-xs text-muted-foreground">
+                                            This will be saved to{" "}
+                                            <span className="font-medium">resolutionNotes</span>.
+                                        </div>
+                                    </div>
+
+                                    {activeReq.reviewedAt ? (
+                                        <Alert>
+                                            <AlertTitle>Previously reviewed</AlertTitle>
+                                            <AlertDescription>
+                                                Reviewed at{" "}
+                                                <span className="font-medium">{formatMaybeIso(activeReq.reviewedAt)}</span>
+                                                {activeReq.reviewedBy ? (
+                                                    <>
+                                                        {" "}
+                                                        by{" "}
+                                                        <span className="font-medium">{resolveUserName(activeReq.reviewedBy)}</span>.
+                                                    </>
+                                                ) : null}
+                                            </AlertDescription>
+                                        </Alert>
+                                    ) : null}
+                                </div>
+                            )}
+                        </ScrollArea>
 
                         <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                             <Button

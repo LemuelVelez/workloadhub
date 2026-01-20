@@ -16,7 +16,7 @@ import DashboardLayout from "@/components/dashboard-layout"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 
-import { databases, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
+import { databases, tablesDB, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -48,6 +48,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
     Table,
     TableBody,
@@ -128,11 +129,6 @@ function resolveRole(user: any) {
     return "user"
 }
 
-function shortId(id: string) {
-    if (!id) return ""
-    return id.length <= 8 ? id : `${id.slice(0, 4)}…${id.slice(-4)}`
-}
-
 function fmtDate(iso?: string | null) {
     if (!iso) return "—"
     try {
@@ -186,6 +182,70 @@ function getProfilesCollectionId() {
     )
 }
 
+function getCollectionId(keys: string[]) {
+    const c: any = COLLECTIONS as any
+    for (const k of keys) {
+        if (c?.[k]) return c[k]
+    }
+    return ""
+}
+
+/**
+ * ✅ Works with BOTH:
+ * - Appwrite Collections (databases.listDocuments)
+ * - Appwrite Tables (tablesDB.listRows)
+ */
+async function listDocsAny(collectionOrTableId: string, queries: any[] = []) {
+    const id = safeStr(collectionOrTableId)
+    if (!id) return []
+
+    // Collections
+    try {
+        const res: any = await databases.listDocuments(DATABASE_ID, id, queries)
+        return Array.isArray(res?.documents) ? res.documents : []
+    } catch {
+        // ignore
+    }
+
+    // Tables
+    try {
+        const res2: any = await tablesDB.listRows({
+            databaseId: DATABASE_ID,
+            tableId: id,
+            queries,
+        })
+        return Array.isArray(res2?.rows) ? res2.rows : []
+    } catch {
+        return []
+    }
+}
+
+async function listByIdsAny(collectionId: string, ids: string[]) {
+    const out: any[] = []
+    if (!collectionId) return out
+    const uniq = Array.from(new Set(ids.map((x) => safeStr(x)).filter(Boolean)))
+    for (const part of chunk(uniq, 50)) {
+        const rows = await listDocsAny(collectionId, [
+            Query.equal("$id", part),
+            Query.limit(200),
+        ])
+
+        if (rows?.length) {
+            out.push(...rows)
+            continue
+        }
+
+        // fallback (some schemas store "id")
+        const rows2 = await listDocsAny(collectionId, [
+            Query.equal("id", part),
+            Query.limit(200),
+        ])
+
+        out.push(...(rows2 || []))
+    }
+    return out
+}
+
 export default function AdminRequestsPage() {
     const { user } = useSession()
     const isAdmin = resolveRole(user) === "admin"
@@ -204,13 +264,43 @@ export default function AdminRequestsPage() {
     const [resolutionNotes, setResolutionNotes] = React.useState("")
     const [saving, setSaving] = React.useState(false)
 
-    // ✅ userId -> name map
+    // ✅ maps
     const [userNameMap, setUserNameMap] = React.useState<Record<string, string>>({})
+    const [departmentNameMap, setDepartmentNameMap] = React.useState<Record<string, string>>({})
+    const [termNameMap, setTermNameMap] = React.useState<Record<string, string>>({})
+
+    // ✅ NEW maps for class + meeting NAMES
+    const [classNameMap, setClassNameMap] = React.useState<Record<string, string>>({})
+    const [meetingNameMap, setMeetingNameMap] = React.useState<Record<string, string>>({})
 
     function resolveUserName(id: any) {
         const k = safeStr(id)
         if (!k) return "—"
-        return userNameMap[k] || k
+        return userNameMap[k] || "—"
+    }
+
+    function resolveDepartmentName(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return departmentNameMap[k] || "—"
+    }
+
+    function resolveTermName(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return termNameMap[k] || "—"
+    }
+
+    function resolveClassName(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return classNameMap[k] || "—"
+    }
+
+    function resolveMeetingName(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return meetingNameMap[k] || "—"
     }
 
     async function hydrateUserNames(docs: ChangeRequestDoc[]) {
@@ -230,15 +320,13 @@ export default function AdminRequestsPage() {
         const map: Record<string, string> = {}
 
         try {
-            // ✅ Preferred: query profiles by userId
             for (const part of chunk(ids, 50)) {
-                const res = await databases.listDocuments(
-                    DATABASE_ID,
-                    collectionId,
-                    [Query.equal("userId", part), Query.limit(200)]
-                )
+                const rows = await listDocsAny(collectionId, [
+                    Query.equal("userId", part),
+                    Query.limit(200),
+                ])
 
-                for (const p of (res?.documents ?? []) as any[]) {
+                for (const p of rows as any[]) {
                     const uid = safeStr(p?.userId || p?.$id)
                     const name =
                         safeStr(p?.name) ||
@@ -250,34 +338,178 @@ export default function AdminRequestsPage() {
                 }
             }
 
-            // ✅ fallback: if still missing, try matching by $id
             const missing = ids.filter((x) => !map[x])
             if (missing.length) {
                 for (const part of chunk(missing, 50)) {
-                    try {
-                        const res2 = await databases.listDocuments(
-                            DATABASE_ID,
-                            collectionId,
-                            [Query.equal("$id", part), Query.limit(200)]
-                        )
-                        for (const p of (res2?.documents ?? []) as any[]) {
-                            const uid = safeStr(p?.userId || p?.$id)
-                            const name =
-                                safeStr(p?.name) ||
-                                safeStr(p?.fullName) ||
-                                safeStr(p?.displayName) ||
-                                safeStr(`${p?.firstName || ""} ${p?.lastName || ""}`)
-                            if (uid) map[uid] = name || uid
-                        }
-                    } catch {
-                        // ignore
+                    const rows2 = await listDocsAny(collectionId, [
+                        Query.equal("$id", part),
+                        Query.limit(200),
+                    ])
+                    for (const p of rows2 as any[]) {
+                        const uid = safeStr(p?.userId || p?.$id)
+                        const name =
+                            safeStr(p?.name) ||
+                            safeStr(p?.fullName) ||
+                            safeStr(p?.displayName) ||
+                            safeStr(`${p?.firstName || ""} ${p?.lastName || ""}`)
+                        if (uid) map[uid] = name || uid
                     }
                 }
             }
 
             setUserNameMap((prev) => ({ ...prev, ...map }))
         } catch {
-            // Ignore lookup errors, fallback to IDs
+            // ignore
+        }
+    }
+
+    async function hydrateDepartmentNames(docs: ChangeRequestDoc[]) {
+        const ids = Array.from(new Set(docs.map((d) => safeStr(d.departmentId)).filter(Boolean)))
+        if (ids.length === 0) return
+
+        const map: Record<string, string> = {}
+
+        try {
+            for (const part of chunk(ids, 50)) {
+                const rows = await listDocsAny(COLLECTIONS.DEPARTMENTS, [
+                    Query.equal("$id", part),
+                    Query.limit(200),
+                ])
+
+                for (const d of rows as any[]) {
+                    const id = safeStr(d?.$id)
+                    const name = safeStr(d?.name) || safeStr(d?.title) || safeStr(d?.code)
+                    if (id) map[id] = name || id
+                }
+            }
+
+            setDepartmentNameMap((prev) => ({ ...prev, ...map }))
+        } catch {
+            // ignore
+        }
+    }
+
+    async function hydrateTermNames(docs: ChangeRequestDoc[]) {
+        const ids = Array.from(new Set(docs.map((d) => safeStr(d.termId)).filter(Boolean)))
+        if (ids.length === 0) return
+
+        const map: Record<string, string> = {}
+
+        try {
+            for (const part of chunk(ids, 50)) {
+                const rows = await listDocsAny(COLLECTIONS.ACADEMIC_TERMS, [
+                    Query.equal("$id", part),
+                    Query.limit(200),
+                ])
+
+                for (const t of rows as any[]) {
+                    const id = safeStr(t?.$id)
+                    const sy = safeStr(t?.schoolYear)
+                    const sem = safeStr(t?.semester)
+                    const label = sy && sem ? `${sy} • ${sem}` : safeStr(t?.label) || safeStr(t?.name)
+                    if (id) map[id] = label || id
+                }
+            }
+
+            setTermNameMap((prev) => ({ ...prev, ...map }))
+        } catch {
+            // ignore
+        }
+    }
+
+    /**
+     * ✅ NEW: Hydrate Class Names + Meeting Names
+     */
+    async function hydrateClassMeetingNames(docs: ChangeRequestDoc[]) {
+        const classIds = Array.from(new Set(docs.map((d) => safeStr(d.classId)).filter(Boolean)))
+        const meetingIds = Array.from(new Set(docs.map((d) => safeStr(d.meetingId)).filter(Boolean)))
+
+        const classesId = getCollectionId(["CLASSES"])
+        const meetingsId = getCollectionId(["CLASS_MEETINGS"])
+        const subjectsId = getCollectionId(["SUBJECTS"])
+        const sectionsId = getCollectionId(["SECTIONS"])
+
+        const classMap: Record<string, string> = {}
+        const meetingMap: Record<string, string> = {}
+
+        try {
+            // ✅ Class labels
+            if (classesId && classIds.length) {
+                const classRows = await listByIdsAny(classesId, classIds)
+
+                const sectionIds: string[] = []
+                const subjectIds: string[] = []
+
+                for (const c of classRows as any[]) {
+                    const sec = safeStr(c?.sectionId)
+                    const sub = safeStr(c?.subjectId)
+                    if (sec) sectionIds.push(sec)
+                    if (sub) subjectIds.push(sub)
+                }
+
+                const sectionRows = sectionsId ? await listByIdsAny(sectionsId, sectionIds) : []
+                const subjectRows = subjectsId ? await listByIdsAny(subjectsId, subjectIds) : []
+
+                const sectionNameMapLocal: Record<string, any> = {}
+                const subjectNameMapLocal: Record<string, any> = {}
+
+                for (const s of sectionRows as any[]) sectionNameMapLocal[safeStr(s?.$id)] = s
+                for (const s of subjectRows as any[]) subjectNameMapLocal[safeStr(s?.$id)] = s
+
+                for (const c of classRows as any[]) {
+                    const id = safeStr(c?.$id)
+                    if (!id) continue
+
+                    const secRow = sectionNameMapLocal[safeStr(c?.sectionId)]
+                    const subRow = subjectNameMapLocal[safeStr(c?.subjectId)]
+
+                    const secName = safeStr(secRow?.name || secRow?.title || secRow?.code)
+                    const year = safeStr(secRow?.yearLevel)
+                    const sectionLabel = year && secName ? `Y${year} ${secName}` : secName || "—"
+
+                    const subjectLabel = safeStr(subRow?.code || subRow?.subjectCode || subRow?.name || subRow?.title) || "Class"
+
+                    const classCode = safeStr(c?.classCode)
+                    const delivery = safeStr(c?.deliveryMode)
+
+                    let label = `${subjectLabel} • ${sectionLabel}`
+                    if (classCode) label += ` (${classCode})`
+                    if (delivery) label += ` • ${delivery}`
+
+                    classMap[id] = label
+                }
+
+                setClassNameMap((prev) => ({ ...prev, ...classMap }))
+            }
+
+            // ✅ Meeting labels
+            if (meetingsId && meetingIds.length) {
+                const meetingRows = await listByIdsAny(meetingsId, meetingIds)
+
+                for (const m of meetingRows as any[]) {
+                    const id = safeStr(m?.$id)
+                    if (!id) continue
+
+                    const day = safeStr(m?.dayOfWeek)
+                    const start = safeStr(m?.startTime)
+                    const end = safeStr(m?.endTime)
+                    const mt = safeStr(m?.meetingType)
+                    const notes = safeStr(m?.notes)
+
+                    const timeRange =
+                        start && end ? `${start}-${end}` : start || end || ""
+
+                    let label = [day, timeRange].filter(Boolean).join(" ")
+                    if (mt) label += ` • ${mt}`
+                    if (notes) label += ` • ${notes}`
+
+                    meetingMap[id] = label || "—"
+                }
+
+                setMeetingNameMap((prev) => ({ ...prev, ...meetingMap }))
+            }
+        } catch {
+            // ignore
         }
     }
 
@@ -289,27 +521,38 @@ export default function AdminRequestsPage() {
             if (!statusOk) return false
             if (!q) return true
 
-            // ✅ include requester's name in search
             const requesterName = safeStr(userNameMap[safeStr(it.requestedBy)] || "")
+            const deptName = safeStr(departmentNameMap[safeStr(it.departmentId)] || "")
+            const termName = safeStr(termNameMap[safeStr(it.termId)] || "")
+
+            const className = safeStr(classNameMap[safeStr(it.classId)] || "")
+            const meetingName = safeStr(meetingNameMap[safeStr(it.meetingId)] || "")
 
             const hay = [
-                it.$id,
                 it.type,
                 it.details,
                 it.status,
-                it.requestedBy,
                 requesterName,
-                it.departmentId,
-                it.termId,
-                it.classId ?? "",
-                it.meetingId ?? "",
+                deptName,
+                termName,
+                className,
+                meetingName,
             ]
                 .join(" ")
                 .toLowerCase()
 
             return hay.includes(q)
         })
-    }, [items, tab, search, userNameMap])
+    }, [
+        items,
+        tab,
+        search,
+        userNameMap,
+        departmentNameMap,
+        termNameMap,
+        classNameMap,
+        meetingNameMap,
+    ])
 
     const stats = React.useMemo(() => {
         const total = items.length
@@ -326,17 +569,19 @@ export default function AdminRequestsPage() {
         setError(null)
 
         try {
-            const res = await databases.listDocuments(
-                DATABASE_ID,
-                COLLECTIONS.CHANGE_REQUESTS,
-                [Query.orderDesc("$createdAt"), Query.limit(200)]
-            )
+            const docs = await listDocsAny(COLLECTIONS.CHANGE_REQUESTS, [
+                Query.orderDesc("$createdAt"),
+                Query.limit(200),
+            ])
 
-            const docs = (res?.documents ?? []) as any[]
             setItems(docs as ChangeRequestDoc[])
 
-            // ✅ Fetch names instead of showing raw ids
-            await hydrateUserNames(docs as ChangeRequestDoc[])
+            await Promise.all([
+                hydrateUserNames(docs as ChangeRequestDoc[]),
+                hydrateDepartmentNames(docs as ChangeRequestDoc[]),
+                hydrateTermNames(docs as ChangeRequestDoc[]),
+                hydrateClassMeetingNames(docs as ChangeRequestDoc[]),
+            ])
         } catch (e: any) {
             setError(e?.message || "Failed to load requests.")
         } finally {
@@ -494,7 +739,7 @@ export default function AdminRequestsPage() {
                                     id="search"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Search by type, details, requester name, term, department..."
+                                    placeholder="Search by type, details, requester name, term, department, class, meeting..."
                                 />
                             </div>
                         </div>
@@ -528,7 +773,6 @@ export default function AdminRequestsPage() {
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Request</TableHead>
-                                            <TableHead>Type</TableHead>
                                             <TableHead>Status</TableHead>
                                             <TableHead>Requested By</TableHead>
                                             <TableHead>Term</TableHead>
@@ -543,20 +787,44 @@ export default function AdminRequestsPage() {
                                             const Icon = statusIcon(String(it.status))
                                             const requester = resolveUserName(it.requestedBy)
 
+                                            const className = it.classId ? resolveClassName(it.classId) : ""
+                                            const meetingName = it.meetingId ? resolveMeetingName(it.meetingId) : ""
+
                                             return (
                                                 <TableRow key={it.$id} className="align-top">
                                                     <TableCell className="font-medium">
                                                         <div className="flex items-center gap-2">
                                                             <Icon className="size-4 text-muted-foreground" />
-                                                            <span className="truncate">{shortId(it.$id)}</span>
+                                                            <span className="truncate">{safeStr(it.type) || "—"}</span>
                                                         </div>
-                                                        <div className="mt-1 text-xs text-muted-foreground truncate max-w-md">
-                                                            {it.details}
-                                                        </div>
-                                                    </TableCell>
 
-                                                    <TableCell>
-                                                        <span className="text-sm">{it.type || "—"}</span>
+                                                        <div className="mt-1 text-xs text-muted-foreground truncate max-w-md">
+                                                            {safeStr(it.details) || "—"}
+                                                        </div>
+
+                                                        {(it.classId || it.meetingId) ? (
+                                                            <div className="mt-2 flex flex-wrap gap-1">
+                                                                {it.classId ? (
+                                                                    <Badge
+                                                                        variant="outline"
+                                                                        className="max-w-xs truncate"
+                                                                        title={className}
+                                                                    >
+                                                                        Class: {className || "—"}
+                                                                    </Badge>
+                                                                ) : null}
+
+                                                                {it.meetingId ? (
+                                                                    <Badge
+                                                                        variant="outline"
+                                                                        className="max-w-xs truncate"
+                                                                        title={meetingName}
+                                                                    >
+                                                                        Meeting: {meetingName || "—"}
+                                                                    </Badge>
+                                                                ) : null}
+                                                            </div>
+                                                        ) : null}
                                                     </TableCell>
 
                                                     <TableCell>
@@ -569,10 +837,12 @@ export default function AdminRequestsPage() {
                                                         {requester || "—"}
                                                     </TableCell>
 
-                                                    <TableCell className="text-sm">{it.termId || "—"}</TableCell>
+                                                    <TableCell className="text-sm">
+                                                        {resolveTermName(it.termId)}
+                                                    </TableCell>
 
                                                     <TableCell className="text-sm">
-                                                        {it.departmentId || "—"}
+                                                        {resolveDepartmentName(it.departmentId)}
                                                     </TableCell>
 
                                                     <TableCell className="text-right text-sm">
@@ -607,9 +877,7 @@ export default function AdminRequestsPage() {
                                                                         setResolutionNotes(it?.resolutionNotes ?? "")
                                                                         setViewOpen(true)
                                                                     }}
-                                                                    className={cn(
-                                                                        !isAdmin && "opacity-50 pointer-events-none"
-                                                                    )}
+                                                                    className={cn(!isAdmin && "opacity-50 pointer-events-none")}
                                                                 >
                                                                     <CheckCircle2 className="mr-2 size-4" />
                                                                     Review / Decide
@@ -646,115 +914,123 @@ export default function AdminRequestsPage() {
                             </DialogDescription>
                         </DialogHeader>
 
-                        {!active ? (
-                            <div className="space-y-3">
-                                <Skeleton className="h-6 w-1/2" />
-                                <Skeleton className="h-24 w-full" />
-                                <Skeleton className="h-10 w-full" />
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <Card className="rounded-2xl">
-                                        <CardHeader className="pb-3">
-                                            <CardTitle className="text-sm">Request ID</CardTitle>
-                                            <CardDescription>Appwrite document</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="text-sm font-medium">{active.$id}</CardContent>
-                                    </Card>
+                        <ScrollArea className="h-96 pr-4">
+                            {!active ? (
+                                <div className="space-y-3">
+                                    <Skeleton className="h-6 w-1/2" />
+                                    <Skeleton className="h-24 w-full" />
+                                    <Skeleton className="h-10 w-full" />
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <Card className="rounded-2xl">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-sm">Status</CardTitle>
+                                                <CardDescription>Current state</CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <Badge variant={statusBadgeVariant(String(active.status))}>
+                                                    {String(active.status)}
+                                                </Badge>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card className="rounded-2xl">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-sm">Requested By</CardTitle>
+                                                <CardDescription>Requester</CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="text-sm font-medium wrap-break-word">
+                                                {resolveUserName(active.requestedBy)}
+                                            </CardContent>
+                                        </Card>
+                                    </div>
 
                                     <Card className="rounded-2xl">
                                         <CardHeader className="pb-3">
-                                            <CardTitle className="text-sm">Status</CardTitle>
-                                            <CardDescription>Current state</CardDescription>
+                                            <CardTitle className="text-sm">Summary</CardTitle>
+                                            <CardDescription>Request metadata</CardDescription>
                                         </CardHeader>
-                                        <CardContent>
-                                            <Badge variant={statusBadgeVariant(String(active.status))}>
-                                                {String(active.status)}
-                                            </Badge>
+                                        <CardContent className="space-y-2 text-sm">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-muted-foreground">Type</span>
+                                                <span className="font-medium text-right wrap-break-word">{active.type || "—"}</span>
+                                            </div>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-muted-foreground">Term</span>
+                                                <span className="font-medium text-right wrap-break-word">{resolveTermName(active.termId)}</span>
+                                            </div>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-muted-foreground">Department</span>
+                                                <span className="font-medium text-right wrap-break-word">{resolveDepartmentName(active.departmentId)}</span>
+                                            </div>
+
+                                            {/* ✅ NOW SHOW NAME not ID */}
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-muted-foreground">Class</span>
+                                                <span className="font-medium text-right wrap-break-word">
+                                                    {active.classId ? resolveClassName(active.classId) : "—"}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-muted-foreground">Meeting</span>
+                                                <span className="font-medium text-right wrap-break-word">
+                                                    {active.meetingId ? resolveMeetingName(active.meetingId) : "—"}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-muted-foreground">Created</span>
+                                                <span className="font-medium text-right">{fmtDate(active.$createdAt)}</span>
+                                            </div>
                                         </CardContent>
                                     </Card>
-                                </div>
 
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Summary</CardTitle>
-                                        <CardDescription>Request metadata</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-2 text-sm">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Type</span>
-                                            <span className="font-medium">{active.type || "—"}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Requested By</span>
-                                            <span className="font-medium">{resolveUserName(active.requestedBy)}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Term</span>
-                                            <span className="font-medium">{active.termId || "—"}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Department</span>
-                                            <span className="font-medium">{active.departmentId || "—"}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Class ID</span>
-                                            <span className="font-medium">{active.classId || "—"}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Meeting ID</span>
-                                            <span className="font-medium">{active.meetingId || "—"}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Created</span>
-                                            <span className="font-medium">{fmtDate(active.$createdAt)}</span>
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                                    <Card className="rounded-2xl">
+                                        <CardHeader className="pb-3">
+                                            <CardTitle className="text-sm">Details</CardTitle>
+                                            <CardDescription>What the requester wants to change</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="text-sm leading-relaxed whitespace-pre-wrap wrap-break-word">
+                                            {active.details || "—"}
+                                        </CardContent>
+                                    </Card>
 
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Details</CardTitle>
-                                        <CardDescription>What the requester wants to change</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="text-sm leading-relaxed whitespace-pre-wrap">
-                                        {active.details || "—"}
-                                    </CardContent>
-                                </Card>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="notes">Resolution Notes</Label>
-                                    <Textarea
-                                        id="notes"
-                                        value={resolutionNotes}
-                                        onChange={(e) => setResolutionNotes(e.target.value)}
-                                        placeholder="Add admin notes (optional)"
-                                    />
-                                    <div className="text-xs text-muted-foreground">
-                                        This note will be saved to{" "}
-                                        <span className="font-medium">resolutionNotes</span>.
+                                    <div className="space-y-2">
+                                        <Label htmlFor="notes">Resolution Notes</Label>
+                                        <Textarea
+                                            id="notes"
+                                            value={resolutionNotes}
+                                            onChange={(e) => setResolutionNotes(e.target.value)}
+                                            placeholder="Add admin notes (optional)"
+                                        />
+                                        <div className="text-xs text-muted-foreground">
+                                            This note will be saved to{" "}
+                                            <span className="font-medium">resolutionNotes</span>.
+                                        </div>
                                     </div>
-                                </div>
 
-                                {active.reviewedAt ? (
-                                    <Alert>
-                                        <AlertTitle>Previously reviewed</AlertTitle>
-                                        <AlertDescription>
-                                            Reviewed at{" "}
-                                            <span className="font-medium">{fmtDate(active.reviewedAt)}</span>
-                                            {active.reviewedBy ? (
-                                                <>
-                                                    {" "}
-                                                    by{" "}
-                                                    <span className="font-medium">{resolveUserName(active.reviewedBy)}</span>.
-                                                </>
-                                            ) : null}
-                                        </AlertDescription>
-                                    </Alert>
-                                ) : null}
-                            </div>
-                        )}
+                                    {active.reviewedAt ? (
+                                        <Alert>
+                                            <AlertTitle>Previously reviewed</AlertTitle>
+                                            <AlertDescription>
+                                                Reviewed at{" "}
+                                                <span className="font-medium">{fmtDate(active.reviewedAt)}</span>
+                                                {active.reviewedBy ? (
+                                                    <>
+                                                        {" "}
+                                                        by{" "}
+                                                        <span className="font-medium">{resolveUserName(active.reviewedBy)}</span>.
+                                                    </>
+                                                ) : null}
+                                            </AlertDescription>
+                                        </Alert>
+                                    ) : null}
+                                </div>
+                            )}
+                        </ScrollArea>
 
                         <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                             <Button
