@@ -212,8 +212,15 @@ export default function FacultyOverviewPage() {
 
     const [lastUpdated, setLastUpdated] = React.useState<string>("")
 
+    // ✅ Prevent refresh race loops + allow “latest request wins”
+    const refreshReqIdRef = React.useRef(0)
+
+    // ✅ FIX: refresh depends ONLY on userId (removes infinite loop)
     const refresh = React.useCallback(async () => {
+        const reqId = ++refreshReqIdRef.current
+
         if (!userId) {
+            // If no user, stop loading and reset minimal UI
             setLoading(false)
             return
         }
@@ -229,23 +236,45 @@ export default function FacultyOverviewPage() {
                 facultyMemberApi.changeRequests.listMy({ userId }),
             ])
 
+            // ✅ If a newer refresh started, ignore this one
+            if (reqId !== refreshReqIdRef.current) return
+
             const workloadRes = results[0].status === "fulfilled" ? results[0].value : null
             const scheduleRes = results[1].status === "fulfilled" ? results[1].value : null
             const notifRes = results[2].status === "fulfilled" ? results[2].value : null
             const availRes = results[3].status === "fulfilled" ? results[3].value : null
             const reqRes = results[4].status === "fulfilled" ? results[4].value : null
 
-            const effectiveTerm = workloadRes?.term ?? scheduleRes?.term ?? availRes?.term ?? notifRes?.term ?? reqRes?.term ?? null
-            const effectiveVersion = workloadRes?.version ?? scheduleRes?.version ?? null
+            const effectiveTerm =
+                workloadRes?.term ??
+                scheduleRes?.term ??
+                availRes?.term ??
+                notifRes?.term ??
+                reqRes?.term ??
+                null
 
-            const effectiveProfile = workloadRes?.profile ?? scheduleRes?.profile ?? notifRes?.profile ?? reqRes?.profile ?? profile ?? null
-            const effectiveFacultyProfile = workloadRes?.facultyProfile ?? facultyProfile ?? null
+            const effectiveVersion =
+                workloadRes?.version ??
+                scheduleRes?.version ??
+                null
 
-            setTerm(effectiveTerm)
-            setVersion(effectiveVersion)
+            const effectiveProfile =
+                workloadRes?.profile ??
+                scheduleRes?.profile ??
+                notifRes?.profile ??
+                reqRes?.profile ??
+                null
 
-            setProfile(effectiveProfile)
-            setFacultyProfile(effectiveFacultyProfile)
+            const effectiveFacultyProfile =
+                workloadRes?.facultyProfile ??
+                null
+
+            // ✅ Keep previous if new is null (prevents flicker)
+            setTerm((prev: any) => effectiveTerm ?? prev ?? null)
+            setVersion((prev: any) => effectiveVersion ?? prev ?? null)
+
+            setProfile((prev: any) => effectiveProfile ?? prev ?? null)
+            setFacultyProfile((prev: any) => effectiveFacultyProfile ?? prev ?? null)
 
             setWorkloadItems(Array.isArray(workloadRes?.items) ? workloadRes.items : [])
             setScheduleItems(Array.isArray(scheduleRes?.items) ? scheduleRes.items : [])
@@ -258,12 +287,15 @@ export default function FacultyOverviewPage() {
         } catch (err: any) {
             toast.error(err?.message || "Failed to load overview data.")
         } finally {
-            setLoading(false)
+            // ✅ Only stop loading if this is still the latest request
+            if (reqId === refreshReqIdRef.current) {
+                setLoading(false)
+            }
         }
-    }, [userId, profile, facultyProfile])
+    }, [userId])
 
     React.useEffect(() => {
-        refresh()
+        void refresh()
     }, [refresh])
 
     const termLabel = React.useMemo(() => {
@@ -378,7 +410,6 @@ export default function FacultyOverviewPage() {
             .map(([subject, units]) => ({ subject, units }))
             .sort((a, b) => b.units - a.units)
 
-        // Keep top 8, group remainder as Others
         const top = entries.slice(0, 8)
         const rest = entries.slice(8)
         const others = rest.reduce((sum, x) => sum + x.units, 0)
@@ -469,7 +500,7 @@ export default function FacultyOverviewPage() {
                     <div className="flex items-center gap-2">
                         <Button
                             variant="outline"
-                            onClick={refresh}
+                            onClick={() => void refresh()}
                             disabled={loading}
                             className="gap-2"
                         >
