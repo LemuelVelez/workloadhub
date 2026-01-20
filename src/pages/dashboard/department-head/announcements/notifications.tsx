@@ -66,6 +66,7 @@ function formatDate(iso: any) {
 type NotifRow = {
     $id: string
     $createdAt?: string
+    $updatedAt?: string
     departmentId?: string | null
     termId?: string | null
     createdBy?: string
@@ -100,6 +101,23 @@ export default function DepartmentHeadNotificationsPage() {
     const [activeTerm, setActiveTerm] = React.useState<any | null>(null)
 
     const departmentId = React.useMemo(() => safeStr(profile?.departmentId), [profile])
+
+    // ✅ NEW: Department info (to display Department NAME not ID)
+    const [departmentRow, setDepartmentRow] = React.useState<any | null>(null)
+
+    const departmentName = React.useMemo(() => {
+        return (
+            safeStr(departmentRow?.name) ||
+            safeStr(departmentRow?.departmentName) ||
+            safeStr(departmentRow?.title) ||
+            safeStr(profile?.departmentName) ||
+            "—"
+        )
+    }, [departmentRow, profile])
+
+    const actorName = React.useMemo(() => {
+        return safeStr(profile?.name) || safeStr(user?.name) || "You"
+    }, [profile, user])
 
     const [facultyUsers, setFacultyUsers] = React.useState<any[]>([])
     const facultyMap = React.useMemo(() => {
@@ -148,23 +166,30 @@ export default function DepartmentHeadNotificationsPage() {
             const deptId = safeStr(prof?.departmentId)
 
             if (deptId) {
-                const f = await departmentHeadApi.faculty.listByDepartment(deptId)
+                // ✅ NEW: load department row for department name display
+                const [deptRow, f, notifs] = await Promise.all([
+                    departmentHeadApi.departments.getById(deptId),
+                    departmentHeadApi.faculty.listByDepartment(deptId),
+                    departmentHeadApi.notifications.listByDepartmentTerm({
+                        departmentId: deptId,
+                        termId: safeStr(term?.$id) || null,
+                    }),
+                ])
+
+                setDepartmentRow(deptRow ?? null)
+
                 setFacultyUsers(Array.isArray(f?.users) ? f.users : [])
-
-                const notifs = await departmentHeadApi.notifications.listByDepartmentTerm({
-                    departmentId: deptId,
-                    termId: safeStr(term?.$id) || null,
-                })
-
                 setRows(Array.isArray(notifs) ? (notifs as any) : [])
             } else {
                 setRows([])
                 setFacultyUsers([])
+                setDepartmentRow(null)
             }
         } catch (err: any) {
             toast.error(err?.message || "Failed to load notifications.")
             setRows([])
             setFacultyUsers([])
+            setDepartmentRow(null)
         } finally {
             setLoading(false)
         }
@@ -240,9 +265,7 @@ export default function DepartmentHeadNotificationsPage() {
                 recipientUserIds,
             })
 
-            toast.success(
-                `Sent to ${Number(res?.recipientsCreated || 0)} faculty member(s).`
-            )
+            toast.success(`Sent to ${Number(res?.recipientsCreated || 0)} faculty member(s).`)
 
             setOpenCreate(false)
             setNewTitle("")
@@ -325,10 +348,7 @@ export default function DepartmentHeadNotificationsPage() {
                         Refresh
                     </Button>
 
-                    <Button
-                        onClick={() => setOpenCreate(true)}
-                        className="w-full gap-2 sm:w-auto"
-                    >
+                    <Button onClick={() => setOpenCreate(true)} className="w-full gap-2 sm:w-auto">
                         <Megaphone className="h-4 w-4" />
                         New Announcement
                     </Button>
@@ -354,21 +374,16 @@ export default function DepartmentHeadNotificationsPage() {
                         <Card>
                             <CardHeader className="pb-3">
                                 <CardTitle className="text-base">Context</CardTitle>
-                                <CardDescription>
-                                    Active term and recipient summary
-                                </CardDescription>
+                                <CardDescription>Active term and recipient summary</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-3">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <Badge variant="secondary">
-                                        Term: {termLabel}
-                                    </Badge>
-                                    <Badge variant="outline">
-                                        Department ID: {departmentId}
-                                    </Badge>
-                                    <Badge>
-                                        Faculty Recipients: {facultyUsers.length}
-                                    </Badge>
+                                    <Badge variant="secondary">Term: {termLabel}</Badge>
+
+                                    {/* ✅ FIX: Department NAME (not ID) */}
+                                    <Badge variant="outline">Department: {departmentName}</Badge>
+
+                                    <Badge>Faculty Recipients: {facultyUsers.length}</Badge>
                                 </div>
 
                                 <Separator />
@@ -385,10 +400,7 @@ export default function DepartmentHeadNotificationsPage() {
                                     </div>
 
                                     <div className="w-full sm:max-w-xs">
-                                        <Select
-                                            value={typeFilter}
-                                            onValueChange={(v) => setTypeFilter(v)}
-                                        >
+                                        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v)}>
                                             <SelectTrigger>
                                                 <SelectValue placeholder="Filter type" />
                                             </SelectTrigger>
@@ -406,12 +418,11 @@ export default function DepartmentHeadNotificationsPage() {
                             </CardContent>
                         </Card>
 
+                        {/* ✅ KEEP TABLE HERE (ONLY FOR HISTORY LIST) */}
                         <Card>
                             <CardHeader className="pb-3">
                                 <CardTitle className="text-base">Sent Announcements</CardTitle>
-                                <CardDescription>
-                                    View history and check read status per recipient
-                                </CardDescription>
+                                <CardDescription>View history and check read status per recipient</CardDescription>
                             </CardHeader>
 
                             <CardContent className="p-0">
@@ -423,9 +434,7 @@ export default function DepartmentHeadNotificationsPage() {
                                                 <TableHead className="min-w-36">Type</TableHead>
                                                 <TableHead className="min-w-56">Title</TableHead>
                                                 <TableHead>Message</TableHead>
-                                                <TableHead className="text-right min-w-40">
-                                                    Actions
-                                                </TableHead>
+                                                <TableHead className="text-right min-w-40">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
 
@@ -443,19 +452,19 @@ export default function DepartmentHeadNotificationsPage() {
                                                             <div className="text-sm">
                                                                 {formatDate(r?.$createdAt || r?.$updatedAt)}
                                                             </div>
+
+                                                            {/* ✅ FIX: Show details instead of Notification ID */}
                                                             <div className="text-xs text-muted-foreground">
-                                                                ID: {safeStr(r?.$id).slice(0, 10)}
+                                                                Created by: {actorName}
                                                             </div>
                                                         </TableCell>
 
                                                         <TableCell className="align-top">
-                                                            <Badge variant="secondary">
-                                                                {safeStr(r?.type) || "—"}
-                                                            </Badge>
+                                                            <Badge variant="secondary">{safeStr(r?.type) || "—"}</Badge>
                                                         </TableCell>
 
                                                         <TableCell className="align-top">
-                                                            <div className="font-medium leading-tight break-words">
+                                                            <div className="font-medium leading-tight wrap-break-word">
                                                                 {safeStr(r?.title) || "—"}
                                                             </div>
                                                             {safeStr(r?.link) ? (
@@ -466,7 +475,7 @@ export default function DepartmentHeadNotificationsPage() {
                                                         </TableCell>
 
                                                         <TableCell className="align-top">
-                                                            <div className="text-sm text-muted-foreground line-clamp-2 break-words">
+                                                            <div className="text-sm text-muted-foreground line-clamp-2 wrap-break-word">
                                                                 {safeStr(r?.message) || "—"}
                                                             </div>
                                                         </TableCell>
@@ -489,9 +498,7 @@ export default function DepartmentHeadNotificationsPage() {
                                                                     size="sm"
                                                                     className="w-full gap-2 sm:w-auto"
                                                                     onClick={() =>
-                                                                        copyText(
-                                                                            `${safeStr(r?.title)}\n\n${safeStr(r?.message)}`
-                                                                        )
+                                                                        copyText(`${safeStr(r?.title)}\n\n${safeStr(r?.message)}`)
                                                                     }
                                                                 >
                                                                     <Copy className="h-4 w-4" />
@@ -513,7 +520,7 @@ export default function DepartmentHeadNotificationsPage() {
 
             {/* ✅ CREATE ANNOUNCEMENT */}
             <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-                <DialogContent className="sm:max-w-2xl max-h-screen overflow-y-auto">
+                <DialogContent className="w-full max-w-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Megaphone className="h-5 w-5" />
@@ -544,10 +551,7 @@ export default function DepartmentHeadNotificationsPage() {
 
                             <div className="space-y-2">
                                 <Label>Recipients</Label>
-                                <Input
-                                    value={`${facultyUsers.length} faculty member(s)`}
-                                    readOnly
-                                />
+                                <Input value={`${facultyUsers.length} faculty member(s)`} readOnly />
                             </div>
                         </div>
 
@@ -584,8 +588,8 @@ export default function DepartmentHeadNotificationsPage() {
 
                         <div className="rounded-lg border p-3 bg-muted/30">
                             <div className="text-sm font-medium mb-1">Preview</div>
-                            <div className="text-sm break-words">{safeStr(newTitle) || "—"}</div>
-                            <div className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap max-h-32 overflow-y-auto break-words">
+                            <div className="text-sm wrap-break-word">{safeStr(newTitle) || "—"}</div>
+                            <div className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap max-h-32 overflow-y-auto wrap-break-word">
                                 {safeStr(newMessage) || "—"}
                             </div>
                         </div>
@@ -603,142 +607,137 @@ export default function DepartmentHeadNotificationsPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* ✅ DETAILS / RECIPIENTS */}
+            {/* ✅ DETAILS / RECIPIENTS (VERTICAL LAYOUT + NO TABLE) */}
             <Dialog open={openDetails} onOpenChange={setOpenDetails}>
-                <DialogContent className="sm:max-w-3xl max-h-screen overflow-hidden">
-                    <DialogHeader>
-                        <DialogTitle>Announcement Details</DialogTitle>
-                        <DialogDescription>
-                            Review recipient status for this message.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <ScrollArea className="max-h-[80vh] pr-4">
-                        <div className="space-y-3">
-                            <Card>
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-base break-words">
-                                        {safeStr(selected?.title) || "—"}
-                                    </CardTitle>
-                                    <CardDescription className="flex flex-wrap items-center gap-2">
-                                        <Badge variant="secondary">{safeStr(selected?.type) || "—"}</Badge>
-                                        <Badge variant="outline">
-                                            {formatDate(selected?.$createdAt || selected?.$updatedAt)}
-                                        </Badge>
-                                        <Badge>
-                                            Total: {recipientStats.total}
-                                        </Badge>
-                                        <Badge variant="secondary">
-                                            Read: {recipientStats.read}
-                                        </Badge>
-                                        <Badge variant="outline">
-                                            Unread: {recipientStats.unread}
-                                        </Badge>
-                                    </CardDescription>
-                                </CardHeader>
-
-                                <CardContent className="space-y-2">
-                                    <div className="text-sm text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto break-words">
-                                        {safeStr(selected?.message) || "—"}
-                                    </div>
-
-                                    {safeStr(selected?.link) ? (
-                                        <div className="text-xs text-muted-foreground break-words">
-                                            Link: {safeStr(selected?.link)}
-                                        </div>
-                                    ) : null}
-
-                                    <div className="flex items-center gap-2 pt-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="gap-2"
-                                            onClick={() =>
-                                                copyText(
-                                                    `${safeStr(selected?.title)}\n\n${safeStr(selected?.message)}`
-                                                )
-                                            }
-                                        >
-                                            <Copy className="h-4 w-4" />
-                                            Copy Message
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-base">Recipients</CardTitle>
-                                    <CardDescription>
-                                        Faculty read status
-                                    </CardDescription>
-                                </CardHeader>
-
-                                <CardContent className="p-0">
-                                    {recipientsLoading ? (
-                                        <div className="p-4 space-y-2">
-                                            <Skeleton className="h-10 w-full" />
-                                            <Skeleton className="h-10 w-full" />
-                                            <Skeleton className="h-10 w-full" />
-                                        </div>
-                                    ) : (
-                                        <div className="overflow-x-auto">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead className="min-w-56">Faculty</TableHead>
-                                                        <TableHead className="min-w-56">Email</TableHead>
-                                                        <TableHead className="min-w-32">Status</TableHead>
-                                                        <TableHead className="min-w-56">Read At</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-
-                                                <TableBody>
-                                                    {recipients.length === 0 ? (
-                                                        <TableRow>
-                                                            <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-                                                                No recipients found.
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    ) : (
-                                                        recipients.map((r) => {
-                                                            const u = facultyMap.get(safeStr(r?.userId))
-                                                            const name =
-                                                                safeStr(u?.name) ||
-                                                                safeStr(u?.email) ||
-                                                                safeStr(r?.userId)
-                                                            const email = safeStr(u?.email) || "—"
-
-                                                            return (
-                                                                <TableRow key={r.$id}>
-                                                                    <TableCell className="font-medium break-words">
-                                                                        {name}
-                                                                    </TableCell>
-                                                                    <TableCell className="text-muted-foreground break-words">
-                                                                        {email}
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        {r?.isRead ? (
-                                                                            <Badge>Read</Badge>
-                                                                        ) : (
-                                                                            <Badge variant="secondary">Unread</Badge>
-                                                                        )}
-                                                                    </TableCell>
-                                                                    <TableCell className="text-muted-foreground">
-                                                                        {r?.isRead ? formatDate(r?.readAt) : "—"}
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            )
-                                                        })
-                                                    )}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
+                {/* ✅ UPDATED: Decreased dialog height */}
+                <DialogContent className="w-full max-w-3xl max-h-[80vh] overflow-y-auto p-0">
+                    <div className="flex h-full flex-col overflow-hidden">
+                        <div className="px-6 pt-6">
+                            <DialogHeader>
+                                <DialogTitle>Announcement Details</DialogTitle>
+                                <DialogDescription>Review recipient status for this message.</DialogDescription>
+                            </DialogHeader>
                         </div>
-                    </ScrollArea>
+
+                        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+                            <div className="space-y-4 pt-4 w-full min-w-0">
+                                {/* ✅ Announcement Info */}
+                                <Card className="w-full max-w-full min-w-0 overflow-hidden">
+                                    <CardHeader className="pb-3 space-y-2">
+                                        <CardTitle className="text-base wrap-break-word">
+                                            {safeStr(selected?.title) || "—"}
+                                        </CardTitle>
+
+                                        {/* ✅ wrap badges (never force width) */}
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Badge variant="secondary">{safeStr(selected?.type) || "—"}</Badge>
+                                            <Badge variant="outline">
+                                                {formatDate(selected?.$createdAt || selected?.$updatedAt)}
+                                            </Badge>
+                                            <Badge>Total: {recipientStats.total}</Badge>
+                                            <Badge variant="secondary">Read: {recipientStats.read}</Badge>
+                                            <Badge variant="outline">Unread: {recipientStats.unread}</Badge>
+                                        </div>
+                                    </CardHeader>
+
+                                    <CardContent className="space-y-2 w-full min-w-0">
+                                        <div className="text-sm text-muted-foreground whitespace-pre-wrap max-h-40 overflow-y-auto wrap-break-word">
+                                            {safeStr(selected?.message) || "—"}
+                                        </div>
+
+                                        {safeStr(selected?.link) ? (
+                                            <div className="text-xs text-muted-foreground break-all">
+                                                Link: {safeStr(selected?.link)}
+                                            </div>
+                                        ) : null}
+
+                                        <div className="flex items-center gap-2 pt-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="gap-2"
+                                                onClick={() =>
+                                                    copyText(`${safeStr(selected?.title)}\n\n${safeStr(selected?.message)}`)
+                                                }
+                                            >
+                                                <Copy className="h-4 w-4" />
+                                                Copy Message
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                {/* ✅ Recipients (VERTICAL LIST - NO TABLE) */}
+                                <Card className="w-full max-w-full min-w-0 overflow-hidden">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-base">Recipients</CardTitle>
+                                        <CardDescription>Faculty read status</CardDescription>
+                                    </CardHeader>
+
+                                    <CardContent className="pt-0">
+                                        {recipientsLoading ? (
+                                            <div className="space-y-2">
+                                                <Skeleton className="h-16 w-full" />
+                                                <Skeleton className="h-16 w-full" />
+                                                <Skeleton className="h-16 w-full" />
+                                            </div>
+                                        ) : recipients.length === 0 ? (
+                                            <div className="py-10 text-center text-sm text-muted-foreground">
+                                                No recipients found.
+                                            </div>
+                                        ) : (
+                                            <ScrollArea className="h-80 w-full">
+                                                <div className="space-y-2 pr-4">
+                                                    {recipients.map((r) => {
+                                                        const u = facultyMap.get(safeStr(r?.userId))
+                                                        const name =
+                                                            safeStr(u?.name) ||
+                                                            safeStr(u?.email) ||
+                                                            safeStr(r?.userId)
+
+                                                        const email = safeStr(u?.email) || "—"
+                                                        const status = r?.isRead ? "Read" : "Unread"
+                                                        const readAtText = r?.isRead
+                                                            ? formatDate(r?.readAt)
+                                                            : "Not yet read"
+
+                                                        return (
+                                                            <div
+                                                                key={r.$id}
+                                                                className="w-full rounded-lg border bg-card p-3 overflow-hidden"
+                                                            >
+                                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                                    <div className="min-w-0">
+                                                                        <div className="font-medium wrap-break-word">
+                                                                            {name}
+                                                                        </div>
+                                                                        <div className="text-xs text-muted-foreground break-all">
+                                                                            {email}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                        {r?.isRead ? (
+                                                                            <Badge>{status}</Badge>
+                                                                        ) : (
+                                                                            <Badge variant="secondary">{status}</Badge>
+                                                                        )}
+                                                                        <span className="text-xs text-muted-foreground">
+                                                                            {readAtText}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </ScrollArea>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        </div>
+                    </div>
                 </DialogContent>
             </Dialog>
         </DashboardLayout>

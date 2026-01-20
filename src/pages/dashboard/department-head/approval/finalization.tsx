@@ -22,7 +22,7 @@ import DashboardLayout from "@/components/dashboard-layout"
 import { useSession } from "@/hooks/use-session"
 import { departmentHeadApi } from "@/api/department-head"
 
-import { databases, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
+import { databases, tablesDB, DATABASE_ID, COLLECTIONS, Query } from "@/lib/db"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -184,6 +184,76 @@ function getProfilesCollectionId() {
 
 const COPY_NONE = "__none__"
 
+function formatTimeShort(v: any) {
+    const s = safeStr(v)
+    if (!s) return ""
+    // "08:00:00" -> "08:00"
+    if (/^\d{2}:\d{2}/.test(s)) return s.slice(0, 5)
+    return s
+}
+
+function normalizeDayOfWeek(v: any) {
+    const s = safeStr(v).toUpperCase()
+    if (!s) return ""
+    const map: Record<string, string> = {
+        MONDAY: "Mon",
+        MON: "Mon",
+        TUESDAY: "Tue",
+        TUE: "Tue",
+        WEDNESDAY: "Wed",
+        WED: "Wed",
+        THURSDAY: "Thu",
+        THU: "Thu",
+        FRIDAY: "Fri",
+        FRI: "Fri",
+        SATURDAY: "Sat",
+        SAT: "Sat",
+        SUNDAY: "Sun",
+        SUN: "Sun",
+    }
+    return map[s] ?? (s.length >= 3 ? s.slice(0, 3) : s)
+}
+
+/**
+ * ✅ Fetch rows by IDs (works for BOTH Appwrite Tables + Collections)
+ */
+async function fetchDocsByIds(tableOrCollectionId: string, ids: string[]) {
+    const all: AnyRow[] = []
+    const clean = Array.from(new Set((ids ?? []).map(safeStr).filter(Boolean)))
+    if (clean.length === 0) return all
+
+    for (const part of chunk(clean, 50)) {
+        // ✅ Try TablesDB first
+        try {
+            const res: any = await tablesDB.listRows({
+                databaseId: DATABASE_ID,
+                tableId: tableOrCollectionId,
+                queries: [Query.equal("$id", part), Query.limit(200)],
+            })
+            const rows: AnyRow[] = Array.isArray(res?.rows) ? res.rows : []
+            all.push(...rows)
+            continue
+        } catch {
+            // fallback below
+        }
+
+        // ✅ Fallback: Collections
+        try {
+            const res2: any = await databases.listDocuments(
+                DATABASE_ID,
+                tableOrCollectionId,
+                [Query.equal("$id", part), Query.limit(200)]
+            )
+            const docs: AnyRow[] = Array.isArray(res2?.documents) ? res2.documents : []
+            all.push(...docs)
+        } catch {
+            // ignore
+        }
+    }
+
+    return all
+}
+
 export default function DepartmentHeadFinalizationPage() {
     const { user } = useSession()
 
@@ -212,6 +282,10 @@ export default function DepartmentHeadFinalizationPage() {
 
     // ✅ map userId -> name
     const [userNameMap, setUserNameMap] = React.useState<Record<string, string>>({})
+
+    // ✅ map classId / meetingId -> labels
+    const [classLabelMap, setClassLabelMap] = React.useState<Record<string, string>>({})
+    const [meetingLabelMap, setMeetingLabelMap] = React.useState<Record<string, string>>({})
 
     // View / Review Request Dialog
     const [reqViewOpen, setReqViewOpen] = React.useState(false)
@@ -260,6 +334,24 @@ export default function DepartmentHeadFinalizationPage() {
         })
     }, [versions, search])
 
+    function resolveUserName(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return userNameMap[k] || k
+    }
+
+    function resolveClassLabel(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return classLabelMap[k] || k
+    }
+
+    function resolveMeetingLabel(id: any) {
+        const k = safeStr(id)
+        if (!k) return "—"
+        return meetingLabelMap[k] || k
+    }
+
     const filteredReqs = React.useMemo(() => {
         const q = reqSearch.trim().toLowerCase()
 
@@ -270,6 +362,9 @@ export default function DepartmentHeadFinalizationPage() {
 
             const requestedByName = safeStr(userNameMap[safeStr(it.requestedBy)] || "")
 
+            const classLabel = safeStr(classLabelMap[safeStr(it.classId)] || "")
+            const meetingLabel = safeStr(meetingLabelMap[safeStr(it.meetingId)] || "")
+
             const hay = [
                 it.$id,
                 it.type,
@@ -279,19 +374,15 @@ export default function DepartmentHeadFinalizationPage() {
                 requestedByName,
                 it.classId ?? "",
                 it.meetingId ?? "",
+                classLabel,
+                meetingLabel,
             ]
                 .join(" ")
                 .toLowerCase()
 
             return hay.includes(q)
         })
-    }, [reqItems, reqTab, reqSearch, userNameMap])
-
-    function resolveUserName(id: any) {
-        const k = safeStr(id)
-        if (!k) return "—"
-        return userNameMap[k] || k
-    }
+    }, [reqItems, reqTab, reqSearch, userNameMap, classLabelMap, meetingLabelMap])
 
     async function hydrateUserNames(changeReqDocs: ChangeRequestDoc[]) {
         const collectionId = getProfilesCollectionId()
@@ -359,6 +450,120 @@ export default function DepartmentHeadFinalizationPage() {
         }
     }
 
+    /**
+     * ✅ NEW: Resolve classId + meetingId into real labels (Subject/Section + Day/Time/Room)
+     */
+    async function hydrateClassMeetingLabels(changeReqDocs: ChangeRequestDoc[]) {
+        try {
+            const classIds = Array.from(
+                new Set(changeReqDocs.map((x) => safeStr(x.classId)).filter(Boolean))
+            )
+            const meetingIds = Array.from(
+                new Set(changeReqDocs.map((x) => safeStr(x.meetingId)).filter(Boolean))
+            )
+
+            if (classIds.length === 0 && meetingIds.length === 0) return
+
+            // Fetch classes + meetings
+            const [classRows, meetingRows] = await Promise.all([
+                classIds.length ? fetchDocsByIds(COLLECTIONS.CLASSES, classIds) : Promise.resolve([]),
+                meetingIds.length
+                    ? fetchDocsByIds(COLLECTIONS.CLASS_MEETINGS, meetingIds)
+                    : Promise.resolve([]),
+            ])
+
+            // Gather subjectIds + sectionIds from classes
+            const subjectIds = Array.from(
+                new Set(classRows.map((c) => safeStr(c?.subjectId)).filter(Boolean))
+            )
+            const sectionIds = Array.from(
+                new Set(classRows.map((c) => safeStr(c?.sectionId)).filter(Boolean))
+            )
+
+            // Gather roomIds from meetings
+            const roomIds = Array.from(
+                new Set(meetingRows.map((m) => safeStr(m?.roomId)).filter(Boolean))
+            )
+
+            const [subjectRows, sectionRows, roomRows] = await Promise.all([
+                subjectIds.length ? fetchDocsByIds(COLLECTIONS.SUBJECTS, subjectIds) : Promise.resolve([]),
+                sectionIds.length ? fetchDocsByIds(COLLECTIONS.SECTIONS, sectionIds) : Promise.resolve([]),
+                roomIds.length ? fetchDocsByIds(COLLECTIONS.ROOMS, roomIds) : Promise.resolve([]),
+            ])
+
+            const subjectMap: Record<string, AnyRow> = {}
+            for (const s of subjectRows) subjectMap[safeStr(s.$id)] = s
+
+            const sectionMap: Record<string, AnyRow> = {}
+            for (const s of sectionRows) sectionMap[safeStr(s.$id)] = s
+
+            const roomMap: Record<string, AnyRow> = {}
+            for (const r of roomRows) roomMap[safeStr(r.$id)] = r
+
+            // Build Class labels
+            const classMap: Record<string, string> = {}
+            for (const c of classRows) {
+                const id = safeStr(c?.$id)
+                if (!id) continue
+
+                const sub = subjectMap[safeStr(c?.subjectId)]
+                const sec = sectionMap[safeStr(c?.sectionId)]
+
+                const subjectCode = safeStr(sub?.code)
+                const subjectTitle = safeStr(sub?.title || sub?.name)
+
+                const subjectLabel = subjectCode
+                    ? subjectTitle
+                        ? `${subjectCode} — ${subjectTitle}`
+                        : subjectCode
+                    : subjectTitle || "Subject"
+
+                const secName = safeStr(sec?.name || sec?.sectionName || sec?.label)
+                const yearLevel = safeStr(sec?.yearLevel)
+                const sectionLabel = yearLevel && secName ? `YL${yearLevel} ${secName}` : secName || ""
+
+                const classCode = safeStr(c?.classCode)
+                const finalLabel = [
+                    classCode ? `${classCode}` : "",
+                    subjectLabel,
+                    sectionLabel ? `• ${sectionLabel}` : "",
+                ]
+                    .filter(Boolean)
+                    .join(" ")
+
+                classMap[id] = finalLabel || id
+            }
+
+            // Build Meeting labels
+            const meetingMap: Record<string, string> = {}
+            for (const m of meetingRows) {
+                const id = safeStr(m?.$id)
+                if (!id) continue
+
+                const day = normalizeDayOfWeek(m?.dayOfWeek || m?.day)
+                const st = formatTimeShort(m?.startTime)
+                const et = formatTimeShort(m?.endTime)
+
+                const timePart = st && et ? `${st}-${et}` : st || et || ""
+                let label = day && timePart ? `${day} ${timePart}` : day || timePart || ""
+
+                const room = roomMap[safeStr(m?.roomId)]
+                const roomCode = safeStr(room?.code || room?.name)
+                if (roomCode) label += ` (${roomCode})`
+
+                const t = safeStr(m?.meetingType || m?.type)
+                if (t) label += ` • ${t}`
+
+                meetingMap[id] = label || id
+            }
+
+            setClassLabelMap((prev) => ({ ...prev, ...classMap }))
+            setMeetingLabelMap((prev) => ({ ...prev, ...meetingMap }))
+        } catch {
+            // ignore label lookup errors
+        }
+    }
+
     async function loadChangeRequests(termIdParam: string, deptIdParam: string) {
         setReqLoading(true)
         setReqError(null)
@@ -376,7 +581,10 @@ export default function DepartmentHeadFinalizationPage() {
 
             const docs = (res?.documents ?? []) as any[]
             setReqItems(docs as ChangeRequestDoc[])
+
+            // ✅ hydrate name maps
             await hydrateUserNames(docs as ChangeRequestDoc[])
+            await hydrateClassMeetingLabels(docs as ChangeRequestDoc[])
         } catch (e: any) {
             setReqItems([])
             setReqError(e?.message || "Failed to load change requests.")
@@ -723,7 +931,8 @@ export default function DepartmentHeadFinalizationPage() {
     )
 
     const title = "Approval & Finalization"
-    const subtitle = "Approve, activate, lock, and manage schedule versions and faculty change requests."
+    const subtitle =
+        "Approve, activate, lock, and manage schedule versions and faculty change requests."
 
     const departmentName = safeStr(departmentRow?.name)
 
@@ -743,9 +952,7 @@ export default function DepartmentHeadFinalizationPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle>Current Context</CardTitle>
-                        <CardDescription>
-                            Active academic term and your department.
-                        </CardDescription>
+                        <CardDescription>Active academic term and your department.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <div className="grid gap-3 sm:grid-cols-3">
@@ -787,7 +994,8 @@ export default function DepartmentHeadFinalizationPage() {
 
                         {!hasContext ? (
                             <div className="text-sm text-muted-foreground">
-                                Make sure you have an <b>active term</b> and your profile has a <b>departmentId</b>.
+                                Make sure you have an <b>active term</b> and your profile has a{" "}
+                                <b>departmentId</b>.
                             </div>
                         ) : null}
                     </CardContent>
@@ -843,7 +1051,7 @@ export default function DepartmentHeadFinalizationPage() {
                                     id="reqSearch"
                                     value={reqSearch}
                                     onChange={(e) => setReqSearch(e.target.value)}
-                                    placeholder="Search by type, details, faculty name, classId..."
+                                    placeholder="Search by type, details, faculty name, class, meeting..."
                                 />
                             </div>
                         </div>
@@ -885,16 +1093,39 @@ export default function DepartmentHeadFinalizationPage() {
                                             const Icon = reqIcon(String(it.status))
                                             const requester = resolveUserName(it.requestedBy)
 
+                                            const classLabel = it.classId ? resolveClassLabel(it.classId) : ""
+                                            const meetingLabel = it.meetingId ? resolveMeetingLabel(it.meetingId) : ""
+
                                             return (
                                                 <TableRow key={it.$id} className="align-top">
                                                     <TableCell className="font-medium">
                                                         <div className="flex items-center gap-2">
                                                             <Icon className="size-4 text-muted-foreground" />
-                                                            <span className="truncate">{safeStr(it.type) || "—"}</span>
+                                                            <span className="truncate">
+                                                                {safeStr(it.type) || "—"}
+                                                            </span>
                                                         </div>
+
                                                         <div className="mt-1 text-xs text-muted-foreground truncate max-w-md">
                                                             {safeStr(it.details) || "—"}
                                                         </div>
+
+                                                        {(classLabel || meetingLabel) ? (
+                                                            <div className="mt-2 space-y-1 text-xs text-muted-foreground max-w-md">
+                                                                {classLabel ? (
+                                                                    <div className="truncate">
+                                                                        <span className="font-medium">Class:</span>{" "}
+                                                                        {classLabel}
+                                                                    </div>
+                                                                ) : null}
+                                                                {meetingLabel ? (
+                                                                    <div className="truncate">
+                                                                        <span className="font-medium">Meeting:</span>{" "}
+                                                                        {meetingLabel}
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                        ) : null}
                                                     </TableCell>
 
                                                     <TableCell className="text-sm">{requester}</TableCell>
@@ -1145,7 +1376,8 @@ export default function DepartmentHeadFinalizationPage() {
 
                         {pending?.type === "activate" ? (
                             <div className="text-sm text-muted-foreground">
-                                This will set the version to <b>Active</b>. Any other Active version will be reverted to Draft.
+                                This will set the version to <b>Active</b>. Any other Active version will
+                                be reverted to Draft.
                             </div>
                         ) : null}
 
@@ -1200,7 +1432,9 @@ export default function DepartmentHeadFinalizationPage() {
                                                 <CardDescription>Current state</CardDescription>
                                             </CardHeader>
                                             <CardContent>
-                                                <Badge variant={reqBadgeVariant(String(activeReq.status)) as any}>
+                                                <Badge
+                                                    variant={reqBadgeVariant(String(activeReq.status)) as any}
+                                                >
                                                     {safeStr(activeReq.status) || "Pending"}
                                                 </Badge>
                                             </CardContent>
@@ -1225,22 +1459,36 @@ export default function DepartmentHeadFinalizationPage() {
                                         <CardContent className="space-y-2 text-sm">
                                             <div className="flex items-center justify-between gap-3">
                                                 <span className="text-muted-foreground">Type</span>
-                                                <span className="font-medium">{safeStr(activeReq.type) || "—"}</span>
+                                                <span className="font-medium">
+                                                    {safeStr(activeReq.type) || "—"}
+                                                </span>
                                             </div>
 
+                                            {/* ✅ SHOW CLASS NAME (not ID) */}
                                             <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">Class ID</span>
-                                                <span className="font-medium">{safeStr(activeReq.classId) || "—"}</span>
+                                                <span className="text-muted-foreground">Class</span>
+                                                <span className="font-medium text-right">
+                                                    {activeReq.classId
+                                                        ? resolveClassLabel(activeReq.classId)
+                                                        : "—"}
+                                                </span>
                                             </div>
 
+                                            {/* ✅ SHOW MEETING DETAILS (not ID) */}
                                             <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">Meeting ID</span>
-                                                <span className="font-medium">{safeStr(activeReq.meetingId) || "—"}</span>
+                                                <span className="text-muted-foreground">Meeting</span>
+                                                <span className="font-medium text-right">
+                                                    {activeReq.meetingId
+                                                        ? resolveMeetingLabel(activeReq.meetingId)
+                                                        : "—"}
+                                                </span>
                                             </div>
 
                                             <div className="flex items-center justify-between gap-3">
                                                 <span className="text-muted-foreground">Submitted</span>
-                                                <span className="font-medium">{formatMaybeIso(activeReq.$createdAt)}</span>
+                                                <span className="font-medium">
+                                                    {formatMaybeIso(activeReq.$createdAt)}
+                                                </span>
                                             </div>
                                         </CardContent>
                                     </Card>
@@ -1248,7 +1496,9 @@ export default function DepartmentHeadFinalizationPage() {
                                     <Card className="rounded-2xl">
                                         <CardHeader className="pb-3">
                                             <CardTitle className="text-sm">Details</CardTitle>
-                                            <CardDescription>What the requester wants to change</CardDescription>
+                                            <CardDescription>
+                                                What the requester wants to change
+                                            </CardDescription>
                                         </CardHeader>
                                         <CardContent className="text-sm leading-relaxed whitespace-pre-wrap">
                                             {safeStr(activeReq.details) || "—"}
@@ -1274,12 +1524,17 @@ export default function DepartmentHeadFinalizationPage() {
                                             <AlertTitle>Previously reviewed</AlertTitle>
                                             <AlertDescription>
                                                 Reviewed at{" "}
-                                                <span className="font-medium">{formatMaybeIso(activeReq.reviewedAt)}</span>
+                                                <span className="font-medium">
+                                                    {formatMaybeIso(activeReq.reviewedAt)}
+                                                </span>
                                                 {activeReq.reviewedBy ? (
                                                     <>
                                                         {" "}
                                                         by{" "}
-                                                        <span className="font-medium">{resolveUserName(activeReq.reviewedBy)}</span>.
+                                                        <span className="font-medium">
+                                                            {resolveUserName(activeReq.reviewedBy)}
+                                                        </span>
+                                                        .
                                                     </>
                                                 ) : null}
                                             </AlertDescription>
@@ -1303,7 +1558,11 @@ export default function DepartmentHeadFinalizationPage() {
                                 <Button
                                     type="button"
                                     variant="destructive"
-                                    disabled={!activeReq || reqSaving || safeStr(activeReq?.status) !== "Pending"}
+                                    disabled={
+                                        !activeReq ||
+                                        reqSaving ||
+                                        safeStr(activeReq?.status) !== "Pending"
+                                    }
                                     onClick={() => void updateReqStatus("Rejected")}
                                 >
                                     <XCircle className="mr-2 size-4" />
@@ -1312,7 +1571,11 @@ export default function DepartmentHeadFinalizationPage() {
 
                                 <Button
                                     type="button"
-                                    disabled={!activeReq || reqSaving || safeStr(activeReq?.status) !== "Pending"}
+                                    disabled={
+                                        !activeReq ||
+                                        reqSaving ||
+                                        safeStr(activeReq?.status) !== "Pending"
+                                    }
                                     onClick={() => void updateReqStatus("Approved")}
                                 >
                                     <CheckCircle2 className="mr-2 size-4" />

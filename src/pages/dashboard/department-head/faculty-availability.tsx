@@ -162,7 +162,9 @@ export default function FacultyAvailabilityPage() {
     const [refreshing, setRefreshing] = React.useState(false)
 
     const [activeTerm, setActiveTerm] = React.useState<AnyDoc | null>(null)
+
     const [departmentId, setDepartmentId] = React.useState<string>("")
+    const [departmentName, setDepartmentName] = React.useState<string>("") // ✅ NEW
 
     const [facultyRows, setFacultyRows] = React.useState<FacultyRow[]>([])
     const [availability, setAvailability] = React.useState<AvailabilityRow[]>([])
@@ -260,6 +262,23 @@ export default function FacultyAvailabilityPage() {
             const profile = await departmentHeadApi.profiles.getByUserId(userId)
             const deptId = safeStr(profile?.departmentId)
             setDepartmentId(deptId)
+
+            // ✅ NEW: Fetch Department NAME by ID
+            if (deptId) {
+                try {
+                    const dept = await departmentHeadApi.departments.getById(deptId)
+                    const name =
+                        safeStr(dept?.name) ||
+                        safeStr(dept?.departmentName) ||
+                        safeStr(dept?.title) ||
+                        safeStr(dept?.code)
+                    setDepartmentName(name)
+                } catch {
+                    setDepartmentName("")
+                }
+            } else {
+                setDepartmentName("")
+            }
 
             if (!term?.$id || !deptId) {
                 setFacultyRows([])
@@ -411,10 +430,14 @@ export default function FacultyAvailabilityPage() {
                             </CardTitle>
                             <CardDescription>{activeTermLabel}</CardDescription>
                         </CardHeader>
+
                         <CardContent className="space-y-2">
+                            {/* ✅ CHANGED: Department Name instead of Department ID */}
                             <div className="text-sm text-muted-foreground">
-                                Department ID:{" "}
-                                <span className="font-medium text-foreground">{departmentId || "—"}</span>
+                                Department:{" "}
+                                <span className="font-medium text-foreground">
+                                    {departmentName || "—"}
+                                </span>
                             </div>
                         </CardContent>
                     </Card>
