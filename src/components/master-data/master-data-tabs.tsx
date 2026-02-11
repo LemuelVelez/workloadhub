@@ -71,7 +71,7 @@ export function MasterDataTabs({ vm }: Props) {
                         <div>
                             <CardTitle>Manage Records</CardTitle>
                             <CardDescription>
-                                Add, edit, and maintain Colleges, Programs, Subjects, Faculty Profiles, Sections, and List of Records.
+                                Add, edit, and maintain Colleges, Programs, Subjects, Faculty, Sections, and List of Records.
                             </CardDescription>
                         </div>
 
@@ -92,7 +92,7 @@ export function MasterDataTabs({ vm }: Props) {
                             <TabsTrigger value="colleges">Colleges</TabsTrigger>
                             <TabsTrigger value="programs">Programs/Courses</TabsTrigger>
                             <TabsTrigger value="subjects">Subjects</TabsTrigger>
-                            <TabsTrigger value="faculty">Faculty Profiles</TabsTrigger>
+                            <TabsTrigger value="faculty">Faculty</TabsTrigger>
                             <TabsTrigger value="sections">Sections</TabsTrigger>
                             <TabsTrigger value="records">List of Records</TabsTrigger>
                         </TabsList>
@@ -355,11 +355,11 @@ export function MasterDataTabs({ vm }: Props) {
                             )}
                         </TabsContent>
 
-                        {/* ---------------- FACULTY PROFILES ---------------- */}
+                        {/* ---------------- FACULTY ---------------- */}
                         <TabsContent value="faculty" className="space-y-4">
                             <div className="flex items-center justify-between gap-3">
                                 <div>
-                                    <div className="font-medium">Faculty Profiles</div>
+                                    <div className="font-medium">Faculty</div>
                                     <div className="text-sm text-muted-foreground">
                                         Faculty info, rank, and max load rules (if applicable).
                                     </div>
@@ -373,7 +373,7 @@ export function MasterDataTabs({ vm }: Props) {
                                     }}
                                 >
                                     <Plus className="mr-2 h-4 w-4" />
-                                    Add Faculty Profile
+                                    Add Faculty
                                 </Button>
                             </div>
 
@@ -384,7 +384,7 @@ export function MasterDataTabs({ vm }: Props) {
                                     <Skeleton className="h-10 w-full" />
                                 </div>
                             ) : vm.filteredFaculty.length === 0 ? (
-                                <div className="text-sm text-muted-foreground">No faculty profiles found.</div>
+                                <div className="text-sm text-muted-foreground">No faculty found.</div>
                             ) : (
                                 <div className="overflow-hidden rounded-md border">
                                     <Table>

@@ -91,7 +91,7 @@ export default function HowItWorks() {
                                     <ul className="space-y-2 text-sm text-muted-foreground">
                                         <li>• Admin Dashboard – overview of users, departments, active semester, system status</li>
                                         <li>• User Management – add/edit/deactivate accounts; assign roles</li>
-                                        <li>• Master Data – departments, programs/courses, subjects, faculty profiles</li>
+                                        <li>• Master Data – departments, programs/courses, subjects, faculty</li>
                                         <li>• Rooms & Facilities – rooms, capacity, types</li>
                                         <li>• Academic Term Setup – school year/semester, time blocks</li>
                                         <li>• System Rules/Policies – scheduling rules and limits</li>

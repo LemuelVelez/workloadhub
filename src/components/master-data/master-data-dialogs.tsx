@@ -239,7 +239,7 @@ export function MasterDataDialogs({ vm }: Props) {
             <Dialog open={vm.facultyOpen} onOpenChange={vm.setFacultyOpen}>
                 <DialogContent className={DIALOG_CONTENT_CLASS}>
                     <DialogHeader>
-                        <DialogTitle>{vm.facultyEditing ? "Edit Faculty Profile" : "Add Faculty Profile"}</DialogTitle>
+                        <DialogTitle>{vm.facultyEditing ? "Edit Faculty" : "Add Faculty"}</DialogTitle>
                         <DialogDescription>
                             Select a Faculty user from USER_PROFILES (role: FACULTY / CHAIR / DEAN) and store rank + optional max load.
                         </DialogDescription>

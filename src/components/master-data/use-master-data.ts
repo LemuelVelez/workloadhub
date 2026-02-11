@@ -516,23 +516,23 @@ export function useMasterDataManagement() {
         }
 
         if (!payload.userId || !payload.departmentId) {
-            toast.error("Faculty user and college are required for Faculty Profile.")
+            toast.error("Faculty user and college are required for Faculty.")
             return
         }
 
         try {
             if (facultyEditing) {
                 await databases.updateDocument(DATABASE_ID, COLLECTIONS.FACULTY_PROFILES, facultyEditing.$id, payload)
-                toast.success("Faculty profile updated.")
+                toast.success("Faculty updated.")
             } else {
                 await databases.createDocument(DATABASE_ID, COLLECTIONS.FACULTY_PROFILES, ID.unique(), payload)
-                toast.success("Faculty profile created.")
+                toast.success("Faculty created.")
             }
             setFacultyOpen(false)
             setFacultyEditing(null)
             await refreshAll()
         } catch (e: any) {
-            toast.error(e?.message || "Failed to save faculty profile.")
+            toast.error(e?.message || "Failed to save faculty.")
         }
     }
 
@@ -754,7 +754,7 @@ export function useMasterDataManagement() {
 
             if (deleteIntent.type === "faculty") {
                 await databases.deleteDocument(DATABASE_ID, COLLECTIONS.FACULTY_PROFILES, deleteIntent.doc.$id)
-                toast.success("Faculty profile deleted.")
+                toast.success("Faculty deleted.")
             }
 
             if (deleteIntent.type === "section") {
@@ -823,7 +823,7 @@ export function useMasterDataManagement() {
             { label: "Colleges", value: colleges.length },
             { label: "Programs/Courses", value: programs.length },
             { label: "Subjects", value: subjects.length },
-            { label: "Faculty Profiles", value: facultyProfiles.length },
+            { label: "Faculty", value: facultyProfiles.length },
             { label: "Sections", value: sections.length },
         ],
         [colleges.length, programs.length, subjects.length, facultyProfiles.length, sections.length]
@@ -931,7 +931,7 @@ export function useMasterDataManagement() {
                 : deleteIntent?.type === "subject"
                     ? "Delete Subject"
                     : deleteIntent?.type === "faculty"
-                        ? "Delete Faculty Profile"
+                        ? "Delete Faculty"
                         : deleteIntent?.type === "section"
                             ? "Delete Section"
                             : "Delete"
@@ -944,7 +944,7 @@ export function useMasterDataManagement() {
                 : deleteIntent?.type === "subject"
                     ? `This will permanently delete "${deleteIntent.doc.code} — ${deleteIntent.doc.title}".`
                     : deleteIntent?.type === "faculty"
-                        ? `This will permanently delete faculty profile for userId "${deleteIntent.doc.userId}".`
+                        ? `This will permanently delete faculty for userId "${deleteIntent.doc.userId}".`
                         : deleteIntent?.type === "section"
                             ? `This will permanently delete section "Y${deleteIntent.doc.yearLevel} ${deleteIntent.doc.name}".`
                             : "This action cannot be undone."

@@ -947,7 +947,7 @@ export default function FacultyWorkloadAssignmentPage() {
                                                 <div className="text-xs opacity-70">{unitProgress}% of limit</div>
                                             </div>
                                         ) : (
-                                            <div className="text-xs opacity-70">Set maxUnits in faculty profile to track progress.</div>
+                                            <div className="text-xs opacity-70">Set maxUnits in faculty to track progress.</div>
                                         )}
                                     </CardContent>
                                 </Card>
@@ -967,7 +967,7 @@ export default function FacultyWorkloadAssignmentPage() {
                                                 <div className="text-xs opacity-70">{hourProgress}% of limit</div>
                                             </div>
                                         ) : (
-                                            <div className="text-xs opacity-70">Set maxHours in faculty profile to track progress.</div>
+                                            <div className="text-xs opacity-70">Set maxHours in faculty to track progress.</div>
                                         )}
                                     </CardContent>
                                 </Card>

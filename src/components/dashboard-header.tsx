@@ -98,7 +98,7 @@ function typeLabel(t: SearchItemType) {
     if (t === "academic_term") return "Academic Terms"
     if (t === "time_block") return "Time Blocks"
     if (t === "user") return "Users"
-    if (t === "faculty") return "Faculty Profiles"
+    if (t === "faculty") return "Faculty"
     if (t === "section") return "Sections"
     if (t === "schedule_version") return "Schedule Versions"
     if (t === "class") return "Classes"
@@ -787,7 +787,7 @@ export default function DashboardHeader({
                 toItem: (d, ctx) => ({
                     type: "faculty",
                     id: d.$id,
-                    title: d.employeeNo ? `Faculty • ${d.employeeNo}` : "Faculty Profile",
+                    title: d.employeeNo ? `Faculty • ${d.employeeNo}` : "Faculty",
                     subtitle: d.rank ? `Rank: ${d.rank}` : undefined,
                     href: hrefForItem("faculty", d.$id, ctx.role),
                 }),

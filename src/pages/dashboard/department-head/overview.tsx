@@ -562,7 +562,7 @@ export default function DepartmentHeadOverviewPage() {
                                 title="Faculty Members"
                                 value={stats.totalFaculty}
                                 icon={Users}
-                                hint="Faculty profiles detected in your department."
+                                hint="Faculty detected in your department."
                             />
                             <StatCard
                                 title="Active Sections"
