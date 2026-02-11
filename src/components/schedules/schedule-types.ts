@@ -1,0 +1,182 @@
+export type ScheduleStatus = "Draft" | "Active" | "Locked" | "Archived" | (string & {})
+export type MeetingType = "LECTURE" | "LAB" | "OTHER" | (string & {})
+
+export type ScheduleVersionDoc = {
+    $id: string
+    $createdAt: string
+    $updatedAt: string
+    termId: string
+    departmentId: string
+    version: number
+    label?: string | null
+    status: ScheduleStatus
+    createdBy: string
+    lockedBy?: string | null
+    lockedAt?: string | null
+    notes?: string | null
+}
+
+export type DepartmentDoc = {
+    $id: string
+    name?: string | null
+    code?: string | null
+    isActive?: boolean
+}
+
+export type AcademicTermDoc = {
+    $id: string
+    schoolYear?: string | null
+    semester?: string | null
+    startDate?: string | null
+    endDate?: string | null
+    isActive?: boolean
+    isLocked?: boolean
+}
+
+export type SubjectDoc = {
+    $id: string
+    departmentId?: string | null
+    code?: string | null
+    title?: string | null
+    units?: number | null
+    isActive?: boolean
+}
+
+export type RoomDoc = {
+    $id: string
+    code?: string | null
+    name?: string | null
+    building?: string | null
+    floor?: string | null
+    capacity?: number | null
+    type?: string | null
+    isActive?: boolean
+}
+
+export type SectionDoc = {
+    $id: string
+    termId: string
+    departmentId: string
+    yearLevel?: number | null
+    name?: string | null
+    isActive?: boolean
+}
+
+export type UserProfileDoc = {
+    $id: string
+    userId?: string | null
+    email?: string | null
+    name?: string | null
+    role?: string | null
+    isActive?: boolean
+}
+
+export type ClassDoc = {
+    $id: string
+    versionId: string
+    termId: string
+    departmentId: string
+    programId?: string | null
+    sectionId: string
+    subjectId: string
+    facultyUserId?: string | null
+    classCode?: string | null
+    deliveryMode?: string | null
+    status?: string | null
+    remarks?: string | null
+}
+
+export type ClassMeetingDoc = {
+    $id: string
+    versionId: string
+    classId: string
+    dayOfWeek: string
+    startTime: string
+    endTime: string
+    roomId?: string | null
+    meetingType: MeetingType
+    notes?: string | null
+}
+
+export type TabKey = "all" | "Draft" | "Active" | "Locked" | "Archived"
+export type ConflictType = "room" | "faculty" | "section"
+
+export type ConflictFlags = {
+    room: boolean
+    faculty: boolean
+    section: boolean
+}
+
+export type ScheduleRow = {
+    meetingId: string
+    classId: string
+
+    versionId: string
+    termId: string
+    departmentId: string
+
+    dayOfWeek: string
+    startTime: string
+    endTime: string
+    meetingType: MeetingType
+
+    roomId: string
+    roomType: string
+    roomLabel: string
+
+    sectionId: string
+    sectionLabel: string
+
+    subjectId: string
+    subjectLabel: string
+    subjectUnits: number | null
+
+    facultyUserId: string
+    facultyName: string
+    manualFaculty: string
+    facultyKey: string
+    isManualFaculty: boolean
+
+    classCode: string
+    deliveryMode: string
+    classStatus: string
+    classRemarks: string
+}
+
+export type CandidateConflict = {
+    type: ConflictType
+    row: ScheduleRow
+}
+
+export type VersionStats = {
+    total: number
+    draft: number
+    active: number
+    locked: number
+    archived: number
+}
+
+export type PlannerStats = {
+    total: number
+    conflicts: number
+    labs: number
+}
+
+export type VersionSelectOption = {
+    value: string
+    label: string
+    meta: string
+}
+
+export const DAY_OPTIONS = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+] as const
+
+export const FACULTY_OPTION_NONE = "__none__"
+export const FACULTY_OPTION_MANUAL = "__manual__"

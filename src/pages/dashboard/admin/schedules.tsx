@@ -3,375 +3,52 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import {
-    AlertTriangle,
-    CalendarDays,
-    CheckCircle2,
-    Clock,
-    Eye,
-    FileLock2,
-    FlaskConical,
-    MoreHorizontal,
-    Pencil,
-    Plus,
-    RefreshCcw,
-    ShieldCheck,
-    ShieldX,
-    Trash2,
-    UserCircle2,
-} from "lucide-react"
+import { Plus, RefreshCcw } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
-import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+
+import { VersionManagementSection } from "@/components/schedules/version-management-section"
+import { PlannerManagementSection } from "@/components/schedules/planner-management-section"
+import type {
+    AcademicTermDoc,
+    CandidateConflict,
+    ClassDoc,
+    ClassMeetingDoc,
+    ConflictFlags,
+    DepartmentDoc,
+    MeetingType,
+    RoomDoc,
+    ScheduleRow,
+    ScheduleStatus,
+    ScheduleVersionDoc,
+    SectionDoc,
+    SubjectDoc,
+    TabKey,
+    UserProfileDoc,
+} from "@/components/schedules/schedule-types"
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card"
+    FACULTY_OPTION_MANUAL,
+    FACULTY_OPTION_NONE,
+} from "@/components/schedules/schedule-types"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
-
-type ScheduleStatus = "Draft" | "Active" | "Locked" | "Archived" | (string & {})
-type MeetingType = "LECTURE" | "LAB" | "OTHER" | (string & {})
-
-type ScheduleVersionDoc = {
-    $id: string
-    $createdAt: string
-    $updatedAt: string
-    termId: string
-    departmentId: string
-    version: number
-    label?: string | null
-    status: ScheduleStatus
-    createdBy: string
-    lockedBy?: string | null
-    lockedAt?: string | null
-    notes?: string | null
-}
-
-type DepartmentDoc = {
-    $id: string
-    name?: string | null
-    code?: string | null
-    isActive?: boolean
-}
-
-type AcademicTermDoc = {
-    $id: string
-    schoolYear?: string | null
-    semester?: string | null
-    startDate?: string | null
-    endDate?: string | null
-    isActive?: boolean
-    isLocked?: boolean
-}
-
-type SubjectDoc = {
-    $id: string
-    departmentId?: string | null
-    code?: string | null
-    title?: string | null
-    units?: number | null
-    isActive?: boolean
-}
-
-type RoomDoc = {
-    $id: string
-    code?: string | null
-    name?: string | null
-    building?: string | null
-    floor?: string | null
-    capacity?: number | null
-    type?: string | null
-    isActive?: boolean
-}
-
-type SectionDoc = {
-    $id: string
-    termId: string
-    departmentId: string
-    yearLevel?: number | null
-    name?: string | null
-    isActive?: boolean
-}
-
-type UserProfileDoc = {
-    $id: string
-    userId?: string | null
-    email?: string | null
-    name?: string | null
-    role?: string | null
-    isActive?: boolean
-}
-
-type ClassDoc = {
-    $id: string
-    versionId: string
-    termId: string
-    departmentId: string
-    programId?: string | null
-    sectionId: string
-    subjectId: string
-    facultyUserId?: string | null
-    classCode?: string | null
-    deliveryMode?: string | null
-    status?: string | null
-    remarks?: string | null
-}
-
-type ClassMeetingDoc = {
-    $id: string
-    versionId: string
-    classId: string
-    dayOfWeek: string
-    startTime: string
-    endTime: string
-    roomId?: string | null
-    meetingType: MeetingType
-    notes?: string | null
-}
-
-type TabKey = "all" | "Draft" | "Active" | "Locked" | "Archived"
-type ConflictType = "room" | "faculty" | "section"
-
-type ConflictFlags = {
-    room: boolean
-    faculty: boolean
-    section: boolean
-}
-
-type ScheduleRow = {
-    meetingId: string
-    classId: string
-
-    versionId: string
-    termId: string
-    departmentId: string
-
-    dayOfWeek: string
-    startTime: string
-    endTime: string
-    meetingType: MeetingType
-
-    roomId: string
-    roomType: string
-    roomLabel: string
-
-    sectionId: string
-    sectionLabel: string
-
-    subjectId: string
-    subjectLabel: string
-    subjectUnits: number | null
-
-    facultyUserId: string
-    facultyName: string
-    manualFaculty: string
-    facultyKey: string
-    isManualFaculty: boolean
-
-    classCode: string
-    deliveryMode: string
-    classStatus: string
-    classRemarks: string
-}
-
-type CandidateConflict = {
-    type: ConflictType
-    row: ScheduleRow
-}
-
-const DAY_OPTIONS = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-] as const
-
-const FACULTY_OPTION_NONE = "__none__"
-const FACULTY_OPTION_MANUAL = "__manual__"
-
-const MANUAL_FACULTY_TAG_REGEX = /\[\[manualFaculty:(.*?)\]\]/i
-const MANUAL_FACULTY_TAG_REMOVE_REGEX = /\s*\[\[manualFaculty:.*?\]\]\s*/gi
-
-function shortId(id: string) {
-    if (!id) return ""
-    return id.length <= 10 ? id : `${id.slice(0, 5)}…${id.slice(-4)}`
-}
-
-function fmtDate(iso?: string | null) {
-    if (!iso) return "—"
-    try {
-        const d = new Date(iso)
-        return new Intl.DateTimeFormat(undefined, {
-            year: "numeric",
-            month: "short",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-        }).format(d)
-    } catch {
-        return "—"
-    }
-}
-
-function statusBadgeVariant(status: string) {
-    const s = String(status || "").toLowerCase()
-    if (s === "active") return "default"
-    if (s === "locked") return "secondary"
-    if (s === "archived") return "outline"
-    return "outline" // Draft, unknown
-}
-
-function statusIcon(status: string) {
-    const s = String(status || "").toLowerCase()
-    if (s === "active") return ShieldCheck
-    if (s === "locked") return FileLock2
-    if (s === "archived") return ShieldX
-    return Clock
-}
-
-function termLabel(t?: AcademicTermDoc | null) {
-    if (!t) return "—"
-    const sy = (t.schoolYear || "").trim()
-    const sem = (t.semester || "").trim()
-    const base = [sy, sem].filter(Boolean).join(" • ")
-    const suffix = t.isActive ? " (Active)" : ""
-    return (base || t.$id) + suffix
-}
-
-function deptLabel(d?: DepartmentDoc | null) {
-    if (!d) return "—"
-    const code = (d.code || "").trim()
-    const name = (d.name || "").trim()
-    if (code && name) return `${code} • ${name}`
-    return name || code || d.$id
-}
-
-function normalizeText(v?: string | null) {
-    return String(v || "").trim().toLowerCase()
-}
-
-function hhmmToMinutes(v: string) {
-    const parts = String(v || "").split(":")
-    const hh = Number.parseInt(parts[0] || "0", 10)
-    const mm = Number.parseInt(parts[1] || "0", 10)
-    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return 0
-    return hh * 60 + mm
-}
-
-function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string) {
-    const aS = hhmmToMinutes(aStart)
-    const aE = hhmmToMinutes(aEnd)
-    const bS = hhmmToMinutes(bStart)
-    const bE = hhmmToMinutes(bEnd)
-    return Math.max(aS, bS) < Math.min(aE, bE)
-}
-
-function formatTimeRange(start: string, end: string) {
-    return `${start || "—"} - ${end || "—"}`
-}
-
-function extractManualFaculty(remarks?: string | null) {
-    const raw = String(remarks || "")
-    const match = raw.match(MANUAL_FACULTY_TAG_REGEX)
-    return String(match?.[1] || "").trim()
-}
-
-function stripManualFacultyTag(remarks?: string | null) {
-    return String(remarks || "").replace(MANUAL_FACULTY_TAG_REMOVE_REGEX, " ").replace(/\s{2,}/g, " ").trim()
-}
-
-function composeRemarks(baseRemarks: string, manualFaculty: string) {
-    const base = stripManualFacultyTag(baseRemarks)
-    const manual = String(manualFaculty || "").trim()
-    if (!manual) return base || null
-    const tag = `[[manualFaculty:${manual}]]`
-    return [base, tag].filter(Boolean).join(" ").trim()
-}
-
-function dayOrder(day: string) {
-    const idx = DAY_OPTIONS.findIndex((d) => d.toLowerCase() === String(day || "").toLowerCase())
-    return idx >= 0 ? idx : 999
-}
-
-function roleLooksLikeFaculty(role?: string | null) {
-    const r = String(role || "").toLowerCase()
-    return r === "faculty" || r === "instructor"
-}
-
-function roomTypeLabel(roomType: string) {
-    const t = String(roomType || "").toUpperCase()
-    if (t === "LAB") return "LAB"
-    if (t === "LECTURE") return "LECTURE"
-    return t || "OTHER"
-}
-
-function meetingTypeLabel(v: string) {
-    const t = String(v || "").toUpperCase()
-    if (t === "LAB") return "LAB"
-    if (t === "LECTURE") return "LECTURE"
-    return "OTHER"
-}
+    composeRemarks,
+    dayOrder,
+    deptLabel,
+    extractManualFaculty,
+    hhmmToMinutes,
+    meetingTypeLabel,
+    normalizeText,
+    rangesOverlap,
+    roleLooksLikeFaculty,
+    roomTypeLabel,
+    stripManualFacultyTag,
+    termLabel,
+} from "@/components/schedules/schedule-utils"
 
 export default function AdminSchedulesPage() {
     const { user } = useSession()
@@ -611,12 +288,7 @@ export default function AdminSchedulesPage() {
                 notes: createNotes.trim() || null,
             }
 
-            await databases.createDocument(
-                DATABASE_ID,
-                COLLECTIONS.SCHEDULE_VERSIONS,
-                ID.unique(),
-                payload
-            )
+            await databases.createDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, ID.unique(), payload)
 
             toast.success("Schedule version created")
             setCreateOpen(false)
@@ -650,12 +322,9 @@ export default function AdminSchedulesPage() {
 
                 for (const o of others) {
                     try {
-                        await databases.updateDocument(
-                            DATABASE_ID,
-                            COLLECTIONS.SCHEDULE_VERSIONS,
-                            o.$id,
-                            { status: "Draft" }
-                        )
+                        await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, o.$id, {
+                            status: "Draft",
+                        })
                     } catch {
                         // best effort
                     }
@@ -669,12 +338,7 @@ export default function AdminSchedulesPage() {
                 payload.lockedAt = new Date().toISOString()
             }
 
-            await databases.updateDocument(
-                DATABASE_ID,
-                COLLECTIONS.SCHEDULE_VERSIONS,
-                it.$id,
-                payload
-            )
+            await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, it.$id, payload)
 
             toast.success(`Schedule set to ${next}`)
             setViewOpen(false)
@@ -717,12 +381,8 @@ export default function AdminSchedulesPage() {
                     Query.equal("versionId", selectedVersion.$id),
                     Query.limit(5000),
                 ]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.SUBJECTS, [
-                    Query.limit(5000),
-                ]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.ROOMS, [
-                    Query.limit(2000),
-                ]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.SUBJECTS, [Query.limit(5000)]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.ROOMS, [Query.limit(2000)]),
                 databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [
                     Query.equal("termId", selectedVersion.termId),
                     Query.equal("departmentId", selectedVersion.departmentId),
@@ -898,7 +558,7 @@ export default function AdminSchedulesPage() {
             })
         }
 
-        const mark = (id: string, type: ConflictType) => {
+        const mark = (id: string, type: "room" | "faculty" | "section") => {
             const current = map.get(id)
             if (!current) return
             current[type] = true
@@ -1119,8 +779,7 @@ export default function AdminSchedulesPage() {
 
         setEntrySaving(true)
         try {
-            const manualFaculty =
-                formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
+            const manualFaculty = formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
             const facultyUserId =
                 formFacultyChoice === FACULTY_OPTION_NONE || formFacultyChoice === FACULTY_OPTION_MANUAL
                     ? null
@@ -1140,27 +799,17 @@ export default function AdminSchedulesPage() {
             }
 
             if (editingRow) {
-                await databases.updateDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASSES,
-                    editingRow.classId,
-                    classPayload
-                )
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASSES, editingRow.classId, classPayload)
 
-                await databases.updateDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASS_MEETINGS,
-                    editingRow.meetingId,
-                    {
-                        versionId: selectedVersion.$id,
-                        classId: editingRow.classId,
-                        dayOfWeek: formDayOfWeek,
-                        startTime: formStartTime,
-                        endTime: formEndTime,
-                        roomId: formRoomId || null,
-                        meetingType: formMeetingType,
-                    }
-                )
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, editingRow.meetingId, {
+                    versionId: selectedVersion.$id,
+                    classId: editingRow.classId,
+                    dayOfWeek: formDayOfWeek,
+                    startTime: formStartTime,
+                    endTime: formEndTime,
+                    roomId: formRoomId || null,
+                    meetingType: formMeetingType,
+                })
 
                 toast.success("Schedule entry updated.")
             } else {
@@ -1171,20 +820,15 @@ export default function AdminSchedulesPage() {
                     classPayload
                 )
 
-                await databases.createDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASS_MEETINGS,
-                    ID.unique(),
-                    {
-                        versionId: selectedVersion.$id,
-                        classId: createdClass.$id,
-                        dayOfWeek: formDayOfWeek,
-                        startTime: formStartTime,
-                        endTime: formEndTime,
-                        roomId: formRoomId || null,
-                        meetingType: formMeetingType,
-                    }
-                )
+                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                    versionId: selectedVersion.$id,
+                    classId: createdClass.$id,
+                    dayOfWeek: formDayOfWeek,
+                    startTime: formStartTime,
+                    endTime: formEndTime,
+                    roomId: formRoomId || null,
+                    meetingType: formMeetingType,
+                })
 
                 toast.success("Schedule entry created.")
             }
@@ -1204,11 +848,7 @@ export default function AdminSchedulesPage() {
 
         setDeleting(true)
         try {
-            await databases.deleteDocument(
-                DATABASE_ID,
-                COLLECTIONS.CLASS_MEETINGS,
-                deleteTarget.meetingId
-            )
+            await databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, deleteTarget.meetingId)
 
             const remainRes = await databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, [
                 Query.equal("classId", deleteTarget.classId),
@@ -1217,11 +857,7 @@ export default function AdminSchedulesPage() {
 
             const remain = (remainRes?.documents ?? []) as ClassMeetingDoc[]
             if (remain.length === 0) {
-                await databases.deleteDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASSES,
-                    deleteTarget.classId
-                )
+                await databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASSES, deleteTarget.classId)
             }
 
             toast.success("Schedule entry deleted.")
@@ -1232,32 +868,6 @@ export default function AdminSchedulesPage() {
         } finally {
             setDeleting(false)
         }
-    }
-
-    const renderConflictBadges = (flags?: ConflictFlags) => {
-        if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
-            return <Badge variant="outline">No Conflict</Badge>
-        }
-
-        return (
-            <div className="flex flex-wrap items-center gap-1">
-                {flags.room ? (
-                    <Badge variant="destructive" className="rounded-lg">
-                        Room
-                    </Badge>
-                ) : null}
-                {flags.faculty ? (
-                    <Badge variant="destructive" className="rounded-lg">
-                        Faculty
-                    </Badge>
-                ) : null}
-                {flags.section ? (
-                    <Badge variant="destructive" className="rounded-lg">
-                        Section
-                    </Badge>
-                ) : null}
-            </div>
-        )
     }
 
     const plannerStats = React.useMemo(() => {
@@ -1288,23 +898,31 @@ export default function AdminSchedulesPage() {
             })
     }, [versions, termMap, deptMap])
 
+    const selectedVersionLabel = React.useMemo(() => {
+        if (!selectedVersion) return "—"
+        return `v${Number(selectedVersion.version || 0)} • ${selectedVersion.label || "Untitled"} (${String(
+            selectedVersion.status
+        )})`
+    }, [selectedVersion])
+
+    const selectedTermLabel = React.useMemo(() => {
+        if (!selectedVersion) return "—"
+        return termLabel(termMap.get(String(selectedVersion.termId)) ?? null)
+    }, [selectedVersion, termMap])
+
+    const selectedDeptLabel = React.useMemo(() => {
+        if (!selectedVersion) return "—"
+        return deptLabel(deptMap.get(String(selectedVersion.departmentId)) ?? null)
+    }, [selectedVersion, deptMap])
+
     const HeaderActions = (
         <div className="flex items-center gap-2">
-            <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void fetchAll()}
-                disabled={loading || saving}
-            >
+            <Button variant="outline" size="sm" onClick={() => void fetchAll()} disabled={loading || saving}>
                 <RefreshCcw className="mr-2 size-4" />
                 Refresh
             </Button>
 
-            <Button
-                size="sm"
-                onClick={() => setCreateOpen(true)}
-                disabled={loading || saving}
-            >
+            <Button size="sm" onClick={() => setCreateOpen(true)} disabled={loading || saving}>
                 <Plus className="mr-2 size-4" />
                 New Version
             </Button>
@@ -1318,1248 +936,114 @@ export default function AdminSchedulesPage() {
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">
-                {/* Version Stats */}
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-                    <Card className="rounded-2xl">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-medium">Total</CardTitle>
-                            <CardDescription>All versions</CardDescription>
-                        </CardHeader>
-                        <CardContent className="text-2xl font-semibold">{stats.total}</CardContent>
-                    </Card>
-
-                    <Card className="rounded-2xl">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-medium">Draft</CardTitle>
-                            <CardDescription>In progress</CardDescription>
-                        </CardHeader>
-                        <CardContent className="text-2xl font-semibold">{stats.draft}</CardContent>
-                    </Card>
-
-                    <Card className="rounded-2xl">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-medium">Active</CardTitle>
-                            <CardDescription>Current run</CardDescription>
-                        </CardHeader>
-                        <CardContent className="text-2xl font-semibold">{stats.active}</CardContent>
-                    </Card>
-
-                    <Card className="rounded-2xl">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-medium">Locked</CardTitle>
-                            <CardDescription>No edits</CardDescription>
-                        </CardHeader>
-                        <CardContent className="text-2xl font-semibold">{stats.locked}</CardContent>
-                    </Card>
-
-                    <Card className="rounded-2xl">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-medium">Archived</CardTitle>
-                            <CardDescription>Historical</CardDescription>
-                        </CardHeader>
-                        <CardContent className="text-2xl font-semibold">{stats.archived}</CardContent>
-                    </Card>
-                </div>
-
-                {/* Version List */}
-                <Card className="rounded-2xl">
-                    <CardHeader className="pb-4">
-                        <CardTitle>Schedule Versions</CardTitle>
-                        <CardDescription>
-                            Filter by term/college, search, and manage version status.
-                        </CardDescription>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                            <Tabs
-                                value={tab}
-                                onValueChange={(v) => setTab(v as TabKey)}
-                                className="w-full lg:w-auto"
-                            >
-                                <TabsList className="grid w-full grid-cols-5 lg:w-auto">
-                                    <TabsTrigger value="all">All</TabsTrigger>
-                                    <TabsTrigger value="Draft">Draft</TabsTrigger>
-                                    <TabsTrigger value="Active">Active</TabsTrigger>
-                                    <TabsTrigger value="Locked">Locked</TabsTrigger>
-                                    <TabsTrigger value="Archived">Archived</TabsTrigger>
-                                </TabsList>
-                            </Tabs>
-
-                            <div className="w-full lg:max-w-xl">
-                                <Label className="sr-only" htmlFor="search">
-                                    Search
-                                </Label>
-                                <Input
-                                    id="search"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Search by label, status, termId, departmentId..."
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                            <div className="space-y-1">
-                                <Label>Academic Term</Label>
-                                <Select value={filterTermId} onValueChange={setFilterTermId}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="All terms" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All terms</SelectItem>
-                                        {terms.map((t) => (
-                                            <SelectItem key={t.$id} value={t.$id}>
-                                                {termLabel(t)}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="space-y-1">
-                                <Label>College</Label>
-                                <Select value={filterDeptId} onValueChange={setFilterDeptId}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="All colleges" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All colleges</SelectItem>
-                                        {departments.map((d) => (
-                                            <SelectItem key={d.$id} value={d.$id}>
-                                                {deptLabel(d)}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="flex items-end gap-2">
-                                <Button
-                                    variant="outline"
-                                    className="rounded-xl"
-                                    onClick={() => {
-                                        setTab("all")
-                                        setSearch("")
-                                        setFilterTermId("all")
-                                        setFilterDeptId("all")
-                                    }}
-                                    disabled={loading || saving}
-                                >
-                                    Reset Filters
-                                </Button>
-                            </div>
-                        </div>
-
-                        <Separator />
-
-                        {loading ? (
-                            <div className="space-y-3">
-                                <Skeleton className="h-10 w-full" />
-                                <Skeleton className="h-10 w-full" />
-                                <Skeleton className="h-10 w-5/6" />
-                            </div>
-                        ) : error ? (
-                            <Alert variant="destructive">
-                                <AlertTitle>Error</AlertTitle>
-                                <AlertDescription>{error}</AlertDescription>
-                            </Alert>
-                        ) : filtered.length === 0 ? (
-                            <div className="rounded-xl border border-dashed p-8 text-center">
-                                <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
-                                    <CalendarDays className="size-5" />
-                                </div>
-                                <div className="mt-3 font-medium">No schedule versions found</div>
-                                <div className="text-sm text-muted-foreground">
-                                    Try adjusting filters or creating a new version.
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="overflow-hidden rounded-xl border">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Version</TableHead>
-                                            <TableHead>Label</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead>Term</TableHead>
-                                            <TableHead>College</TableHead>
-                                            <TableHead className="text-right">Created</TableHead>
-                                            <TableHead className="text-right">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-
-                                    <TableBody>
-                                        {filtered.map((it) => {
-                                            const Icon = statusIcon(String(it.status))
-                                            const term = termMap.get(String(it.termId)) ?? null
-                                            const dept = deptMap.get(String(it.departmentId)) ?? null
-                                            const isSelected = it.$id === selectedVersionId
-
-                                            return (
-                                                <TableRow key={it.$id} className="align-top">
-                                                    <TableCell className="font-medium">
-                                                        <div className="flex items-center gap-2">
-                                                            <Icon className="size-4 text-muted-foreground" />
-                                                            <span className="truncate">
-                                                                v{Number(it.version || 0)}
-                                                            </span>
-                                                            {isSelected ? (
-                                                                <Badge variant="secondary" className="rounded-lg">
-                                                                    Selected
-                                                                </Badge>
-                                                            ) : null}
-                                                        </div>
-                                                        <div className="mt-1 max-w-md truncate text-xs text-muted-foreground">
-                                                            {shortId(it.$id)}
-                                                        </div>
-                                                    </TableCell>
-
-                                                    <TableCell className="text-sm">
-                                                        <div className="max-w-md truncate font-medium">
-                                                            {it.label || "—"}
-                                                        </div>
-                                                        {it.notes ? (
-                                                            <div className="mt-1 max-w-md truncate text-xs text-muted-foreground">
-                                                                {it.notes}
-                                                            </div>
-                                                        ) : null}
-                                                    </TableCell>
-
-                                                    <TableCell>
-                                                        <Badge variant={statusBadgeVariant(String(it.status))}>
-                                                            {String(it.status)}
-                                                        </Badge>
-                                                    </TableCell>
-
-                                                    <TableCell className="text-sm">
-                                                        {term ? termLabel(term) : it.termId}
-                                                    </TableCell>
-
-                                                    <TableCell className="text-sm">
-                                                        {dept ? deptLabel(dept) : it.departmentId}
-                                                    </TableCell>
-
-                                                    <TableCell className="text-right text-sm">
-                                                        {fmtDate(it.$createdAt)}
-                                                    </TableCell>
-
-                                                    <TableCell className="text-right">
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="rounded-xl"
-                                                                >
-                                                                    <MoreHorizontal className="size-4" />
-                                                                </Button>
-                                                            </DropdownMenuTrigger>
-
-                                                            <DropdownMenuContent align="end" className="w-60">
-                                                                <DropdownMenuLabel>Options</DropdownMenuLabel>
-                                                                <DropdownMenuSeparator />
-
-                                                                <DropdownMenuItem
-                                                                    onClick={() => setSelectedVersionId(it.$id)}
-                                                                >
-                                                                    <CalendarDays className="mr-2 size-4" />
-                                                                    Use in planner
-                                                                </DropdownMenuItem>
-
-                                                                <DropdownMenuItem onClick={() => openView(it)}>
-                                                                    <Eye className="mr-2 size-4" />
-                                                                    View details
-                                                                </DropdownMenuItem>
-
-                                                                <DropdownMenuSeparator />
-
-                                                                <DropdownMenuItem
-                                                                    onClick={() => void setStatus(it, "Active")}
-                                                                    disabled={saving || String(it.status) === "Active"}
-                                                                >
-                                                                    <ShieldCheck className="mr-2 size-4" />
-                                                                    Set Active
-                                                                </DropdownMenuItem>
-
-                                                                <DropdownMenuItem
-                                                                    onClick={() => void setStatus(it, "Locked")}
-                                                                    disabled={saving || String(it.status) === "Locked"}
-                                                                >
-                                                                    <FileLock2 className="mr-2 size-4" />
-                                                                    Lock
-                                                                </DropdownMenuItem>
-
-                                                                <DropdownMenuItem
-                                                                    onClick={() => void setStatus(it, "Archived")}
-                                                                    disabled={saving || String(it.status) === "Archived"}
-                                                                >
-                                                                    <ShieldX className="mr-2 size-4" />
-                                                                    Archive
-                                                                </DropdownMenuItem>
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    </TableCell>
-                                                </TableRow>
-                                            )
-                                        })}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Schedule Planner / Conflict Manager */}
-                <Card className="rounded-2xl">
-                    <CardHeader className="pb-4">
-                        <CardTitle>Schedule Planner & Conflict Manager</CardTitle>
-                        <CardDescription>
-                            Assign subject, faculty (dropdown or manual), and room (dropdown). Detect room/faculty/section conflicts in real time.
-                        </CardDescription>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                        {/* FIXED: responsive layout + min-w-0 wrappers to prevent horizontal overflow */}
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-12">
-                            <div className="space-y-1 min-w-0 md:col-span-2 xl:col-span-6">
-                                <Label>Schedule Version</Label>
-                                <Select
-                                    value={selectedVersionId || "__none__"}
-                                    onValueChange={(v) => setSelectedVersionId(v === "__none__" ? "" : v)}
-                                >
-                                    <SelectTrigger className="w-full rounded-xl">
-                                        <SelectValue placeholder="Select version for schedule planning" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {versionSelectOptions.length === 0 ? (
-                                            <SelectItem value="__none__">No versions available</SelectItem>
-                                        ) : (
-                                            versionSelectOptions.map((opt) => (
-                                                <SelectItem key={opt.value} value={opt.value}>
-                                                    {opt.label} • {opt.meta}
-                                                </SelectItem>
-                                            ))
-                                        )}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="space-y-1 min-w-0 xl:col-span-3">
-                                <Label>Conflict Filter</Label>
-                                <div className="flex h-10 min-w-0 items-center gap-2 rounded-xl border px-3">
-                                    <Checkbox
-                                        id="showConflictsOnly"
-                                        checked={showConflictsOnly}
-                                        onCheckedChange={(v) => setShowConflictsOnly(Boolean(v))}
-                                    />
-                                    <Label
-                                        htmlFor="showConflictsOnly"
-                                        className="cursor-pointer truncate text-sm leading-none"
-                                    >
-                                        Show conflicts only
-                                    </Label>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-wrap items-end justify-start gap-2 md:justify-end xl:col-span-3">
-                                <Button
-                                    variant="outline"
-                                    className="w-full rounded-xl sm:w-auto"
-                                    onClick={() => void fetchScheduleContext()}
-                                    disabled={!selectedVersion || entriesLoading || entrySaving}
-                                >
-                                    <RefreshCcw className="mr-2 size-4" />
-                                    Reload Entries
-                                </Button>
-                                <Button
-                                    className="w-full rounded-xl sm:w-auto"
-                                    onClick={openCreateEntry}
-                                    disabled={!selectedVersion || entriesLoading || entrySaving}
-                                >
-                                    <Plus className="mr-2 size-4" />
-                                    New Entry
-                                </Button>
-                            </div>
-                        </div>
-
-                        {selectedVersion ? (
-                            <div className="grid gap-4 md:grid-cols-3">
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium">Total Entries</CardTitle>
-                                        <CardDescription>All class meetings</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="text-2xl font-semibold">
-                                        {plannerStats.total}
-                                    </CardContent>
-                                </Card>
-
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium">Conflicts</CardTitle>
-                                        <CardDescription>Room / Faculty / Section</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="text-2xl font-semibold">
-                                        {plannerStats.conflicts}
-                                    </CardContent>
-                                </Card>
-
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium">Laboratory Entries</CardTitle>
-                                        <CardDescription>LAB meeting or LAB room</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="text-2xl font-semibold">
-                                        {plannerStats.labs}
-                                    </CardContent>
-                                </Card>
-                            </div>
-                        ) : null}
-
-                        <Separator />
-
-                        {!selectedVersion ? (
-                            <div className="rounded-xl border border-dashed p-8 text-center">
-                                <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
-                                    <CalendarDays className="size-5" />
-                                </div>
-                                <div className="mt-3 font-medium">Select a schedule version</div>
-                                <div className="text-sm text-muted-foreground">
-                                    Choose a version above to manage schedule entries and conflict detection.
-                                </div>
-                            </div>
-                        ) : entriesLoading ? (
-                            <div className="space-y-3">
-                                <Skeleton className="h-10 w-full" />
-                                <Skeleton className="h-10 w-full" />
-                                <Skeleton className="h-10 w-5/6" />
-                            </div>
-                        ) : entriesError ? (
-                            <Alert variant="destructive">
-                                <AlertTitle>Error</AlertTitle>
-                                <AlertDescription>{entriesError}</AlertDescription>
-                            </Alert>
-                        ) : visibleRows.length === 0 ? (
-                            <div className="rounded-xl border border-dashed p-8 text-center">
-                                <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
-                                    <CalendarDays className="size-5" />
-                                </div>
-                                <div className="mt-3 font-medium">No schedule entries found</div>
-                                <div className="text-sm text-muted-foreground">
-                                    {showConflictsOnly
-                                        ? "No conflicts detected for this version."
-                                        : "Create your first schedule entry to begin."}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="overflow-hidden rounded-xl border">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Day</TableHead>
-                                            <TableHead>Time</TableHead>
-                                            <TableHead>Subject</TableHead>
-                                            <TableHead>Section</TableHead>
-                                            <TableHead>Faculty</TableHead>
-                                            <TableHead>Room</TableHead>
-                                            <TableHead>Type</TableHead>
-                                            <TableHead>Conflicts</TableHead>
-                                            <TableHead className="text-right">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {visibleRows.map((row) => {
-                                            const flags = conflictFlagsByMeetingId.get(row.meetingId)
-
-                                            return (
-                                                <TableRow key={row.meetingId}>
-                                                    <TableCell className="font-medium">
-                                                        {row.dayOfWeek || "—"}
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        {formatTimeRange(row.startTime, row.endTime)}
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        <div className="font-medium">{row.subjectLabel}</div>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Units: {row.subjectUnits ?? "—"}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">{row.sectionLabel}</TableCell>
-                                                    <TableCell className="text-sm">
-                                                        <div className="flex items-center gap-2">
-                                                            <UserCircle2 className="size-4 text-muted-foreground" />
-                                                            <span>{row.facultyName}</span>
-                                                            {row.isManualFaculty ? (
-                                                                <Badge variant="secondary" className="rounded-lg">
-                                                                    Manual
-                                                                </Badge>
-                                                            ) : null}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        <div className="font-medium">{row.roomLabel}</div>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            {roomTypeLabel(row.roomType)}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="outline" className="rounded-lg">
-                                                            {meetingTypeLabel(row.meetingType)}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>{renderConflictBadges(flags)}</TableCell>
-                                                    <TableCell className="text-right">
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="rounded-xl"
-                                                                >
-                                                                    <MoreHorizontal className="size-4" />
-                                                                </Button>
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent align="end" className="w-56">
-                                                                <DropdownMenuLabel>Entry Actions</DropdownMenuLabel>
-                                                                <DropdownMenuSeparator />
-                                                                <DropdownMenuItem onClick={() => openEditEntry(row)}>
-                                                                    <Pencil className="mr-2 size-4" />
-                                                                    Edit entry
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuItem
-                                                                    onClick={() => setDeleteTarget(row)}
-                                                                    className="text-destructive"
-                                                                >
-                                                                    <Trash2 className="mr-2 size-4" />
-                                                                    Delete entry
-                                                                </DropdownMenuItem>
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    </TableCell>
-                                                </TableRow>
-                                            )
-                                        })}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Laboratory assignment visibility */}
-                <Card className="rounded-2xl">
-                    <CardHeader className="pb-4">
-                        <CardTitle className="flex items-center gap-2">
-                            <FlaskConical className="size-5" />
-                            Laboratory Assignments
-                        </CardTitle>
-                        <CardDescription>
-                            View who is assigned in laboratories and their scheduled time.
-                        </CardDescription>
-                    </CardHeader>
-
-                    <CardContent>
-                        {!selectedVersion ? (
-                            <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                                Select a schedule version to view laboratory assignments.
-                            </div>
-                        ) : entriesLoading ? (
-                            <div className="space-y-3">
-                                <Skeleton className="h-10 w-full" />
-                                <Skeleton className="h-10 w-5/6" />
-                            </div>
-                        ) : laboratoryRows.length === 0 ? (
-                            <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                                No laboratory assignments found for this version.
-                            </div>
-                        ) : (
-                            <div className="overflow-hidden rounded-xl border">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Laboratory Room</TableHead>
-                                            <TableHead>Day</TableHead>
-                                            <TableHead>Time</TableHead>
-                                            <TableHead>Assigned Faculty</TableHead>
-                                            <TableHead>Subject</TableHead>
-                                            <TableHead>Section</TableHead>
-                                            <TableHead>Conflicts</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {laboratoryRows.map((row) => {
-                                            const flags = conflictFlagsByMeetingId.get(row.meetingId)
-                                            return (
-                                                <TableRow key={`lab-${row.meetingId}`}>
-                                                    <TableCell className="font-medium">
-                                                        {row.roomLabel}
-                                                    </TableCell>
-                                                    <TableCell>{row.dayOfWeek}</TableCell>
-                                                    <TableCell>
-                                                        {formatTimeRange(row.startTime, row.endTime)}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex items-center gap-2">
-                                                            <UserCircle2 className="size-4 text-muted-foreground" />
-                                                            <span>{row.facultyName}</span>
-                                                            {row.isManualFaculty ? (
-                                                                <Badge variant="secondary" className="rounded-lg">
-                                                                    Manual
-                                                                </Badge>
-                                                            ) : null}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell>{row.subjectLabel}</TableCell>
-                                                    <TableCell>{row.sectionLabel}</TableCell>
-                                                    <TableCell>{renderConflictBadges(flags)}</TableCell>
-                                                </TableRow>
-                                            )
-                                        })}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* View Version Dialog */}
-                <Dialog
-                    open={viewOpen}
-                    onOpenChange={(v) => {
-                        if (!v) setActive(null)
-                        setViewOpen(v)
-                    }}
-                >
-                    <DialogContent className="sm:max-w-2xl">
-                        <DialogHeader>
-                            <DialogTitle>Schedule Version</DialogTitle>
-                            <DialogDescription>
-                                Review schedule version information and manage status.
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        {!active ? (
-                            <div className="space-y-3">
-                                <Skeleton className="h-6 w-1/3" />
-                                <Skeleton className="h-24 w-full" />
-                                <Skeleton className="h-10 w-full" />
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <Card className="rounded-2xl">
-                                        <CardHeader className="pb-3">
-                                            <CardTitle className="text-sm">Version</CardTitle>
-                                            <CardDescription>Schedule version number</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="text-2xl font-semibold">
-                                            v{Number(active.version || 0)}
-                                        </CardContent>
-                                        <CardFooter className="pt-0 text-xs text-muted-foreground">
-                                            {shortId(active.$id)}
-                                        </CardFooter>
-                                    </Card>
-
-                                    <Card className="rounded-2xl">
-                                        <CardHeader className="pb-3">
-                                            <CardTitle className="text-sm">Status</CardTitle>
-                                            <CardDescription>Current state</CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <Badge variant={statusBadgeVariant(String(active.status))}>
-                                                {String(active.status)}
-                                            </Badge>
-                                        </CardContent>
-                                        <CardFooter className="pt-0 text-xs text-muted-foreground">
-                                            Updated: {fmtDate(active.$updatedAt)}
-                                        </CardFooter>
-                                    </Card>
-                                </div>
-
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Metadata</CardTitle>
-                                        <CardDescription>Term + College</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-2 text-sm">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Label</span>
-                                            <span className="font-medium">{active.label || "—"}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Term</span>
-                                            <span className="font-medium">
-                                                {termLabel(termMap.get(String(active.termId)) ?? null)}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">College</span>
-                                            <span className="font-medium">
-                                                {deptLabel(deptMap.get(String(active.departmentId)) ?? null)}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Created</span>
-                                            <span className="font-medium">{fmtDate(active.$createdAt)}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Created By</span>
-                                            <span className="font-medium">{active.createdBy || "—"}</span>
-                                        </div>
-
-                                        <Separator />
-
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Locked By</span>
-                                            <span className="font-medium">{active.lockedBy || "—"}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">Locked At</span>
-                                            <span className="font-medium">{fmtDate(active.lockedAt)}</span>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                {active.notes ? (
-                                    <Card className="rounded-2xl">
-                                        <CardHeader className="pb-3">
-                                            <CardTitle className="text-sm">Notes</CardTitle>
-                                            <CardDescription>Admin notes</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="text-sm leading-relaxed">
-                                            {active.notes}
-                                        </CardContent>
-                                    </Card>
-                                ) : null}
-
-                                {String(active.status) === "Locked" ? (
-                                    <Alert>
-                                        <AlertTitle>Locked schedule</AlertTitle>
-                                        <AlertDescription>
-                                            This version is locked. You can still archive it, or set a different
-                                            version as active.
-                                        </AlertDescription>
-                                    </Alert>
-                                ) : null}
-                            </div>
-                        )}
-
-                        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setViewOpen(false)}
-                                disabled={saving}
-                            >
-                                Close
-                            </Button>
-
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    disabled={!active || saving || String(active?.status) === "Active"}
-                                    onClick={() => active && void setStatus(active, "Active")}
-                                >
-                                    <CheckCircle2 className="mr-2 size-4" />
-                                    Set Active
-                                </Button>
-
-                                <Button
-                                    type="button"
-                                    variant="secondary"
-                                    disabled={!active || saving || String(active?.status) === "Locked"}
-                                    onClick={() => active && void setStatus(active, "Locked")}
-                                >
-                                    <FileLock2 className="mr-2 size-4" />
-                                    Lock
-                                </Button>
-
-                                <Button
-                                    type="button"
-                                    variant="destructive"
-                                    disabled={!active || saving || String(active?.status) === "Archived"}
-                                    onClick={() => active && void setStatus(active, "Archived")}
-                                >
-                                    <ShieldX className="mr-2 size-4" />
-                                    Archive
-                                </Button>
-                            </div>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Create Version Dialog */}
-                <Dialog
-                    open={createOpen}
-                    onOpenChange={(v) => {
-                        if (!v) resetCreateForm()
-                        setCreateOpen(v)
-                    }}
-                >
-                    <DialogContent className="sm:max-w-2xl">
-                        <DialogHeader>
-                            <DialogTitle>Create Schedule Version</DialogTitle>
-                            <DialogDescription>
-                                Create a new schedule version for a specific term and college.
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        <div className="space-y-4">
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <div className="space-y-1">
-                                    <Label>Academic Term</Label>
-                                    <Select value={createTermId} onValueChange={setCreateTermId}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select term" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {terms.map((t) => (
-                                                <SelectItem key={t.$id} value={t.$id}>
-                                                    {termLabel(t)}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>College</Label>
-                                    <Select value={createDeptId} onValueChange={setCreateDeptId}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select college" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {departments.map((d) => (
-                                                <SelectItem key={d.$id} value={d.$id}>
-                                                    {deptLabel(d)}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <div className="space-y-1">
-                                    <Label>Label</Label>
-                                    <Input
-                                        value={createLabel}
-                                        onChange={(e) => setCreateLabel(e.target.value)}
-                                        placeholder={`Version ${nextVersionNumber}`}
-                                    />
-                                    <div className="text-xs text-muted-foreground">
-                                        If empty, it will default to{" "}
-                                        <span className="font-medium">Version {nextVersionNumber}</span>.
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>Version Number</Label>
-                                    <Input value={`v${nextVersionNumber}`} disabled />
-                                    <div className="text-xs text-muted-foreground">
-                                        Auto-calculated from existing versions.
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="space-y-1">
-                                <Label>Notes (optional)</Label>
-                                <Textarea
-                                    value={createNotes}
-                                    onChange={(e) => setCreateNotes(e.target.value)}
-                                    placeholder="Add notes about what changed in this version..."
-                                    className="min-h-24"
-                                />
-                            </div>
-
-                            <div className="flex items-center gap-3 rounded-xl border p-3">
-                                <Checkbox
-                                    id="setActive"
-                                    checked={createSetActive}
-                                    onCheckedChange={(v) => setCreateSetActive(Boolean(v))}
-                                />
-                                <Label htmlFor="setActive" className="cursor-pointer">
-                                    Set this version as <span className="font-medium">Active</span> after creating
-                                </Label>
-                            </div>
-                        </div>
-
-                        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setCreateOpen(false)}
-                                disabled={saving}
-                            >
-                                Cancel
-                            </Button>
-
-                            <Button
-                                type="button"
-                                onClick={() => void createVersion()}
-                                disabled={saving || !createTermId || !createDeptId}
-                                className={cn(saving && "opacity-90")}
-                            >
-                                {saving ? (
-                                    <>
-                                        <RefreshCcw className="mr-2 size-4 animate-spin" />
-                                        Saving...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Plus className="mr-2 size-4" />
-                                        Create Version
-                                    </>
-                                )}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Entry create/edit dialog */}
-                <Dialog
-                    open={entryDialogOpen}
-                    onOpenChange={(v) => {
-                        setEntryDialogOpen(v)
-                        if (!v) {
-                            setEditingRow(null)
-                            setFormAllowConflictSave(false)
-                        }
-                    }}
-                >
-                    <DialogContent className="sm:max-w-4xl">
-                        <DialogHeader>
-                            <DialogTitle>
-                                {editingRow ? "Edit Schedule Entry" : "Create Schedule Entry"}
-                            </DialogTitle>
-                            <DialogDescription>
-                                Use dropdowns for section, subject, faculty, and room. Optional manual faculty entry is supported.
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        <div className="space-y-4">
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <div className="space-y-1">
-                                    <Label>Section</Label>
-                                    <Select value={formSectionId} onValueChange={setFormSectionId}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select section" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {sections.map((s) => {
-                                                const name = String(s.name || "").trim() || s.$id
-                                                const y = Number(s.yearLevel || 0)
-                                                return (
-                                                    <SelectItem key={s.$id} value={s.$id}>
-                                                        Y{y || "?"} - {name}
-                                                    </SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>Subject</Label>
-                                    <Select value={formSubjectId} onValueChange={setFormSubjectId}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select subject" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {subjects.map((s) => {
-                                                const code = String(s.code || "").trim()
-                                                const title = String(s.title || "").trim()
-                                                const units = s.units != null ? ` (${s.units}u)` : ""
-                                                const label = [code, title].filter(Boolean).join(" • ") || s.$id
-                                                return (
-                                                    <SelectItem key={s.$id} value={s.$id}>
-                                                        {label}
-                                                        {units}
-                                                    </SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <div className="space-y-1">
-                                    <Label>Faculty / Instructor</Label>
-                                    <Select value={formFacultyChoice} onValueChange={setFormFacultyChoice}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select faculty" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value={FACULTY_OPTION_NONE}>Unassigned</SelectItem>
-                                            <SelectItem value={FACULTY_OPTION_MANUAL}>Manual encode faculty</SelectItem>
-                                            {facultyProfiles.map((f) => {
-                                                const key = String(f.userId || f.$id || "").trim()
-                                                const name = String(f.name || "").trim()
-                                                const email = String(f.email || "").trim()
-                                                const label = name || email || key
-                                                if (!key) return null
-                                                return (
-                                                    <SelectItem key={key} value={key}>
-                                                        {label}
-                                                    </SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>Room</Label>
-                                    <Select value={formRoomId} onValueChange={setFormRoomId}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select room" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {rooms.map((r) => {
-                                                const code = String(r.code || "").trim()
-                                                const name = String(r.name || "").trim()
-                                                const rType = roomTypeLabel(String(r.type || ""))
-                                                const label = [code, name].filter(Boolean).join(" • ") || r.$id
-                                                return (
-                                                    <SelectItem key={r.$id} value={r.$id}>
-                                                        {label} ({rType})
-                                                    </SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            {formFacultyChoice === FACULTY_OPTION_MANUAL ? (
-                                <div className="space-y-2 rounded-xl border p-3">
-                                    <div className="space-y-1">
-                                        <Label>Manual Faculty Name</Label>
-                                        <Input
-                                            value={formManualFaculty}
-                                            onChange={(e) => setFormManualFaculty(e.target.value)}
-                                            placeholder="Enter faculty/instructor name manually"
-                                        />
-                                    </div>
-
-                                    {manualFacultySuggestions.length > 0 ? (
-                                        <div className="space-y-2">
-                                            <div className="text-xs text-muted-foreground">
-                                                Quick pick from previously used manual names:
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {manualFacultySuggestions.slice(0, 12).map((name) => (
-                                                    <Button
-                                                        key={name}
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="rounded-lg"
-                                                        onClick={() => setFormManualFaculty(name)}
-                                                    >
-                                                        {name}
-                                                    </Button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </div>
-                            ) : null}
-
-                            <div className="grid gap-3 md:grid-cols-4">
-                                <div className="space-y-1">
-                                    <Label>Day</Label>
-                                    <Select value={formDayOfWeek} onValueChange={setFormDayOfWeek}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select day" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {DAY_OPTIONS.map((d) => (
-                                                <SelectItem key={d} value={d}>
-                                                    {d}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>Start Time</Label>
-                                    <Input
-                                        type="time"
-                                        value={formStartTime}
-                                        onChange={(e) => setFormStartTime(e.target.value)}
-                                    />
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>End Time</Label>
-                                    <Input
-                                        type="time"
-                                        value={formEndTime}
-                                        onChange={(e) => setFormEndTime(e.target.value)}
-                                    />
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>Meeting Type</Label>
-                                    <Select
-                                        value={formMeetingType}
-                                        onValueChange={(v) => setFormMeetingType(v as MeetingType)}
-                                    >
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select type" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="LECTURE">LECTURE</SelectItem>
-                                            <SelectItem value="LAB">LAB</SelectItem>
-                                            <SelectItem value="OTHER">OTHER</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <div className="space-y-1">
-                                    <Label>Class Code (optional)</Label>
-                                    <Input
-                                        value={formClassCode}
-                                        onChange={(e) => setFormClassCode(e.target.value)}
-                                        placeholder="e.g. CCS-3A-IT-DB1"
-                                    />
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label>Delivery Mode (optional)</Label>
-                                    <Input
-                                        value={formDeliveryMode}
-                                        onChange={(e) => setFormDeliveryMode(e.target.value)}
-                                        placeholder="e.g. Face-to-face, Hybrid, Online"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="space-y-1">
-                                <Label>Remarks (optional)</Label>
-                                <Textarea
-                                    value={formRemarks}
-                                    onChange={(e) => setFormRemarks(e.target.value)}
-                                    placeholder="Additional notes..."
-                                    className="min-h-20"
-                                />
-                            </div>
-
-                            {candidateConflicts.length > 0 ? (
-                                <Alert variant="destructive">
-                                    <AlertTitle className="flex items-center gap-2">
-                                        <AlertTriangle className="size-4" />
-                                        Conflict detected
-                                    </AlertTitle>
-                                    <AlertDescription className="space-y-2">
-                                        <div className="text-sm">
-                                            Room: <span className="font-medium">{candidateConflictCounts.room}</span>{" "}
-                                            • Faculty:{" "}
-                                            <span className="font-medium">{candidateConflictCounts.faculty}</span> •
-                                            Section:{" "}
-                                            <span className="font-medium">{candidateConflictCounts.section}</span>
-                                        </div>
-                                        <ul className="list-disc space-y-1 pl-4 text-xs">
-                                            {candidateConflicts.slice(0, 6).map((c, idx) => (
-                                                <li key={`${c.type}-${c.row.meetingId}-${idx}`}>
-                                                    [{c.type.toUpperCase()}] {c.row.dayOfWeek}{" "}
-                                                    {formatTimeRange(c.row.startTime, c.row.endTime)} •{" "}
-                                                    {c.row.subjectLabel} • {c.row.sectionLabel} • {c.row.roomLabel}
-                                                </li>
-                                            ))}
-                                        </ul>
-
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <Checkbox
-                                                id="allowConflictSave"
-                                                checked={formAllowConflictSave}
-                                                onCheckedChange={(v) => setFormAllowConflictSave(Boolean(v))}
-                                            />
-                                            <Label htmlFor="allowConflictSave" className="cursor-pointer text-sm">
-                                                Override and save anyway
-                                            </Label>
-                                        </div>
-                                    </AlertDescription>
-                                </Alert>
-                            ) : (
-                                <Alert>
-                                    <AlertTitle>No conflict detected</AlertTitle>
-                                    <AlertDescription>
-                                        Current entry does not overlap with existing room, faculty, or section schedule.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-                        </div>
-
-                        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setEntryDialogOpen(false)}
-                                disabled={entrySaving}
-                            >
-                                Cancel
-                            </Button>
-
-                            <Button
-                                type="button"
-                                onClick={() => void saveEntry()}
-                                disabled={entrySaving}
-                                className={cn(entrySaving && "opacity-90")}
-                            >
-                                {entrySaving ? (
-                                    <>
-                                        <RefreshCcw className="mr-2 size-4 animate-spin" />
-                                        Saving...
-                                    </>
-                                ) : editingRow ? (
-                                    <>
-                                        <Pencil className="mr-2 size-4" />
-                                        Update Entry
-                                    </>
-                                ) : (
-                                    <>
-                                        <Plus className="mr-2 size-4" />
-                                        Create Entry
-                                    </>
-                                )}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Delete entry confirm dialog */}
-                <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(v) => !v && setDeleteTarget(null)}>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Delete schedule entry?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will remove the selected class meeting. If no meetings remain for the class, the class record will also be removed.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    void confirmDeleteEntry()
-                                }}
-                                disabled={deleting}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                                {deleting ? "Deleting..." : "Delete"}
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
+                <VersionManagementSection
+                    loading={loading}
+                    saving={saving}
+                    error={error}
+                    terms={terms}
+                    departments={departments}
+                    termMap={termMap}
+                    deptMap={deptMap}
+                    stats={stats}
+                    filtered={filtered}
+                    tab={tab}
+                    setTab={setTab}
+                    search={search}
+                    setSearch={setSearch}
+                    filterTermId={filterTermId}
+                    setFilterTermId={setFilterTermId}
+                    filterDeptId={filterDeptId}
+                    setFilterDeptId={setFilterDeptId}
+                    selectedVersionId={selectedVersionId}
+                    setSelectedVersionId={setSelectedVersionId}
+                    onRefresh={() => void fetchAll()}
+                    onOpenCreate={() => setCreateOpen(true)}
+                    onSetStatus={setStatus}
+                    viewOpen={viewOpen}
+                    setViewOpen={setViewOpen}
+                    active={active}
+                    setActive={setActive}
+                    onOpenView={openView}
+                    createOpen={createOpen}
+                    setCreateOpen={setCreateOpen}
+                    createTermId={createTermId}
+                    setCreateTermId={setCreateTermId}
+                    createDeptId={createDeptId}
+                    setCreateDeptId={setCreateDeptId}
+                    createLabel={createLabel}
+                    setCreateLabel={setCreateLabel}
+                    createNotes={createNotes}
+                    setCreateNotes={setCreateNotes}
+                    createSetActive={createSetActive}
+                    setCreateSetActive={setCreateSetActive}
+                    nextVersionNumber={nextVersionNumber}
+                    onCreateVersion={createVersion}
+                    resetCreateForm={resetCreateForm}
+                />
+
+                <PlannerManagementSection
+                    selectedVersion={selectedVersion}
+                    selectedVersionId={selectedVersionId}
+                    onSelectedVersionChange={setSelectedVersionId}
+                    versionSelectOptions={versionSelectOptions}
+                    showConflictsOnly={showConflictsOnly}
+                    onShowConflictsOnlyChange={setShowConflictsOnly}
+                    entriesLoading={entriesLoading}
+                    entriesError={entriesError}
+                    entrySaving={entrySaving}
+                    onReloadEntries={() => void fetchScheduleContext()}
+                    onOpenCreateEntry={openCreateEntry}
+                    onOpenEditEntry={openEditEntry}
+                    plannerStats={plannerStats}
+                    visibleRows={visibleRows}
+                    laboratoryRows={laboratoryRows}
+                    conflictFlagsByMeetingId={conflictFlagsByMeetingId}
+                    selectedVersionLabel={selectedVersionLabel}
+                    selectedTermLabel={selectedTermLabel}
+                    selectedDeptLabel={selectedDeptLabel}
+                    entryDialogOpen={entryDialogOpen}
+                    setEntryDialogOpen={setEntryDialogOpen}
+                    editingRow={editingRow}
+                    setEditingRow={setEditingRow}
+                    formSectionId={formSectionId}
+                    setFormSectionId={setFormSectionId}
+                    formSubjectId={formSubjectId}
+                    setFormSubjectId={setFormSubjectId}
+                    formFacultyChoice={formFacultyChoice}
+                    setFormFacultyChoice={setFormFacultyChoice}
+                    formManualFaculty={formManualFaculty}
+                    setFormManualFaculty={setFormManualFaculty}
+                    formRoomId={formRoomId}
+                    setFormRoomId={setFormRoomId}
+                    formDayOfWeek={formDayOfWeek}
+                    setFormDayOfWeek={setFormDayOfWeek}
+                    formStartTime={formStartTime}
+                    setFormStartTime={setFormStartTime}
+                    formEndTime={formEndTime}
+                    setFormEndTime={setFormEndTime}
+                    formMeetingType={formMeetingType}
+                    setFormMeetingType={setFormMeetingType}
+                    formClassCode={formClassCode}
+                    setFormClassCode={setFormClassCode}
+                    formDeliveryMode={formDeliveryMode}
+                    setFormDeliveryMode={setFormDeliveryMode}
+                    formRemarks={formRemarks}
+                    setFormRemarks={setFormRemarks}
+                    formAllowConflictSave={formAllowConflictSave}
+                    setFormAllowConflictSave={setFormAllowConflictSave}
+                    candidateConflicts={candidateConflicts}
+                    candidateConflictCounts={candidateConflictCounts}
+                    manualFacultySuggestions={manualFacultySuggestions}
+                    sections={sections}
+                    subjects={subjects}
+                    facultyProfiles={facultyProfiles}
+                    rooms={rooms}
+                    onSaveEntry={saveEntry}
+                    deleteTarget={deleteTarget}
+                    setDeleteTarget={setDeleteTarget}
+                    deleting={deleting}
+                    onConfirmDeleteEntry={confirmDeleteEntry}
+                />
             </div>
         </DashboardLayout>
     )
