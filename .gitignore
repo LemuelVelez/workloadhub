@@ -23,8 +23,14 @@ dist-ssr
 *.sln
 *.sw?
 
-.dockerignore
-Dockerfile
-.env.production
-deploy
-docker-compose.yml
+# local env files
+.env
+.env.*
+!.env.example
+!.env.template
+
+# local backup artifacts
+*.bak
+*.bak.*
+deploy/caddy/Caddyfile.bak*
+deploy/caddy_backups/

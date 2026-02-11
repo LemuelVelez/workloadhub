@@ -1,0 +1,1 @@
+reverse_proxy workloadhub-blue:8080

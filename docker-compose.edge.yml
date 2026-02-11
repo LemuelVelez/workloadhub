@@ -1,0 +1,32 @@
+services:
+  edge:
+    image: caddy:2.8.4-alpine
+    container_name: workloadhub-edge
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/workloadhub/caddy/upstream.caddy:/etc/caddy/upstream.caddy:ro
+      - workloadhub_caddy_data:/data
+      - workloadhub_caddy_config:/config
+    networks:
+      - wh_public
+      - wh_blue_net
+      - wh_green_net
+      - queuepass_shared
+
+networks:
+  wh_public:
+    external: true
+  wh_blue_net:
+    external: true
+  wh_green_net:
+    external: true
+  queuepass_shared:
+    external: true
+
+volumes:
+  workloadhub_caddy_data:
+  workloadhub_caddy_config:

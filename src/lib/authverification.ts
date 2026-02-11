@@ -29,7 +29,7 @@ function requestSessionRefresh() {
 
 function apiBase(): string {
     const raw = String((publicEnv as any)?.API_WORKLOADHUB_ORIGIN || "").trim()
-    return raw.replace(/\/$/, "") || "http://127.0.0.1:4000"
+    return raw.replace(/\/$/, "") || "https://api-email-workloadhub.jrmsu-tc.cloud"
 }
 
 /**
