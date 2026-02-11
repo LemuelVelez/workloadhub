@@ -36,6 +36,21 @@ function isUnauthorizedError(err: any): boolean {
     )
 }
 
+function isSessionConflictError(err: any): boolean {
+    const status = getErrorStatus(err)
+    if (status === 409) return true
+
+    const msg = formatAppwriteError(err).toLowerCase()
+    return (
+        msg.includes("session is active") ||
+        msg.includes("active session already exists") ||
+        msg.includes("already logged in") ||
+        msg.includes("already has an active session") ||
+        msg.includes("session already exists") ||
+        msg.includes("too many sessions")
+    )
+}
+
 function shouldRetryWithObjectSignature(err: any): boolean {
     const msg = formatAppwriteError(err).toLowerCase()
     return (
@@ -55,10 +70,12 @@ const PW_RESET_FLAG_PREFIX = "workloadhub:pw_reset_done:"
 
 /**
  * ✅ Session hint keys (to avoid noisy /account 401 when user is logged out)
- * If no hint exists, getCurrentAccount() returns null without calling /v1/account.
+ * If no hint exists, getCurrentAccount() will do a throttled cold probe.
  */
 const AUTH_SESSION_HINT_KEY = "workloadhub:appwrite_has_session"
 const AUTH_LAST_USER_ID_KEY = "workloadhub:appwrite_last_user_id"
+const AUTH_SESSION_COLD_PROBE_AT_KEY = "workloadhub:appwrite_session_probe_at"
+const AUTH_SESSION_COLD_PROBE_INTERVAL_MS = 60 * 1000
 
 function setPasswordResetDoneFlag(userId: string) {
     try {
@@ -88,6 +105,7 @@ function setSessionHint(hasSession: boolean, userId?: string) {
         if (typeof window === "undefined") return
         if (hasSession) {
             localStorage.setItem(AUTH_SESSION_HINT_KEY, "1")
+            localStorage.removeItem(AUTH_SESSION_COLD_PROBE_AT_KEY)
             if (userId?.trim()) {
                 localStorage.setItem(AUTH_LAST_USER_ID_KEY, userId.trim())
             }
@@ -111,6 +129,30 @@ function hasSessionHint(): boolean {
 
 function clearSessionHint() {
     setSessionHint(false)
+}
+
+function canAttemptColdSessionProbe(): boolean {
+    try {
+        if (typeof window === "undefined") return false
+        const raw = localStorage.getItem(AUTH_SESSION_COLD_PROBE_AT_KEY)
+        const lastAt = Number(raw || 0)
+
+        if (!Number.isFinite(lastAt) || lastAt <= 0) return true
+
+        const age = Date.now() - lastAt
+        return age < 0 || age >= AUTH_SESSION_COLD_PROBE_INTERVAL_MS
+    } catch {
+        return false
+    }
+}
+
+function markColdSessionProbeAttempt() {
+    try {
+        if (typeof window === "undefined") return
+        localStorage.setItem(AUTH_SESSION_COLD_PROBE_AT_KEY, String(Date.now()))
+    } catch {
+        // ignore
+    }
 }
 
 function getDatabaseId(): string {
@@ -187,6 +229,24 @@ async function applyAutoVerifyAfterFirstPasswordReset() {
     }
 }
 
+async function createSessionWithSdkFallback(
+    createFn: (...args: any[]) => Promise<any>,
+    email: string,
+    password: string
+) {
+    try {
+        // ✅ Primary signature for most browser SDK versions
+        return await createFn(email, password)
+    } catch (firstErr: any) {
+        // ✅ Fallback for object-signature SDK variants
+        if (!shouldRetryWithObjectSignature(firstErr)) throw firstErr
+        return await createFn({
+            email,
+            password,
+        })
+    }
+}
+
 export async function loginWithEmailPassword(email: string, password: string) {
     if (!email?.trim()) throw new Error("Email is required.")
     if (!password?.trim()) throw new Error("Password is required.")
@@ -204,16 +264,33 @@ export async function loginWithEmailPassword(email: string, password: string) {
         const cleanPassword = password
 
         let session: any
+
         try {
-            // ✅ Primary signature for most browser SDK versions
-            session = await createFn(cleanEmail, cleanPassword)
-        } catch (firstErr: any) {
-            // ✅ Fallback for object-signature SDK variants
-            if (!shouldRetryWithObjectSignature(firstErr)) throw firstErr
-            session = await createFn({
-                email: cleanEmail,
-                password: cleanPassword,
-            })
+            session = await createSessionWithSdkFallback(createFn, cleanEmail, cleanPassword)
+        } catch (createErr: any) {
+            /**
+             * ✅ FIX: if a session already exists, treat it as authenticated
+             * and reuse current session instead of blocking login flow.
+             */
+            if (!isSessionConflictError(createErr)) throw createErr
+
+            // try reusing existing active session
+            const existingMe = await account.get().catch(() => null)
+            if (existingMe) {
+                const existingUserId = String((existingMe as any)?.$id || "").trim()
+                setSessionHint(true, existingUserId || undefined)
+                await applyAutoVerifyAfterFirstPasswordReset()
+
+                // keep return shape session-like for callers expecting a payload
+                return {
+                    reused: true,
+                    userId: existingUserId || undefined,
+                }
+            }
+
+            // if conflict but no readable session, clear current and retry once
+            await logoutCurrentSession().catch(() => null)
+            session = await createSessionWithSdkFallback(createFn, cleanEmail, cleanPassword)
         }
 
         // ✅ Mark local session hint to avoid /account 401 spam while logged out
@@ -296,8 +373,14 @@ export async function logoutAllSessions() {
 }
 
 export async function getCurrentAccount() {
-    // ✅ Prevent noisy unauthorized network calls when clearly logged out.
-    if (!hasSessionHint()) return null
+    /**
+     * ✅ FIX: if hint is missing, do a throttled cold probe so existing cookie sessions
+     * are still detected (prevents "already logged in but not redirected" issue).
+     */
+    if (!hasSessionHint()) {
+        if (!canAttemptColdSessionProbe()) return null
+        markColdSessionProbeAttempt()
+    }
 
     try {
         const me = await account.get()
