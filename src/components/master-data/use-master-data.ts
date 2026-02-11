@@ -7,20 +7,7 @@ import { toast } from "sonner"
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 import { SECTION_NAME_OPTIONS } from "@/model/schemaModel"
 import {
-    AcademicTermDoc,
-    ClassDoc,
-    ClassMeetingDoc,
-    CollegeDoc,
-    DeleteIntent,
     FACULTY_ROLES,
-    FacultyProfileDoc,
-    ListRecordRow,
-    MasterTab,
-    ProgramDoc,
-    RoomDoc,
-    SectionDoc,
-    SubjectDoc,
-    UserProfileDoc,
     YEAR_LEVEL_OPTIONS,
     collegeLabel,
     detectDefaultCollegeId,
@@ -31,6 +18,21 @@ import {
     str,
     termLabel,
     toBool,
+} from "./types"
+import type {
+    AcademicTermDoc,
+    ClassDoc,
+    ClassMeetingDoc,
+    CollegeDoc,
+    DeleteIntent,
+    FacultyProfileDoc,
+    ListRecordRow,
+    MasterTab,
+    ProgramDoc,
+    RoomDoc,
+    SectionDoc,
+    SubjectDoc,
+    UserProfileDoc,
 } from "./types"
 
 async function listDocs(collectionId: string, queries: any[] = []) {
