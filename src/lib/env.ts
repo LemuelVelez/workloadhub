@@ -22,10 +22,10 @@ function required(name: string, value: MaybeString): string {
 
         throw new Error(
             `[env] Missing required environment variable: ${name}\n` +
-                `Available VITE_* keys: ${keys.join(", ") || "(none)"}\n\n` +
-                `Fix:\n` +
-                `1) Put it in the SAME folder as your vite.config.ts + package.json\n` +
-                `2) Restart the Vite dev server after editing .env\n`
+            `Available VITE_* keys: ${keys.join(", ") || "(none)"}\n\n` +
+            `Fix:\n` +
+            `1) Put it in the SAME folder as your vite.config.ts + package.json\n` +
+            `2) Restart the Vite dev server after editing .env\n`
         )
     }
     return v
@@ -61,6 +61,19 @@ function readEnv(key: string): string | undefined {
  * Public env (safe to use in browser)
  */
 export function getPublicEnv() {
+    const appOrigin =
+        optional("VITE_PUBLIC_APP_ORIGIN", readEnv("VITE_PUBLIC_APP_ORIGIN")) ??
+        (isBrowser ? window.location.origin : undefined)
+
+    const apiOriginFromEnv =
+        optional("VITE_PUBLIC_API_WORKLOADHUB_ORIGIN", readEnv("VITE_PUBLIC_API_WORKLOADHUB_ORIGIN")) ??
+        optional("VITE_API_WORKLOADHUB_ORIGIN", readEnv("VITE_API_WORKLOADHUB_ORIGIN")) ??
+        optional("API_WORKLOADHUB_ORIGIN", readEnv("API_WORKLOADHUB_ORIGIN"))
+
+    const fallbackApiOrigin = isBrowser
+        ? ((import.meta as any)?.env?.DEV ? "http://127.0.0.1:4000" : window.location.origin)
+        : "http://127.0.0.1:4000"
+
     return Object.freeze({
         APPWRITE_PROJECT_ID: required("VITE_PUBLIC_APPWRITE_PROJECT_ID", readEnv("VITE_PUBLIC_APPWRITE_PROJECT_ID")),
 
@@ -90,17 +103,17 @@ export function getPublicEnv() {
         /**
          * ✅ Frontend origin (used for redirect URLs)
          */
-        APP_ORIGIN:
-            optional("VITE_PUBLIC_APP_ORIGIN", readEnv("VITE_PUBLIC_APP_ORIGIN")) ??
-            (isBrowser ? window.location.origin : undefined),
+        APP_ORIGIN: appOrigin,
 
         /**
          * ✅ Express Backend Origin (Admin create user + email credentials)
-         * Example: http://127.0.0.1:4000
+         * Priority:
+         * 1) VITE_PUBLIC_API_WORKLOADHUB_ORIGIN
+         * 2) VITE_API_WORKLOADHUB_ORIGIN
+         * 3) API_WORKLOADHUB_ORIGIN (non-Vite fallback)
+         * 4) DEV -> http://127.0.0.1:4000, PROD -> window.location.origin
          */
-        API_WORKLOADHUB_ORIGIN:
-            optional("VITE_PUBLIC_API_WORKLOADHUB_ORIGIN", readEnv("VITE_PUBLIC_API_WORKLOADHUB_ORIGIN")) ??
-            "http://127.0.0.1:4000",
+        API_WORKLOADHUB_ORIGIN: normalizeUrl("API_WORKLOADHUB_ORIGIN", apiOriginFromEnv ?? fallbackApiOrigin),
     } as const)
 }
 
