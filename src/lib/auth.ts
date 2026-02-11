@@ -18,12 +18,47 @@ function formatAppwriteError(err: any): string {
     )
 }
 
+function getErrorStatus(err: any): number | null {
+    const direct = Number(err?.code ?? err?.status ?? err?.response?.status)
+    return Number.isFinite(direct) ? direct : null
+}
+
+function isUnauthorizedError(err: any): boolean {
+    const status = getErrorStatus(err)
+    if (status === 401) return true
+
+    const msg = formatAppwriteError(err).toLowerCase()
+    return (
+        msg.includes("unauthorized") ||
+        msg.includes("not authorized") ||
+        msg.includes("missing scope") ||
+        msg.includes("guest")
+    )
+}
+
+function shouldRetryWithObjectSignature(err: any): boolean {
+    const msg = formatAppwriteError(err).toLowerCase()
+    return (
+        msg.includes("missing required parameter") ||
+        msg.includes("invalid param") ||
+        msg.includes("expected object") ||
+        msg.includes("cannot read properties")
+    )
+}
+
 /**
  * ✅ One-time flag after password reset
  * We can't auto-verify server-side without API key / Functions,
  * so we mark a local flag and consume it after the user logs in once.
  */
 const PW_RESET_FLAG_PREFIX = "workloadhub:pw_reset_done:"
+
+/**
+ * ✅ Session hint keys (to avoid noisy /account 401 when user is logged out)
+ * If no hint exists, getCurrentAccount() returns null without calling /v1/account.
+ */
+const AUTH_SESSION_HINT_KEY = "workloadhub:appwrite_has_session"
+const AUTH_LAST_USER_ID_KEY = "workloadhub:appwrite_last_user_id"
 
 function setPasswordResetDoneFlag(userId: string) {
     try {
@@ -46,6 +81,36 @@ function consumePasswordResetDoneFlag(userId: string): boolean {
     } catch {
         return false
     }
+}
+
+function setSessionHint(hasSession: boolean, userId?: string) {
+    try {
+        if (typeof window === "undefined") return
+        if (hasSession) {
+            localStorage.setItem(AUTH_SESSION_HINT_KEY, "1")
+            if (userId?.trim()) {
+                localStorage.setItem(AUTH_LAST_USER_ID_KEY, userId.trim())
+            }
+            return
+        }
+        localStorage.removeItem(AUTH_SESSION_HINT_KEY)
+        localStorage.removeItem(AUTH_LAST_USER_ID_KEY)
+    } catch {
+        // ignore
+    }
+}
+
+function hasSessionHint(): boolean {
+    try {
+        if (typeof window === "undefined") return false
+        return localStorage.getItem(AUTH_SESSION_HINT_KEY) === "1"
+    } catch {
+        return false
+    }
+}
+
+function clearSessionHint() {
+    setSessionHint(false)
 }
 
 function getDatabaseId(): string {
@@ -135,13 +200,40 @@ export async function loginWithEmailPassword(email: string, password: string) {
     }
 
     try {
-        const session = await createFn(email.trim(), password)
+        const cleanEmail = email.trim().toLowerCase()
+        const cleanPassword = password
+
+        let session: any
+        try {
+            // ✅ Primary signature for most browser SDK versions
+            session = await createFn(cleanEmail, cleanPassword)
+        } catch (firstErr: any) {
+            // ✅ Fallback for object-signature SDK variants
+            if (!shouldRetryWithObjectSignature(firstErr)) throw firstErr
+            session = await createFn({
+                email: cleanEmail,
+                password: cleanPassword,
+            })
+        }
+
+        // ✅ Mark local session hint to avoid /account 401 spam while logged out
+        setSessionHint(true)
+
+        // ✅ Best effort: store current user id hint
+        try {
+            const me = await account.get()
+            const userId = String((me as any)?.$id || "").trim()
+            if (userId) setSessionHint(true, userId)
+        } catch {
+            // ignore
+        }
 
         // ✅ After login, auto-verify ONLY if a password reset was just done
         await applyAutoVerifyAfterFirstPasswordReset()
 
         return session
     } catch (err: any) {
+        clearSessionHint()
         throw new Error(formatAppwriteError(err))
     }
 }
@@ -149,17 +241,27 @@ export async function loginWithEmailPassword(email: string, password: string) {
 export async function logoutCurrentSession() {
     try {
         /**
-         * ✅ FIX: Avoid deprecated signature
-         * NEW: account.deleteSession({ sessionId: "current" })
+         * ✅ FIX: Handle both signatures
+         * - account.deleteSession({ sessionId: "current" })
+         * - account.deleteSession("current")
          */
         const fn = (account as any)["deleteSession"]?.bind(account)
         if (!fn) throw new Error("Account.deleteSession() is not available in this SDK version.")
 
-        return await fn({ sessionId: "current" })
+        try {
+            return await fn({ sessionId: "current" })
+        } catch (firstErr: any) {
+            if (!shouldRetryWithObjectSignature(firstErr)) throw firstErr
+            return await fn("current")
+        }
     } catch (err: any) {
         const msg = formatAppwriteError(err)
         if (msg.toLowerCase().includes("session")) return null
+        if (isUnauthorizedError(err)) return null
         throw new Error(msg)
+    } finally {
+        // ✅ always clear local session hint on logout path
+        clearSessionHint()
     }
 }
 
@@ -188,13 +290,26 @@ export async function logoutAllSessions() {
         const msg = formatAppwriteError(err)
         if (msg.toLowerCase().includes("session")) return null
         return null
+    } finally {
+        clearSessionHint()
     }
 }
 
 export async function getCurrentAccount() {
+    // ✅ Prevent noisy unauthorized network calls when clearly logged out.
+    if (!hasSessionHint()) return null
+
     try {
-        return await account.get()
-    } catch {
+        const me = await account.get()
+        const userId = String((me as any)?.$id || "").trim()
+        setSessionHint(true, userId || undefined)
+        return me
+    } catch (err: any) {
+        // ✅ If session expired/invalid, clear hint so future calls won't spam 401.
+        if (isUnauthorizedError(err)) {
+            clearSessionHint()
+            return null
+        }
         return null
     }
 }
@@ -321,7 +436,13 @@ export async function requestPasswordRecovery(email: string, redirectUrl?: strin
         try {
             const fn = (account as any)["createRecovery"]?.bind(account)
             if (!fn) throw new Error("Account.createRecovery() is not available in this SDK version.")
-            return await fn({ email: email.trim(), url: finalRedirectUrl })
+
+            try {
+                return await fn({ email: email.trim(), url: finalRedirectUrl })
+            } catch (firstErr: any) {
+                if (!shouldRetryWithObjectSignature(firstErr)) throw firstErr
+                return await fn(email.trim(), finalRedirectUrl)
+            }
         } catch (e: any) {
             throw new Error(err?.message || e?.message || "Failed to send recovery email.")
         }
@@ -379,11 +500,17 @@ export async function confirmPasswordRecovery(opts: {
         const fn = (account as any)["updateRecovery"]?.bind(account)
         if (!fn) throw new Error("Account.updateRecovery() is not available in this SDK version.")
 
-        const result = await fn({
-            userId,
-            secret,
-            password,
-        })
+        let result: any
+        try {
+            result = await fn({
+                userId,
+                secret,
+                password,
+            })
+        } catch (firstErr: any) {
+            if (!shouldRetryWithObjectSignature(firstErr)) throw firstErr
+            result = await fn(userId, secret, password)
+        }
 
         setPasswordResetDoneFlag(userId)
         return result
