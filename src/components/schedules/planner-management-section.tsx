@@ -158,69 +158,142 @@ type Props = {
 
 const styles = StyleSheet.create({
     page: {
-        padding: 24,
-        fontSize: 10,
+        padding: 18,
+        fontSize: 9,
         fontFamily: "Helvetica",
+        color: "#0f172a",
+        backgroundColor: "#f8fafc",
     },
-    title: {
+
+    sheet: {
+        borderWidth: 1,
+        borderColor: "#cbd5e1",
+        borderRadius: 10,
+        overflow: "hidden",
+        backgroundColor: "#ffffff",
+    },
+
+    hero: {
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        backgroundColor: "#0f766e",
+        borderBottomWidth: 1,
+        borderBottomColor: "#115e59",
+    },
+    heroTitle: {
         fontSize: 16,
-        marginBottom: 6,
-        fontWeight: 700,
+        color: "#ffffff",
+        fontWeight: "bold",
     },
-    subTitle: {
-        fontSize: 10,
-        marginBottom: 10,
-        color: "#666666",
+    heroSubTitle: {
+        marginTop: 2,
+        fontSize: 9,
+        color: "#ccfbf1",
+    },
+
+    section: {
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 10,
+    },
+
+    infoCard: {
+        borderWidth: 1,
+        borderColor: "#e2e8f0",
+        borderRadius: 8,
+        backgroundColor: "#f8fafc",
+        padding: 10,
     },
     infoRow: {
         flexDirection: "row",
         marginBottom: 4,
-        gap: 8,
     },
     infoLabel: {
-        width: 88,
-        color: "#666666",
+        width: 78,
+        color: "#475569",
+        fontWeight: "bold",
     },
     infoValue: {
         flex: 1,
+        color: "#0f172a",
     },
+
     statsWrap: {
         flexDirection: "row",
-        gap: 8,
-        marginTop: 8,
+        marginTop: 10,
         marginBottom: 12,
     },
     statCard: {
         flex: 1,
         borderWidth: 1,
-        borderColor: "#dddddd",
-        borderRadius: 6,
-        padding: 8,
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 9,
+        marginRight: 8,
+    },
+    statCardLast: {
+        marginRight: 0,
+    },
+    statTotal: {
+        backgroundColor: "#ecfeff",
+        borderColor: "#67e8f9",
+    },
+    statConflict: {
+        backgroundColor: "#fef2f2",
+        borderColor: "#fca5a5",
+    },
+    statLabs: {
+        backgroundColor: "#eef2ff",
+        borderColor: "#a5b4fc",
     },
     statLabel: {
-        color: "#666666",
+        color: "#334155",
         marginBottom: 2,
+        fontSize: 8,
     },
     statValue: {
         fontSize: 14,
-        fontWeight: 700,
+        fontWeight: "bold",
+        color: "#0f172a",
+    },
+
+    tableWrap: {
+        borderWidth: 1,
+        borderColor: "#cbd5e1",
+        borderRadius: 8,
+        overflow: "hidden",
     },
     tableHeader: {
         flexDirection: "row",
-        borderWidth: 1,
-        borderColor: "#dddddd",
-        backgroundColor: "#f5f5f5",
-        padding: 6,
-        fontWeight: 700,
+        backgroundColor: "#0f172a",
+        borderBottomWidth: 1,
+        borderBottomColor: "#0b1220",
+        paddingVertical: 7,
+        paddingHorizontal: 6,
+    },
+    tableHeaderText: {
+        color: "#f8fafc",
+        fontWeight: "bold",
+        fontSize: 8.5,
     },
     tableRow: {
         flexDirection: "row",
-        borderLeftWidth: 1,
-        borderRightWidth: 1,
         borderBottomWidth: 1,
-        borderColor: "#dddddd",
-        padding: 6,
+        borderBottomColor: "#e2e8f0",
+        paddingVertical: 6,
+        paddingHorizontal: 6,
     },
+    tableRowOdd: {
+        backgroundColor: "#ffffff",
+    },
+    tableRowEven: {
+        backgroundColor: "#f8fafc",
+    },
+    cellText: {
+        fontSize: 8.3,
+        color: "#0f172a",
+    },
+
     colDay: { width: "12%" },
     colTime: { width: "14%" },
     colSubject: { width: "22%" },
@@ -228,10 +301,41 @@ const styles = StyleSheet.create({
     colFaculty: { width: "18%" },
     colRoom: { width: "12%" },
     colType: { width: "10%" },
+
+    typePill: {
+        borderRadius: 999,
+        paddingVertical: 2,
+        paddingHorizontal: 6,
+        alignSelf: "flex-start",
+    },
+    typePillLecture: {
+        backgroundColor: "#e0f2fe",
+    },
+    typePillLab: {
+        backgroundColor: "#ede9fe",
+    },
+    typePillOther: {
+        backgroundColor: "#e2e8f0",
+    },
+    typePillText: {
+        fontSize: 7.6,
+        fontWeight: "bold",
+        color: "#0f172a",
+    },
+
+    emptyState: {
+        paddingVertical: 18,
+        paddingHorizontal: 10,
+        textAlign: "center",
+        color: "#64748b",
+        fontSize: 9,
+    },
+
     footer: {
         marginTop: 10,
-        fontSize: 9,
-        color: "#666666",
+        fontSize: 8,
+        color: "#64748b",
+        textAlign: "right",
     },
 })
 
@@ -255,68 +359,103 @@ function SchedulePdfDocument({
     return (
         <Document>
             <Page size="A4" style={styles.page} wrap>
-                <Text style={styles.title}>Schedule Planner Report</Text>
-                <Text style={styles.subTitle}>Generated from Admin Schedules</Text>
-
-                <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Version:</Text>
-                    <Text style={styles.infoValue}>{versionLabel || "—"}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Term:</Text>
-                    <Text style={styles.infoValue}>{termLabel || "—"}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>College:</Text>
-                    <Text style={styles.infoValue}>{deptLabel || "—"}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Filter:</Text>
-                    <Text style={styles.infoValue}>{filteredByConflict ? "Conflicts only" : "All entries"}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Generated:</Text>
-                    <Text style={styles.infoValue}>{generatedAt}</Text>
-                </View>
-
-                <View style={styles.statsWrap}>
-                    <View style={styles.statCard}>
-                        <Text style={styles.statLabel}>Total Entries</Text>
-                        <Text style={styles.statValue}>{stats.total}</Text>
+                <View style={styles.sheet}>
+                    <View style={styles.hero}>
+                        <Text style={styles.heroTitle}>Schedule Planner Report</Text>
+                        <Text style={styles.heroSubTitle}>Modern export from Admin Schedules</Text>
                     </View>
-                    <View style={styles.statCard}>
-                        <Text style={styles.statLabel}>Conflicts</Text>
-                        <Text style={styles.statValue}>{stats.conflicts}</Text>
-                    </View>
-                    <View style={styles.statCard}>
-                        <Text style={styles.statLabel}>Laboratory Entries</Text>
-                        <Text style={styles.statValue}>{stats.labs}</Text>
+
+                    <View style={styles.section}>
+                        <View style={styles.infoCard}>
+                            <View style={styles.infoRow}>
+                                <Text style={styles.infoLabel}>Version:</Text>
+                                <Text style={styles.infoValue}>{versionLabel || "—"}</Text>
+                            </View>
+                            <View style={styles.infoRow}>
+                                <Text style={styles.infoLabel}>Term:</Text>
+                                <Text style={styles.infoValue}>{termLabel || "—"}</Text>
+                            </View>
+                            <View style={styles.infoRow}>
+                                <Text style={styles.infoLabel}>College:</Text>
+                                <Text style={styles.infoValue}>{deptLabel || "—"}</Text>
+                            </View>
+                            <View style={styles.infoRow}>
+                                <Text style={styles.infoLabel}>Filter:</Text>
+                                <Text style={styles.infoValue}>{filteredByConflict ? "Conflicts only" : "All entries"}</Text>
+                            </View>
+                            <View style={styles.infoRow}>
+                                <Text style={styles.infoLabel}>Generated:</Text>
+                                <Text style={styles.infoValue}>{generatedAt}</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.statsWrap}>
+                            <View style={[styles.statCard, styles.statTotal]}>
+                                <Text style={styles.statLabel}>Total Entries</Text>
+                                <Text style={styles.statValue}>{stats.total}</Text>
+                            </View>
+                            <View style={[styles.statCard, styles.statConflict]}>
+                                <Text style={styles.statLabel}>Conflicts</Text>
+                                <Text style={styles.statValue}>{stats.conflicts}</Text>
+                            </View>
+                            <View style={[styles.statCard, styles.statLabs, styles.statCardLast]}>
+                                <Text style={styles.statLabel}>Laboratory Entries</Text>
+                                <Text style={styles.statValue}>{stats.labs}</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.tableWrap}>
+                            <View style={styles.tableHeader}>
+                                <Text style={[styles.colDay, styles.tableHeaderText]}>Day</Text>
+                                <Text style={[styles.colTime, styles.tableHeaderText]}>Time</Text>
+                                <Text style={[styles.colSubject, styles.tableHeaderText]}>Subject</Text>
+                                <Text style={[styles.colSection, styles.tableHeaderText]}>Section</Text>
+                                <Text style={[styles.colFaculty, styles.tableHeaderText]}>Faculty</Text>
+                                <Text style={[styles.colRoom, styles.tableHeaderText]}>Room</Text>
+                                <Text style={[styles.colType, styles.tableHeaderText]}>Type</Text>
+                            </View>
+
+                            {rows.length === 0 ? (
+                                <Text style={styles.emptyState}>No schedule entries available for this export.</Text>
+                            ) : (
+                                rows.map((r, idx) => {
+                                    const type = meetingTypeLabel(r.meetingType)
+                                    const typeStyle =
+                                        type === "LAB"
+                                            ? styles.typePillLab
+                                            : type === "LECTURE"
+                                                ? styles.typePillLecture
+                                                : styles.typePillOther
+
+                                    return (
+                                        <View
+                                            key={`pdf-row-${r.meetingId}`}
+                                            style={[
+                                                styles.tableRow,
+                                                idx % 2 === 0 ? styles.tableRowOdd : styles.tableRowEven,
+                                            ]}
+                                            wrap={false}
+                                        >
+                                            <Text style={[styles.colDay, styles.cellText]}>{r.dayOfWeek || "—"}</Text>
+                                            <Text style={[styles.colTime, styles.cellText]}>{formatTimeRange(r.startTime, r.endTime)}</Text>
+                                            <Text style={[styles.colSubject, styles.cellText]}>{r.subjectLabel || "—"}</Text>
+                                            <Text style={[styles.colSection, styles.cellText]}>{r.sectionLabel || "—"}</Text>
+                                            <Text style={[styles.colFaculty, styles.cellText]}>{r.facultyName || "—"}</Text>
+                                            <Text style={[styles.colRoom, styles.cellText]}>{r.roomLabel || "—"}</Text>
+                                            <View style={styles.colType}>
+                                                <View style={[styles.typePill, typeStyle]}>
+                                                    <Text style={styles.typePillText}>{type}</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    )
+                                })
+                            )}
+                        </View>
+
+                        <Text style={styles.footer}>Rows exported: {rows.length}</Text>
                     </View>
                 </View>
-
-                <View style={styles.tableHeader}>
-                    <Text style={styles.colDay}>Day</Text>
-                    <Text style={styles.colTime}>Time</Text>
-                    <Text style={styles.colSubject}>Subject</Text>
-                    <Text style={styles.colSection}>Section</Text>
-                    <Text style={styles.colFaculty}>Faculty</Text>
-                    <Text style={styles.colRoom}>Room</Text>
-                    <Text style={styles.colType}>Type</Text>
-                </View>
-
-                {rows.map((r) => (
-                    <View key={`pdf-row-${r.meetingId}`} style={styles.tableRow}>
-                        <Text style={styles.colDay}>{r.dayOfWeek || "—"}</Text>
-                        <Text style={styles.colTime}>{formatTimeRange(r.startTime, r.endTime)}</Text>
-                        <Text style={styles.colSubject}>{r.subjectLabel || "—"}</Text>
-                        <Text style={styles.colSection}>{r.sectionLabel || "—"}</Text>
-                        <Text style={styles.colFaculty}>{r.facultyName || "—"}</Text>
-                        <Text style={styles.colRoom}>{r.roomLabel || "—"}</Text>
-                        <Text style={styles.colType}>{meetingTypeLabel(r.meetingType)}</Text>
-                    </View>
-                ))}
-
-                <Text style={styles.footer}>Rows exported: {rows.length}</Text>
             </Page>
         </Document>
     )
