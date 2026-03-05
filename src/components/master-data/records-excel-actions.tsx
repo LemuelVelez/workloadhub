@@ -51,6 +51,56 @@ function safeId(r: any) {
 }
 
 /**
+ * Display time as 12-hour clock with AM/PM.
+ * Accepts: "08:00", "8:00", "08:00:00", already formatted "8:00 AM", etc.
+ */
+function formatTimeAmPm(value: any) {
+    const raw = String(value ?? "").trim()
+    if (!raw || raw === "—") return "—"
+
+    // If already contains AM/PM, keep it as-is (normalize spacing a bit)
+    if (/\b(am|pm)\b/i.test(raw)) {
+        return raw.replace(/\s+/g, " ").trim()
+    }
+
+    // Handle "HH:mm" or "HH:mm:ss"
+    const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(raw)
+    if (!m) return raw
+
+    const hh = Number(m[1])
+    const mm = Number(m[2])
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return raw
+
+    const suffix = hh >= 12 ? "PM" : "AM"
+    const h12 = hh % 12 === 0 ? 12 : hh % 12
+    return `${h12}:${pad2(mm)} ${suffix}`
+}
+
+function formatDateTimeAmPm(d: Date) {
+    try {
+        return d.toLocaleString(undefined, {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+        })
+    } catch {
+        // Fallback (still AM/PM)
+        const yyyy = d.getFullYear()
+        const mm = pad2(d.getMonth() + 1)
+        const dd = pad2(d.getDate())
+        const hh = d.getHours()
+        const mi = d.getMinutes()
+        const suffix = hh >= 12 ? "PM" : "AM"
+        const h12 = hh % 12 === 0 ? 12 : hh % 12
+        return `${yyyy}-${mm}-${dd} ${h12}:${pad2(mi)} ${suffix}`
+    }
+}
+
+/**
  * ✅ Excel Export Styling
  * - Prefer "xlsx-js-style" (supports colors/styles)
  * - Fallback to "xlsx" (no styling support, export still works)
@@ -121,11 +171,14 @@ export function RecordsExcelActions({
             const unitsNum = Number(unitsRaw)
             const units = Number.isFinite(unitsNum) ? unitsNum : "—"
 
+            const startRaw = r?.startTime ?? r?.start ?? "—"
+            const endRaw = r?.endTime ?? r?.end ?? "—"
+
             return [
                 resolveTermLabel(r),
                 String(r?.dayOfWeek ?? r?.day ?? "—"),
-                String(r?.startTime ?? r?.start ?? "—"),
-                String(r?.endTime ?? r?.end ?? "—"),
+                formatTimeAmPm(startRaw),
+                formatTimeAmPm(endRaw),
                 String(r?.roomLabel ?? r?.room ?? "—"),
                 String(r?.facultyLabel ?? r?.faculty ?? "—"),
                 String(r?.subjectCode ?? r?.code ?? "—"),
@@ -138,7 +191,7 @@ export function RecordsExcelActions({
         const aoa: any[][] = [
             [title],
             [`Filters: ${subjectFilterLabel} • ${unitFilterLabel}`],
-            [`Generated at: ${generatedAt.toLocaleString()}`],
+            [`Generated at: ${formatDateTimeAmPm(generatedAt)}`],
             [],
             headers,
             ...dataRows,
@@ -157,26 +210,26 @@ export function RecordsExcelActions({
             e: { r: 0, c: totalCols - 1 },
         })
 
-        // Column widths (user-friendly)
+        // Column widths (more space for long text)
         ws["!cols"] = [
-            { wch: 24 }, // Term
-            { wch: 12 }, // Day
-            { wch: 12 }, // Start
-            { wch: 12 }, // End
-            { wch: 18 }, // Room
-            { wch: 28 }, // Faculty
-            { wch: 16 }, // Subject Code
-            { wch: 36 }, // Subject Title
+            { wch: 28 }, // Term
+            { wch: 14 }, // Day
+            { wch: 14 }, // Start
+            { wch: 14 }, // End
+            { wch: 22 }, // Room
+            { wch: 34 }, // Faculty
+            { wch: 18 }, // Subject Code
+            { wch: 48 }, // Subject Title
             { wch: 10 }, // Units
             { wch: 12 }, // Conflict
         ]
 
-        // Row heights (nice spacing)
+        // Row heights (more space for wrapped/long text)
         ws["!rows"] = ws["!rows"] || []
-        ws["!rows"][0] = { hpt: 26 } // title
-        ws["!rows"][1] = { hpt: 18 } // filters
-        ws["!rows"][2] = { hpt: 18 } // generated at
-        ws["!rows"][4] = { hpt: 20 } // headers (row 5)
+        ws["!rows"][0] = { hpt: 28 } // title
+        ws["!rows"][1] = { hpt: 20 } // filters
+        ws["!rows"][2] = { hpt: 20 } // generated at
+        ws["!rows"][4] = { hpt: 24 } // headers (row 5)
 
         // Auto-filter for header row
         const lastColLetter = XLSX.utils.encode_col(totalCols - 1)
@@ -199,7 +252,7 @@ export function RecordsExcelActions({
         const metaStyle = {
             font: { color: { rgb: "334155" }, sz: 10 },
             fill: { patternType: "solid", fgColor: { rgb: "F1F5F9" } },
-            alignment: { horizontal: "left", vertical: "center" },
+            alignment: { horizontal: "left", vertical: "center", indent: 1 },
         }
 
         const headerStyle = {
@@ -209,8 +262,9 @@ export function RecordsExcelActions({
             border,
         }
 
+        // Base style for data rows (adds visible spacing via indent + taller rows)
         const rowStyleBase = {
-            alignment: { horizontal: "left", vertical: "center", wrapText: true },
+            alignment: { horizontal: "left", vertical: "top", wrapText: true, indent: 1 },
             border,
         }
 
@@ -252,7 +306,8 @@ export function RecordsExcelActions({
             const recordId = safeId(rows[i])
             const isConflict = recordId ? conflictRecordIds.has(recordId) : false
 
-            ws["!rows"][excelRow - 1] = { hpt: 18 }
+            // more room for wrapped text
+            ws["!rows"][excelRow - 1] = { hpt: 30 }
 
             for (let c = 0; c < totalCols; c++) {
                 const addr = XLSX.utils.encode_cell({ r: excelRow - 1, c })
@@ -265,13 +320,19 @@ export function RecordsExcelActions({
                             ? conflictFill
                             : clearFill
                         : isConflict
-                            ? conflictFill
-                            : zebraFill(even)
+                          ? conflictFill
+                          : zebraFill(even)
 
                 const align =
-                    c === 8 // Units
+                    c === 1 // Day
                         ? { horizontal: "center", vertical: "center", wrapText: true }
-                        : rowStyleBase.alignment
+                        : c === 2 || c === 3 // Start/End time
+                          ? { horizontal: "center", vertical: "center", wrapText: true }
+                          : c === 8 // Units
+                            ? { horizontal: "center", vertical: "center", wrapText: true }
+                            : c === 9 // Conflict
+                              ? { horizontal: "center", vertical: "center", wrapText: true }
+                              : rowStyleBase.alignment
 
                 ws[addr].s = {
                     ...rowStyleBase,
@@ -348,7 +409,7 @@ export function RecordsExcelActions({
             </div>
 
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="sm:max-w-6xl">
+                <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
                     <DialogHeader>
                         <DialogTitle>Excel Preview — List of Records</DialogTitle>
                         <DialogDescription>
@@ -364,62 +425,68 @@ export function RecordsExcelActions({
                         </Badge>
                     </div>
 
-                    {/* ✅ Both horizontal + vertical scrollbars */}
-                    <div className="rounded-md border">
-                        <ScrollArea className="h-[60vh] w-full">
-                            <div className="min-w-max">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-56">Term</TableHead>
-                                            <TableHead className="w-28">Day</TableHead>
-                                            <TableHead className="w-28">Start</TableHead>
-                                            <TableHead className="w-28">End</TableHead>
-                                            <TableHead className="w-48">Room</TableHead>
-                                            <TableHead className="w-72">Faculty</TableHead>
-                                            <TableHead className="w-40">Subject Code</TableHead>
-                                            <TableHead className="min-w-80">Subject Title</TableHead>
-                                            <TableHead className="w-20">Units</TableHead>
-                                            <TableHead className="w-28">Conflict</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {rows.map((r: any, idx: number) => {
-                                            const id = safeId(r)
-                                            const isConflict = id ? conflictRecordIds.has(id) : false
-                                            return (
-                                                <TableRow
-                                                    key={id || idx}
-                                                    className={isConflict ? "bg-destructive/10" : ""}
-                                                >
-                                                    <TableCell className="text-muted-foreground">
-                                                        {resolveTermLabel(r)}
-                                                    </TableCell>
-                                                    <TableCell>{String(r?.dayOfWeek ?? r?.day ?? "—")}</TableCell>
-                                                    <TableCell>{String(r?.startTime ?? r?.start ?? "—")}</TableCell>
-                                                    <TableCell>{String(r?.endTime ?? r?.end ?? "—")}</TableCell>
-                                                    <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
-                                                    <TableCell className="text-muted-foreground">
-                                                        {String(r?.facultyLabel ?? r?.faculty ?? "—")}
-                                                    </TableCell>
-                                                    <TableCell className="font-medium">
-                                                        {String(r?.subjectCode ?? r?.code ?? "—")}
-                                                    </TableCell>
-                                                    <TableCell className="text-muted-foreground">
-                                                        {String(r?.subjectTitle ?? r?.title ?? "—")}
-                                                    </TableCell>
-                                                    <TableCell>{r?.units ?? "—"}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={isConflict ? "destructive" : "secondary"}>
-                                                            {isConflict ? "Conflict" : "Clear"}
-                                                        </Badge>
-                                                    </TableCell>
-                                                </TableRow>
-                                            )
-                                        })}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                    {/* ✅ Prevent dialog width overflow; ScrollArea handles both axes */}
+                    <div className="rounded-md border min-w-0 max-w-full">
+                        <ScrollArea className="h-[60vh] w-full min-w-0">
+                            <Table
+                                // Let the table size to its columns so the ScrollArea can scroll horizontally
+                                containerClassName="w-max overflow-visible"
+                                className="w-full"
+                            >
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-56">Term</TableHead>
+                                        <TableHead className="w-28">Day</TableHead>
+                                        <TableHead className="w-32">Start</TableHead>
+                                        <TableHead className="w-32">End</TableHead>
+                                        <TableHead className="w-48">Room</TableHead>
+                                        <TableHead className="w-72">Faculty</TableHead>
+                                        <TableHead className="w-40">Subject Code</TableHead>
+                                        <TableHead className="min-w-80">Subject Title</TableHead>
+                                        <TableHead className="w-20">Units</TableHead>
+                                        <TableHead className="w-28">Conflict</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {rows.map((r: any, idx: number) => {
+                                        const id = safeId(r)
+                                        const isConflict = id ? conflictRecordIds.has(id) : false
+
+                                        const startRaw = r?.startTime ?? r?.start ?? "—"
+                                        const endRaw = r?.endTime ?? r?.end ?? "—"
+
+                                        return (
+                                            <TableRow
+                                                key={id || idx}
+                                                className={isConflict ? "bg-destructive/10" : ""}
+                                            >
+                                                <TableCell className="text-muted-foreground">
+                                                    {resolveTermLabel(r)}
+                                                </TableCell>
+                                                <TableCell>{String(r?.dayOfWeek ?? r?.day ?? "—")}</TableCell>
+                                                <TableCell>{formatTimeAmPm(startRaw)}</TableCell>
+                                                <TableCell>{formatTimeAmPm(endRaw)}</TableCell>
+                                                <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
+                                                <TableCell className="text-muted-foreground">
+                                                    {String(r?.facultyLabel ?? r?.faculty ?? "—")}
+                                                </TableCell>
+                                                <TableCell className="font-medium">
+                                                    {String(r?.subjectCode ?? r?.code ?? "—")}
+                                                </TableCell>
+                                                <TableCell className="text-muted-foreground">
+                                                    {String(r?.subjectTitle ?? r?.title ?? "—")}
+                                                </TableCell>
+                                                <TableCell>{r?.units ?? "—"}</TableCell>
+                                                <TableCell>
+                                                    <Badge variant={isConflict ? "destructive" : "secondary"}>
+                                                        {isConflict ? "Conflict" : "Clear"}
+                                                    </Badge>
+                                                </TableCell>
+                                            </TableRow>
+                                        )
+                                    })}
+                                </TableBody>
+                            </Table>
 
                             <ScrollBar orientation="horizontal" />
                             <ScrollBar orientation="vertical" />
@@ -428,7 +495,7 @@ export function RecordsExcelActions({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            Exported file includes styled title/header rows, zebra striping, borders, and conflict highlight.
+                            Exported file includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight.
                         </div>
 
                         <div className="flex items-center gap-2">
