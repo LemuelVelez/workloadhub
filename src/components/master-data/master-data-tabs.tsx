@@ -7,6 +7,7 @@ import { Plus, Pencil, Trash2 } from "lucide-react"
 
 import type { MasterDataManagementVM } from "./use-master-data"
 import { RecordsExcelActions } from "./records-excel-actions"
+import { RecordsPdfActions } from "./records-pdf-actions"
 
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
 
@@ -1018,7 +1019,7 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                     </div>
                                 </div>
 
-                                {/* ✅ Excel Export + Preview actions */}
+                                {/* ✅ Export actions (separate Excel & PDF components; no combined tabs) */}
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="text-sm text-muted-foreground">
                                         Showing{" "}
@@ -1030,13 +1031,23 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                         <span className="font-medium text-foreground">{recordUnitFilterLabel}</span>
                                     </div>
 
-                                    <RecordsExcelActions
-                                        rows={vm.filteredRecordRows}
-                                        resolveTermLabel={resolveTermLabel}
-                                        conflictRecordIds={vm.conflictRecordIds}
-                                        subjectFilterLabel={recordSubjectFilterLabel}
-                                        unitFilterLabel={recordUnitFilterLabel}
-                                    />
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                                        <RecordsExcelActions
+                                            rows={vm.filteredRecordRows}
+                                            resolveTermLabel={resolveTermLabel}
+                                            conflictRecordIds={vm.conflictRecordIds}
+                                            subjectFilterLabel={recordSubjectFilterLabel}
+                                            unitFilterLabel={recordUnitFilterLabel}
+                                        />
+
+                                        <RecordsPdfActions
+                                            rows={vm.filteredRecordRows}
+                                            resolveTermLabel={resolveTermLabel}
+                                            conflictRecordIds={vm.conflictRecordIds}
+                                            subjectFilterLabel={recordSubjectFilterLabel}
+                                            unitFilterLabel={recordUnitFilterLabel}
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
@@ -1216,7 +1227,6 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                                     vm.filteredFaculty.map((f: any) => {
                                                         const u = vm.facultyUserMap.get(String(f.userId).trim()) ?? null
                                                         const label = u ? vm.facultyDisplay(u) : String(f.userId)
-                                                        // Use userId as selection value by default (common schema)
                                                         return (
                                                             <SelectItem key={f.$id} value={String(f.userId)}>
                                                                 {label}
