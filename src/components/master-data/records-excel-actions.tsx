@@ -51,17 +51,25 @@ function safeId(r: any) {
 }
 
 async function loadXlsxModule() {
-    // Prefer styled writer if present, fallback to xlsx.
+    /**
+     * IMPORTANT (Vite):
+     * If we import a package that is NOT installed, Vite will crash during dev
+     * while analyzing imports. We must use @vite-ignore so dev server won't error.
+     *
+     * At runtime, if not installed, it will throw and we fallback / show a toast.
+     */
     try {
+        const spec = "xlsx-js-style"
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
-        const mod = await import("xlsx-js-style")
+        const mod = await import(/* @vite-ignore */ spec)
         return mod
     } catch (_e) {
         try {
+            const spec = "xlsx"
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             // @ts-ignore
-            const mod = await import("xlsx")
+            const mod = await import(/* @vite-ignore */ spec)
             return mod
         } catch (e2) {
             throw e2
@@ -216,7 +224,6 @@ export function RecordsExcelActions({
             const addr = `A${r}`
             if (ws[addr]) {
                 ws[addr].s = metaStyle
-                // merge meta rows across columns (optional but looks good)
                 ws["!merges"].push({
                     s: { r: r - 1, c: 0 },
                     e: { r: r - 1, c: totalCols - 1 },
@@ -283,10 +290,9 @@ export function RecordsExcelActions({
             const { blob, filename } = await buildWorkbookBlob()
             downloadBlob(blob, filename)
             toast.success("Excel exported.")
-        } catch (e: any) {
+        } catch (_e: any) {
             toast.error(
-                e?.message ??
-                    "Failed to export Excel. Make sure your Excel library (xlsx-js-style / xlsx) is installed."
+                "Excel export needs an Excel library. Install one: npm i xlsx-js-style (recommended) OR npm i xlsx"
             )
         } finally {
             setBusy(false)
