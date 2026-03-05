@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Plus, Pencil, Trash2 } from "lucide-react"
 
 import type { MasterDataManagementVM } from "./use-master-data"
+import { RecordsExcelActions } from "./records-excel-actions"
 
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
 
@@ -144,6 +145,22 @@ export function MasterDataTabs({ vm }: Props) {
         },
         [vm]
     )
+
+    const recordSubjectFilterLabel = React.useMemo(() => {
+        const v = String((vm as any).recordSubjectFilter ?? "__all__")
+        if (!v || v === "__all__") return "All Subjects"
+        const s = (vm.subjects ?? []).find((x: any) => String(x.$id) === v)
+        if (!s) return "Selected Subject"
+        return `${s.code} — ${s.title}`
+    }, [vm])
+
+    const recordUnitFilterLabel = React.useMemo(() => {
+        const v = String((vm as any).recordUnitFilter ?? "__all__")
+        if (!v || v === "__all__") return "All Units"
+        const n = Number(v)
+        if (!Number.isFinite(n)) return "Selected Units"
+        return `${n} unit${n > 1 ? "s" : ""}`
+    }, [vm])
 
     const saveEditedRecord = React.useCallback(async () => {
         if (!recordEditingRow) return
@@ -920,6 +937,27 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                             </SelectContent>
                                         </Select>
                                     </div>
+                                </div>
+
+                                {/* ✅ Excel Export + Preview actions */}
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="text-sm text-muted-foreground">
+                                        Showing{" "}
+                                        <span className="font-medium text-foreground">
+                                            {vm.filteredRecordRows.length}
+                                        </span>{" "}
+                                        record{vm.filteredRecordRows.length === 1 ? "" : "s"} •{" "}
+                                        <span className="font-medium text-foreground">{recordSubjectFilterLabel}</span> •{" "}
+                                        <span className="font-medium text-foreground">{recordUnitFilterLabel}</span>
+                                    </div>
+
+                                    <RecordsExcelActions
+                                        rows={vm.filteredRecordRows}
+                                        resolveTermLabel={resolveTermLabel}
+                                        conflictRecordIds={vm.conflictRecordIds}
+                                        subjectFilterLabel={recordSubjectFilterLabel}
+                                        unitFilterLabel={recordUnitFilterLabel}
+                                    />
                                 </div>
                             </div>
 
