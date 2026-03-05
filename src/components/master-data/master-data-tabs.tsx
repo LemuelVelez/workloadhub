@@ -162,6 +162,18 @@ export function MasterDataTabs({ vm }: Props) {
         )
     }, [])
 
+    const TAB_OPTIONS = React.useMemo(
+        () => [
+            { value: "colleges", label: "Colleges" },
+            { value: "programs", label: "Programs/Courses" },
+            { value: "subjects", label: "Subjects" },
+            { value: "faculty", label: "Faculty" },
+            { value: "sections", label: "Sections" },
+            { value: "records", label: "List of Records" },
+        ],
+        []
+    )
+
     const openEditRecord = React.useCallback(
         (r: any) => {
             setRecordEditingRow(r)
@@ -423,7 +435,24 @@ export function MasterDataTabs({ vm }: Props) {
 
                 <CardContent>
                     <Tabs value={vm.tab} onValueChange={(v: any) => vm.setTab(v)} className="w-full">
-                        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6">
+                        {/* ✅ Mobile (xs): dropdown selection */}
+                        <div className="sm:hidden">
+                            <Select value={vm.tab} onValueChange={(v) => vm.setTab(v as any)}>
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select section" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {TAB_OPTIONS.map((t) => (
+                                        <SelectItem key={t.value} value={t.value}>
+                                            {t.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* ✅ Tablet/Desktop: tabs */}
+                        <TabsList className="hidden w-full grid-cols-2 sm:grid lg:grid-cols-6">
                             <TabsTrigger value="colleges">Colleges</TabsTrigger>
                             <TabsTrigger value="programs">Programs/Courses</TabsTrigger>
                             <TabsTrigger value="subjects">Subjects</TabsTrigger>
