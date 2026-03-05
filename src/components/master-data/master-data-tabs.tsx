@@ -1,9 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
+import * as React from "react"
+import { toast } from "sonner"
 import { Plus, Pencil, Trash2 } from "lucide-react"
 
 import type { MasterDataManagementVM } from "./use-master-data"
+
+import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +19,14 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription as ShadDialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -40,7 +52,233 @@ type Props = {
     vm: MasterDataManagementVM
 }
 
+const DAYS = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+] as const
+
+function hasOwn(obj: any, key: string) {
+    return obj != null && Object.prototype.hasOwnProperty.call(obj, key)
+}
+
+function isUnknownLabel(v: any) {
+    const s = String(v ?? "").trim().toLowerCase()
+    return !s || s === "unknown" || s.includes("unknown term") || s.startsWith("unknown •") || s.startsWith("unknown ")
+}
+
 export function MasterDataTabs({ vm }: Props) {
+    // ===================== RECORD EDIT (LOCAL DIALOG) =====================
+    const [recordEditOpen, setRecordEditOpen] = React.useState(false)
+    const [recordEditingRow, setRecordEditingRow] = React.useState<any | null>(null)
+    const [savingRecord, setSavingRecord] = React.useState(false)
+
+    const [recordTermId, setRecordTermId] = React.useState("")
+    const [recordDay, setRecordDay] = React.useState<(typeof DAYS)[number]>("Monday")
+    const [recordStartTime, setRecordStartTime] = React.useState("")
+    const [recordEndTime, setRecordEndTime] = React.useState("")
+    const [recordRoom, setRecordRoom] = React.useState("")
+    const [recordFacultyValue, setRecordFacultyValue] = React.useState("") // could be userId or docId (based on stored field)
+    const [recordSubjectId, setRecordSubjectId] = React.useState("")
+
+    const recordsCollectionId = React.useMemo(() => {
+        const anyCollections = COLLECTIONS as any
+        return (
+            anyCollections.LIST_OF_RECORDS ||
+            anyCollections.RECORDS ||
+            anyCollections.CLASS_RECORDS ||
+            anyCollections.SCHEDULE_RECORDS ||
+            anyCollections.WORKLOAD_RECORDS ||
+            ""
+        )
+    }, [])
+
+    const openEditRecord = React.useCallback(
+        (r: any) => {
+            setRecordEditingRow(r)
+
+            const termId =
+                (r?.termId ?? r?.academicTermId ?? r?.term ?? r?.term_id ?? r?.termID ?? "") as string
+            const day =
+                (r?.dayOfWeek ?? r?.day ?? r?.dow ?? "Monday") as (typeof DAYS)[number]
+            const start = (r?.startTime ?? r?.start ?? "") as string
+            const end = (r?.endTime ?? r?.end ?? "") as string
+            const room = (r?.roomLabel ?? r?.room ?? r?.roomName ?? "") as string
+
+            // Faculty might be stored as userId OR facultyId depending on your schema.
+            const facultyValue =
+                (r?.facultyUserId ?? r?.facultyId ?? r?.faculty ?? r?.userId ?? "") as string
+
+            const subjectId =
+                (r?.subjectId ?? r?.subject ?? r?.subjectDocId ?? r?.subjectID ?? "") as string
+
+            setRecordTermId(String(termId ?? ""))
+            setRecordDay((DAYS as any).includes(day) ? day : "Monday")
+            setRecordStartTime(String(start ?? ""))
+            setRecordEndTime(String(end ?? ""))
+            setRecordRoom(String(room ?? ""))
+            setRecordFacultyValue(String(facultyValue ?? ""))
+            setRecordSubjectId(String(subjectId ?? ""))
+
+            setRecordEditOpen(true)
+        },
+        [setRecordEditOpen]
+    )
+
+    const resolveTermLabel = React.useCallback(
+        (r: any) => {
+            const termId =
+                (r?.termId ?? r?.academicTermId ?? r?.term ?? r?.term_id ?? r?.termID ?? "") as string
+
+            const computed = termId ? vm.termLabel(vm.terms, termId) : ""
+            if (computed && !isUnknownLabel(computed)) return computed
+
+            const fromRow = r?.termLabel ?? r?.term_name ?? r?.termText ?? ""
+            if (fromRow && !isUnknownLabel(fromRow)) return String(fromRow)
+
+            return "—"
+        },
+        [vm]
+    )
+
+    const saveEditedRecord = React.useCallback(async () => {
+        if (!recordEditingRow) return
+
+        if (!recordsCollectionId) {
+            toast.error("Records collection is not configured in COLLECTIONS.")
+            return
+        }
+
+        const docId = String(
+            recordEditingRow?.id ??
+                recordEditingRow?.$id ??
+                recordEditingRow?.recordId ??
+                recordEditingRow?.record_id ??
+                ""
+        ).trim()
+
+        if (!docId) {
+            toast.error("Missing record document id.")
+            return
+        }
+
+        const termId = recordTermId.trim()
+        if (!termId) {
+            toast.error("Term is required.")
+            return
+        }
+
+        const start = recordStartTime.trim()
+        const end = recordEndTime.trim()
+        if (!start || !end) {
+            toast.error("Start time and End time are required.")
+            return
+        }
+        if (start >= end) {
+            toast.error("Start time must be before End time.")
+            return
+        }
+
+        const room = recordRoom.trim()
+        if (!room) {
+            toast.error("Room is required.")
+            return
+        }
+
+        if (!recordSubjectId.trim()) {
+            toast.error("Subject is required.")
+            return
+        }
+
+        if (!recordFacultyValue.trim()) {
+            toast.error("Faculty is required.")
+            return
+        }
+
+        const payload: any = {}
+
+        // Update only fields that already exist in the source object to avoid schema errors.
+        // TERM
+        if (hasOwn(recordEditingRow, "termId")) payload.termId = termId
+        else if (hasOwn(recordEditingRow, "academicTermId")) payload.academicTermId = termId
+        else if (hasOwn(recordEditingRow, "term")) payload.term = termId
+        else if (hasOwn(recordEditingRow, "term_id")) payload.term_id = termId
+        else if (hasOwn(recordEditingRow, "termID")) payload.termID = termId
+
+        // DAY
+        if (hasOwn(recordEditingRow, "dayOfWeek")) payload.dayOfWeek = recordDay
+        else if (hasOwn(recordEditingRow, "day")) payload.day = recordDay
+        else if (hasOwn(recordEditingRow, "dow")) payload.dow = recordDay
+
+        // TIME
+        if (hasOwn(recordEditingRow, "startTime")) payload.startTime = start
+        else if (hasOwn(recordEditingRow, "start")) payload.start = start
+
+        if (hasOwn(recordEditingRow, "endTime")) payload.endTime = end
+        else if (hasOwn(recordEditingRow, "end")) payload.end = end
+
+        // ROOM
+        if (hasOwn(recordEditingRow, "roomLabel")) payload.roomLabel = room
+        else if (hasOwn(recordEditingRow, "room")) payload.room = room
+        else if (hasOwn(recordEditingRow, "roomName")) payload.roomName = room
+
+        // FACULTY
+        if (hasOwn(recordEditingRow, "facultyUserId")) payload.facultyUserId = recordFacultyValue.trim()
+        else if (hasOwn(recordEditingRow, "facultyId")) payload.facultyId = recordFacultyValue.trim()
+        else if (hasOwn(recordEditingRow, "faculty")) payload.faculty = recordFacultyValue.trim()
+        else if (hasOwn(recordEditingRow, "userId")) payload.userId = recordFacultyValue.trim()
+
+        // SUBJECT
+        if (hasOwn(recordEditingRow, "subjectId")) payload.subjectId = recordSubjectId.trim()
+        else if (hasOwn(recordEditingRow, "subject")) payload.subject = recordSubjectId.trim()
+        else if (hasOwn(recordEditingRow, "subjectDocId")) payload.subjectDocId = recordSubjectId.trim()
+        else if (hasOwn(recordEditingRow, "subjectID")) payload.subjectID = recordSubjectId.trim()
+
+        // UNITS (optional - if stored)
+        if (hasOwn(recordEditingRow, "units")) {
+            const subj = vm.subjects.find((s: any) => s.$id === recordSubjectId.trim()) ?? null
+            const units = subj?.units
+            if (units != null && String(units).trim() !== "") payload.units = units
+        }
+
+        if (Object.keys(payload).length === 0) {
+            toast.error("No editable fields detected for this record schema.")
+            return
+        }
+
+        setSavingRecord(true)
+        try {
+            await databases.updateDocument(DATABASE_ID, recordsCollectionId, docId, payload)
+            toast.success("Record updated.")
+            setRecordEditOpen(false)
+            setRecordEditingRow(null)
+
+            // Refresh everything (safe if exists)
+            if (typeof (vm as any).refreshAll === "function") {
+                await (vm as any).refreshAll()
+            }
+        } catch (e: any) {
+            toast.error(e?.message ?? "Failed to update record.")
+        } finally {
+            setSavingRecord(false)
+        }
+    }, [
+        recordEditingRow,
+        recordsCollectionId,
+        recordTermId,
+        recordDay,
+        recordStartTime,
+        recordEndTime,
+        recordRoom,
+        recordFacultyValue,
+        recordSubjectId,
+        vm,
+    ])
+
     return (
         <>
             <Alert>
@@ -706,14 +944,17 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                                 <TableHead className="w-80">Subject</TableHead>
                                                 <TableHead className="w-20">Units</TableHead>
                                                 <TableHead className="w-28">Conflict</TableHead>
+                                                <TableHead className="w-32 text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
                                             {vm.filteredRecordRows.map((r) => {
                                                 const hasConflict = vm.conflictRecordIds.has(r.id)
+                                                const termText = resolveTermLabel(r)
+
                                                 return (
                                                     <TableRow key={r.id}>
-                                                        <TableCell className="text-muted-foreground">{r.termLabel}</TableCell>
+                                                        <TableCell className="text-muted-foreground">{termText}</TableCell>
                                                         <TableCell>{r.dayOfWeek || "—"}</TableCell>
                                                         <TableCell>{r.startTime} - {r.endTime}</TableCell>
                                                         <TableCell>{r.roomLabel}</TableCell>
@@ -728,6 +969,16 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                                                 {hasConflict ? "Conflict" : "Clear"}
                                                             </Badge>
                                                         </TableCell>
+                                                        <TableCell className="text-right">
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => openEditRecord(r)}
+                                                            >
+                                                                <Pencil className="mr-2 h-4 w-4" />
+                                                                Edit
+                                                            </Button>
+                                                        </TableCell>
                                                     </TableRow>
                                                 )
                                             })}
@@ -737,6 +988,157 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                             )}
                         </TabsContent>
                     </Tabs>
+
+                    {/* ===================== EDIT RECORD DIALOG ===================== */}
+                    <Dialog open={recordEditOpen} onOpenChange={setRecordEditOpen}>
+                        <DialogContent className="sm:max-w-3xl">
+                            <DialogHeader>
+                                <DialogTitle>Edit Record</DialogTitle>
+                                <ShadDialogDescription>
+                                    Update term/day/time/room/faculty/subject for this record. Changes will reflect in conflict detection after refresh.
+                                </ShadDialogDescription>
+                            </DialogHeader>
+
+                            <div className="grid gap-4 py-2">
+                                <div className="grid gap-2">
+                                    <label className="text-sm font-medium">Term</label>
+                                    <Select value={recordTermId} onValueChange={setRecordTermId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select Term" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {vm.terms.length === 0 ? (
+                                                <SelectItem value="__none__" disabled>
+                                                    No academic terms found
+                                                </SelectItem>
+                                            ) : (
+                                                vm.terms.map((t) => (
+                                                    <SelectItem key={t.$id} value={t.$id}>
+                                                        {vm.termLabel(vm.terms, t.$id)}{t.isActive ? " • Active" : ""}
+                                                    </SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="grid gap-4 sm:grid-cols-3">
+                                    <div className="grid gap-2">
+                                        <label className="text-sm font-medium">Day</label>
+                                        <Select value={recordDay} onValueChange={(v: any) => setRecordDay(v)}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select Day" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {DAYS.map((d) => (
+                                                    <SelectItem key={d} value={d}>
+                                                        {d}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <label className="text-sm font-medium">Start Time</label>
+                                        <Input
+                                            value={recordStartTime}
+                                            onChange={(e) => setRecordStartTime(e.target.value)}
+                                            placeholder="08:00"
+                                        />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <label className="text-sm font-medium">End Time</label>
+                                        <Input
+                                            value={recordEndTime}
+                                            onChange={(e) => setRecordEndTime(e.target.value)}
+                                            placeholder="09:00"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <label className="text-sm font-medium">Room</label>
+                                    <Input
+                                        value={recordRoom}
+                                        onChange={(e) => setRecordRoom(e.target.value)}
+                                        placeholder="e.g. Room 301 / AVR / Lab 2"
+                                    />
+                                </div>
+
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div className="grid gap-2">
+                                        <label className="text-sm font-medium">Faculty</label>
+                                        <Select value={recordFacultyValue} onValueChange={setRecordFacultyValue}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select Faculty" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {vm.filteredFaculty.length === 0 ? (
+                                                    <SelectItem value="__none__" disabled>
+                                                        No faculty found
+                                                    </SelectItem>
+                                                ) : (
+                                                    vm.filteredFaculty.map((f: any) => {
+                                                        const u = vm.facultyUserMap.get(String(f.userId).trim()) ?? null
+                                                        const label = u ? vm.facultyDisplay(u) : String(f.userId)
+                                                        // Use userId as selection value by default (common schema)
+                                                        return (
+                                                            <SelectItem key={f.$id} value={String(f.userId)}>
+                                                                {label}
+                                                            </SelectItem>
+                                                        )
+                                                    })
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="text-xs text-muted-foreground">
+                                            Note: This uses Faculty userId as the selection value (common schema).
+                                        </div>
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <label className="text-sm font-medium">Subject</label>
+                                        <Select value={recordSubjectId} onValueChange={setRecordSubjectId}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select Subject" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {vm.subjects.length === 0 ? (
+                                                    <SelectItem value="__none__" disabled>
+                                                        No subjects found
+                                                    </SelectItem>
+                                                ) : (
+                                                    vm.subjects.map((s: any) => (
+                                                        <SelectItem key={s.$id} value={s.$id}>
+                                                            {s.code} — {s.title}
+                                                        </SelectItem>
+                                                    ))
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <DialogFooter>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setRecordEditOpen(false)
+                                        setRecordEditingRow(null)
+                                    }}
+                                    disabled={savingRecord}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button onClick={() => void saveEditedRecord()} disabled={savingRecord}>
+                                    {savingRecord ? "Saving..." : "Save Changes"}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </CardContent>
             </Card>
         </>
