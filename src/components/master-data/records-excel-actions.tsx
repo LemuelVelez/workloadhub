@@ -15,7 +15,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
     Table,
     TableBody,
@@ -50,31 +50,25 @@ function safeId(r: any) {
     return String(r?.id ?? r?.$id ?? r?.recordId ?? r?.record_id ?? "").trim()
 }
 
+/**
+ * ✅ Excel Export Styling
+ * - Prefer "xlsx-js-style" (supports colors/styles)
+ * - Fallback to "xlsx" (no styling support, export still works)
+ */
+let xlsxPromise: Promise<{ XLSX: any; supportsStyles: boolean }> | null = null
 async function loadXlsxModule() {
-    /**
-     * IMPORTANT (Vite):
-     * If we import a package that is NOT installed, Vite will crash during dev
-     * while analyzing imports. We must use @vite-ignore so dev server won't error.
-     *
-     * At runtime, if not installed, it will throw and we fallback / show a toast.
-     */
-    try {
-        const spec = "xlsx-js-style"
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        const mod = await import(/* @vite-ignore */ spec)
-        return mod
-    } catch (_e) {
-        try {
-            const spec = "xlsx"
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
-            const mod = await import(/* @vite-ignore */ spec)
-            return mod
-        } catch (e2) {
-            throw e2
-        }
+    if (!xlsxPromise) {
+        xlsxPromise = (async () => {
+            try {
+                const m: any = await import("xlsx-js-style")
+                return { XLSX: m?.default ?? m, supportsStyles: true }
+            } catch {
+                const m: any = await import("xlsx")
+                return { XLSX: m?.default ?? m, supportsStyles: false }
+            }
+        })()
     }
+    return xlsxPromise
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -95,11 +89,12 @@ export function RecordsExcelActions({
 }: Props) {
     const [previewOpen, setPreviewOpen] = React.useState(false)
     const [busy, setBusy] = React.useState(false)
+    const warnedStylesRef = React.useRef(false)
 
     const hasRows = rows && rows.length > 0
 
     const buildWorkbookBlob = React.useCallback(async () => {
-        const XLSX: any = await loadXlsxModule()
+        const { XLSX, supportsStyles } = await loadXlsxModule()
 
         const title = "WorkloadHub — List of Records"
         const generatedAt = new Date()
@@ -121,6 +116,11 @@ export function RecordsExcelActions({
         const dataRows = rows.map((r: any) => {
             const id = safeId(r)
             const hasConflict = id ? conflictRecordIds.has(id) : false
+
+            const unitsRaw = r?.units
+            const unitsNum = Number(unitsRaw)
+            const units = Number.isFinite(unitsNum) ? unitsNum : "—"
+
             return [
                 resolveTermLabel(r),
                 String(r?.dayOfWeek ?? r?.day ?? "—"),
@@ -130,7 +130,7 @@ export function RecordsExcelActions({
                 String(r?.facultyLabel ?? r?.faculty ?? "—"),
                 String(r?.subjectCode ?? r?.code ?? "—"),
                 String(r?.subjectTitle ?? r?.title ?? "—"),
-                r?.units ?? "—",
+                units,
                 hasConflict ? "Conflict" : "Clear",
             ]
         })
@@ -171,11 +171,18 @@ export function RecordsExcelActions({
             { wch: 12 }, // Conflict
         ]
 
+        // Row heights (nice spacing)
+        ws["!rows"] = ws["!rows"] || []
+        ws["!rows"][0] = { hpt: 26 } // title
+        ws["!rows"][1] = { hpt: 18 } // filters
+        ws["!rows"][2] = { hpt: 18 } // generated at
+        ws["!rows"][4] = { hpt: 20 } // headers (row 5)
+
         // Auto-filter for header row
         const lastColLetter = XLSX.utils.encode_col(totalCols - 1)
         ws["!autofilter"] = { ref: `A${headerRowIndex}:${lastColLetter}${headerRowIndex}` }
 
-        // Styling helpers (xlsx-js-style supports `.s`)
+        // Styling helpers (requires xlsx-js-style; safe to set even if unsupported)
         const border = {
             top: { style: "thin", color: { rgb: "CBD5E1" } },
             bottom: { style: "thin", color: { rgb: "CBD5E1" } },
@@ -215,11 +222,12 @@ export function RecordsExcelActions({
         const conflictFill = { patternType: "solid", fgColor: { rgb: "FEE2E2" } } // light red
         const clearFill = { patternType: "solid", fgColor: { rgb: "ECFDF5" } } // light green-ish
 
-        // Apply styles (safe even if only xlsx is present; it will ignore `.s`)
+        // Title cell style
         const titleCellAddr = "A1"
         if (ws[titleCellAddr]) ws[titleCellAddr].s = titleStyle
 
-        const metaRows = [2, 3]
+        // Meta rows merge + style
+        const metaRows = [2, 3] // Excel row numbers
         for (const r of metaRows) {
             const addr = `A${r}`
             if (ws[addr]) {
@@ -244,12 +252,15 @@ export function RecordsExcelActions({
             const recordId = safeId(rows[i])
             const isConflict = recordId ? conflictRecordIds.has(recordId) : false
 
+            ws["!rows"][excelRow - 1] = { hpt: 18 }
+
             for (let c = 0; c < totalCols; c++) {
                 const addr = XLSX.utils.encode_cell({ r: excelRow - 1, c })
                 if (!ws[addr]) continue
 
+                const isConflictCol = c === totalCols - 1
                 const fill =
-                    c === totalCols - 1
+                    isConflictCol
                         ? isConflict
                             ? conflictFill
                             : clearFill
@@ -257,13 +268,23 @@ export function RecordsExcelActions({
                             ? conflictFill
                             : zebraFill(even)
 
+                const align =
+                    c === 8 // Units
+                        ? { horizontal: "center", vertical: "center", wrapText: true }
+                        : rowStyleBase.alignment
+
                 ws[addr].s = {
                     ...rowStyleBase,
+                    alignment: align,
                     fill,
-                    font:
-                        c === totalCols - 1
-                            ? { bold: true, color: { rgb: isConflict ? "7F1D1D" : "065F46" } }
-                            : undefined,
+                    font: isConflictCol
+                        ? { bold: true, color: { rgb: isConflict ? "7F1D1D" : "065F46" } }
+                        : undefined,
+                }
+
+                // Units number formatting (if numeric)
+                if (c === 8 && typeof ws[addr]?.v === "number") {
+                    ws[addr].z = "0"
                 }
             }
         }
@@ -276,7 +297,7 @@ export function RecordsExcelActions({
             type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         })
 
-        return { blob, filename }
+        return { blob, filename, supportsStyles }
     }, [rows, resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel])
 
     const onExport = React.useCallback(async () => {
@@ -287,13 +308,17 @@ export function RecordsExcelActions({
 
         setBusy(true)
         try {
-            const { blob, filename } = await buildWorkbookBlob()
+            const { blob, filename, supportsStyles } = await buildWorkbookBlob()
+
+            if (!supportsStyles && !warnedStylesRef.current) {
+                warnedStylesRef.current = true
+                toast.message("Tip: Install xlsx-js-style to enable colored/styled Excel export.")
+            }
+
             downloadBlob(blob, filename)
             toast.success("Excel exported.")
-        } catch (_e: any) {
-            toast.error(
-                "Excel export needs an Excel library. Install one: npm i xlsx-js-style (recommended) OR npm i xlsx"
-            )
+        } catch (e: any) {
+            toast.error(e?.message ?? "Failed to export Excel.")
         } finally {
             setBusy(false)
         }
@@ -334,59 +359,70 @@ export function RecordsExcelActions({
                     <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{subjectFilterLabel}</Badge>
                         <Badge variant="secondary">{unitFilterLabel}</Badge>
-                        <Badge variant="outline">{rows.length} record{rows.length === 1 ? "" : "s"}</Badge>
+                        <Badge variant="outline">
+                            {rows.length} record{rows.length === 1 ? "" : "s"}
+                        </Badge>
                     </div>
 
-                    <div className="overflow-hidden rounded-md border">
-                        <ScrollArea className="h-[60vh]">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-56">Term</TableHead>
-                                        <TableHead className="w-28">Day</TableHead>
-                                        <TableHead className="w-28">Start</TableHead>
-                                        <TableHead className="w-28">End</TableHead>
-                                        <TableHead className="w-48">Room</TableHead>
-                                        <TableHead className="w-72">Faculty</TableHead>
-                                        <TableHead className="w-40">Subject Code</TableHead>
-                                        <TableHead className="w-md">Subject Title</TableHead>
-                                        <TableHead className="w-20">Units</TableHead>
-                                        <TableHead className="w-28">Conflict</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {rows.map((r: any, idx: number) => {
-                                        const id = safeId(r)
-                                        const isConflict = id ? conflictRecordIds.has(id) : false
-                                        return (
-                                            <TableRow key={id || idx} className={isConflict ? "bg-destructive/10" : ""}>
-                                                <TableCell className="text-muted-foreground">
-                                                    {resolveTermLabel(r)}
-                                                </TableCell>
-                                                <TableCell>{String(r?.dayOfWeek ?? r?.day ?? "—")}</TableCell>
-                                                <TableCell>{String(r?.startTime ?? r?.start ?? "—")}</TableCell>
-                                                <TableCell>{String(r?.endTime ?? r?.end ?? "—")}</TableCell>
-                                                <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
-                                                <TableCell className="text-muted-foreground">
-                                                    {String(r?.facultyLabel ?? r?.faculty ?? "—")}
-                                                </TableCell>
-                                                <TableCell className="font-medium">
-                                                    {String(r?.subjectCode ?? r?.code ?? "—")}
-                                                </TableCell>
-                                                <TableCell className="text-muted-foreground">
-                                                    {String(r?.subjectTitle ?? r?.title ?? "—")}
-                                                </TableCell>
-                                                <TableCell>{r?.units ?? "—"}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant={isConflict ? "destructive" : "secondary"}>
-                                                        {isConflict ? "Conflict" : "Clear"}
-                                                    </Badge>
-                                                </TableCell>
-                                            </TableRow>
-                                        )
-                                    })}
-                                </TableBody>
-                            </Table>
+                    {/* ✅ Both horizontal + vertical scrollbars */}
+                    <div className="rounded-md border">
+                        <ScrollArea className="h-[60vh] w-full">
+                            <div className="min-w-max">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-56">Term</TableHead>
+                                            <TableHead className="w-28">Day</TableHead>
+                                            <TableHead className="w-28">Start</TableHead>
+                                            <TableHead className="w-28">End</TableHead>
+                                            <TableHead className="w-48">Room</TableHead>
+                                            <TableHead className="w-72">Faculty</TableHead>
+                                            <TableHead className="w-40">Subject Code</TableHead>
+                                            <TableHead className="min-w-80">Subject Title</TableHead>
+                                            <TableHead className="w-20">Units</TableHead>
+                                            <TableHead className="w-28">Conflict</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {rows.map((r: any, idx: number) => {
+                                            const id = safeId(r)
+                                            const isConflict = id ? conflictRecordIds.has(id) : false
+                                            return (
+                                                <TableRow
+                                                    key={id || idx}
+                                                    className={isConflict ? "bg-destructive/10" : ""}
+                                                >
+                                                    <TableCell className="text-muted-foreground">
+                                                        {resolveTermLabel(r)}
+                                                    </TableCell>
+                                                    <TableCell>{String(r?.dayOfWeek ?? r?.day ?? "—")}</TableCell>
+                                                    <TableCell>{String(r?.startTime ?? r?.start ?? "—")}</TableCell>
+                                                    <TableCell>{String(r?.endTime ?? r?.end ?? "—")}</TableCell>
+                                                    <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {String(r?.facultyLabel ?? r?.faculty ?? "—")}
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        {String(r?.subjectCode ?? r?.code ?? "—")}
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {String(r?.subjectTitle ?? r?.title ?? "—")}
+                                                    </TableCell>
+                                                    <TableCell>{r?.units ?? "—"}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={isConflict ? "destructive" : "secondary"}>
+                                                            {isConflict ? "Conflict" : "Clear"}
+                                                        </Badge>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
+
+                            <ScrollBar orientation="horizontal" />
+                            <ScrollBar orientation="vertical" />
                         </ScrollArea>
                     </div>
 

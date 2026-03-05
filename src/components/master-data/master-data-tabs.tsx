@@ -29,6 +29,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -970,58 +971,68 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                             ) : vm.filteredRecordRows.length === 0 ? (
                                 <div className="text-sm text-muted-foreground">No records found using current filters.</div>
                             ) : (
-                                <div className="overflow-hidden rounded-md border">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead className="w-48">Term</TableHead>
-                                                <TableHead className="w-28">Day</TableHead>
-                                                <TableHead className="w-36">Time</TableHead>
-                                                <TableHead className="w-48">Room</TableHead>
-                                                <TableHead className="w-72">Faculty</TableHead>
-                                                <TableHead className="w-80">Subject</TableHead>
-                                                <TableHead className="w-20">Units</TableHead>
-                                                <TableHead className="w-28">Conflict</TableHead>
-                                                <TableHead className="w-32 text-right">Actions</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {vm.filteredRecordRows.map((r) => {
-                                                const hasConflict = vm.conflictRecordIds.has(r.id)
-                                                const termText = resolveTermLabel(r)
-
-                                                return (
-                                                    <TableRow key={r.id}>
-                                                        <TableCell className="text-muted-foreground">{termText}</TableCell>
-                                                        <TableCell>{r.dayOfWeek || "—"}</TableCell>
-                                                        <TableCell>{r.startTime} - {r.endTime}</TableCell>
-                                                        <TableCell>{r.roomLabel}</TableCell>
-                                                        <TableCell className="text-muted-foreground">{r.facultyLabel}</TableCell>
-                                                        <TableCell>
-                                                            <div className="font-medium">{r.subjectCode}</div>
-                                                            <div className="text-xs text-muted-foreground">{r.subjectTitle}</div>
-                                                        </TableCell>
-                                                        <TableCell>{r.units ?? "—"}</TableCell>
-                                                        <TableCell>
-                                                            <Badge variant={hasConflict ? "destructive" : "secondary"}>
-                                                                {hasConflict ? "Conflict" : "Clear"}
-                                                            </Badge>
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => openEditRecord(r)}
-                                                            >
-                                                                <Pencil className="mr-2 h-4 w-4" />
-                                                                Edit
-                                                            </Button>
-                                                        </TableCell>
+                                <div className="rounded-md border">
+                                    {/* ✅ Both horizontal + vertical scrollbars (fix overflow) */}
+                                    <ScrollArea className="h-[65vh] w-full">
+                                        <div className="min-w-max">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead className="w-48">Term</TableHead>
+                                                        <TableHead className="w-28">Day</TableHead>
+                                                        <TableHead className="w-36">Time</TableHead>
+                                                        <TableHead className="w-48">Room</TableHead>
+                                                        <TableHead className="w-72">Faculty</TableHead>
+                                                        <TableHead className="w-80">Subject</TableHead>
+                                                        <TableHead className="w-20">Units</TableHead>
+                                                        <TableHead className="w-28">Conflict</TableHead>
+                                                        <TableHead className="w-32 text-right">Actions</TableHead>
                                                     </TableRow>
-                                                )
-                                            })}
-                                        </TableBody>
-                                    </Table>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {vm.filteredRecordRows.map((r) => {
+                                                        const hasConflict = vm.conflictRecordIds.has(r.id)
+                                                        const termText = resolveTermLabel(r)
+
+                                                        return (
+                                                            <TableRow key={r.id}>
+                                                                <TableCell className="text-muted-foreground">{termText}</TableCell>
+                                                                <TableCell>{r.dayOfWeek || "—"}</TableCell>
+                                                                <TableCell>
+                                                                    {r.startTime} - {r.endTime}
+                                                                </TableCell>
+                                                                <TableCell>{r.roomLabel}</TableCell>
+                                                                <TableCell className="text-muted-foreground">{r.facultyLabel}</TableCell>
+                                                                <TableCell>
+                                                                    <div className="font-medium">{r.subjectCode}</div>
+                                                                    <div className="text-xs text-muted-foreground">{r.subjectTitle}</div>
+                                                                </TableCell>
+                                                                <TableCell>{r.units ?? "—"}</TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant={hasConflict ? "destructive" : "secondary"}>
+                                                                        {hasConflict ? "Conflict" : "Clear"}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => openEditRecord(r)}
+                                                                    >
+                                                                        <Pencil className="mr-2 h-4 w-4" />
+                                                                        Edit
+                                                                    </Button>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        )
+                                                    })}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+
+                                        <ScrollBar orientation="horizontal" />
+                                        <ScrollBar orientation="vertical" />
+                                    </ScrollArea>
                                 </div>
                             )}
                         </TabsContent>
