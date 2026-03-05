@@ -3,7 +3,7 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { Download, Eye, FileSpreadsheet } from "lucide-react"
+import { Download, Eye, FileSpreadsheet, FileText, Loader2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
     Table,
     TableBody,
@@ -121,6 +123,18 @@ async function loadXlsxModule() {
     return xlsxPromise
 }
 
+/**
+ * ✅ PDF Export + Preview
+ * - Uses @react-pdf/renderer (already in deps)
+ */
+let pdfRendererPromise: Promise<any> | null = null
+async function loadPdfRenderer() {
+    if (!pdfRendererPromise) {
+        pdfRendererPromise = import("@react-pdf/renderer").then((m: any) => m?.default ?? m)
+    }
+    return pdfRendererPromise
+}
+
 function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -138,10 +152,22 @@ export function RecordsExcelActions({
     unitFilterLabel = "All Units",
 }: Props) {
     const [previewOpen, setPreviewOpen] = React.useState(false)
-    const [busy, setBusy] = React.useState(false)
+    const [previewTab, setPreviewTab] = React.useState<"excel" | "pdf">("excel")
+
+    const [excelBusy, setExcelBusy] = React.useState(false)
+    const [pdfBusy, setPdfBusy] = React.useState(false)
     const warnedStylesRef = React.useRef(false)
 
+    const [pdfUrl, setPdfUrl] = React.useState<string | null>(null)
+    const pdfUrlRef = React.useRef<string | null>(null)
+    const [pdfPreviewBusy, setPdfPreviewBusy] = React.useState(false)
+
     const hasRows = rows && rows.length > 0
+
+    const openPreview = React.useCallback((tab: "excel" | "pdf") => {
+        setPreviewTab(tab)
+        setPreviewOpen(true)
+    }, [])
 
     const buildWorkbookBlob = React.useCallback(async () => {
         const { XLSX, supportsStyles } = await loadXlsxModule()
@@ -361,13 +387,222 @@ export function RecordsExcelActions({
         return { blob, filename, supportsStyles }
     }, [rows, resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel])
 
-    const onExport = React.useCallback(async () => {
+    const buildPdfBlob = React.useCallback(async () => {
+        const m: any = await loadPdfRenderer()
+        const Document = m.Document as any
+        const Page = m.Page as any
+        const Text = m.Text as any
+        const View = m.View as any
+        const StyleSheet = m.StyleSheet as any
+        const pdf = m.pdf as any
+
+        const generatedAt = new Date()
+        const filename = `list-of-records_${formatTimestamp(generatedAt)}.pdf`
+
+        const title = "WorkloadHub — List of Records"
+        const subtitle = `Filters: ${subjectFilterLabel} • ${unitFilterLabel}`
+        const generatedLabel = `Generated at: ${formatDateTimeAmPm(generatedAt)}`
+
+        const cols = [
+            { key: "term", label: "Term", w: "13%" },
+            { key: "day", label: "Day", w: "7%" },
+            { key: "start", label: "Start", w: "7%" },
+            { key: "end", label: "End", w: "7%" },
+            { key: "room", label: "Room", w: "10%" },
+            { key: "faculty", label: "Faculty", w: "16%" },
+            { key: "code", label: "Subject Code", w: "10%" },
+            { key: "title", label: "Subject Title", w: "18%" },
+            { key: "units", label: "Units", w: "5%" },
+            { key: "conflict", label: "Conflict", w: "7%" },
+        ] as const
+
+        const styles = StyleSheet.create({
+            page: { padding: 24, fontSize: 9, fontFamily: "Helvetica" },
+            title: { fontSize: 14, fontWeight: 700, marginBottom: 4, color: "#0F172A" },
+            meta: { fontSize: 9, color: "#475569", marginBottom: 2 },
+            table: { marginTop: 10, borderWidth: 1, borderColor: "#CBD5E1" },
+
+            headerRow: { flexDirection: "row", backgroundColor: "#0F172A" },
+            headerCell: {
+                padding: 6,
+                color: "#FFFFFF",
+                fontWeight: 700,
+                borderRightWidth: 1,
+                borderRightColor: "#CBD5E1",
+            },
+            row: { flexDirection: "row" },
+            cell: {
+                padding: 6,
+                borderTopWidth: 1,
+                borderTopColor: "#CBD5E1",
+                borderRightWidth: 1,
+                borderRightColor: "#CBD5E1",
+                color: "#0F172A",
+            },
+            zebra: { backgroundColor: "#F8FAFC" },
+            conflictRow: { backgroundColor: "#FEE2E2" },
+
+            footer: {
+                position: "absolute",
+                bottom: 14,
+                left: 24,
+                right: 24,
+                flexDirection: "row",
+                justifyContent: "space-between",
+                fontSize: 8,
+                color: "#64748B",
+            },
+        })
+
+        const RecordsPdfDocument = () => (
+            <Document title={title}>
+                <Page size="A4" orientation="landscape" style={styles.page}>
+                    <Text style={styles.title}>{title}</Text>
+                    <Text style={styles.meta}>{subtitle}</Text>
+                    <Text style={styles.meta}>{generatedLabel}</Text>
+
+                    <View style={styles.table}>
+                        <View style={styles.headerRow} wrap={false}>
+                            {cols.map((c, idx) => (
+                                <View
+                                    key={c.key}
+                                    style={{
+                                        width: c.w,
+                                        borderRightWidth: idx === cols.length - 1 ? 0 : 1,
+                                        borderRightColor: "#CBD5E1",
+                                    }}
+                                >
+                                    <Text
+                                        style={{
+                                            ...styles.headerCell,
+                                            borderRightWidth: 0,
+                                            textAlign:
+                                                c.key === "day" ||
+                                                c.key === "start" ||
+                                                c.key === "end" ||
+                                                c.key === "units" ||
+                                                c.key === "conflict"
+                                                    ? "center"
+                                                    : "left",
+                                        }}
+                                    >
+                                        {c.label}
+                                    </Text>
+                                </View>
+                            ))}
+                        </View>
+
+                        {rows.map((r: any, i: number) => {
+                            const id = safeId(r)
+                            const isConflict = id ? conflictRecordIds.has(id) : false
+                            const even = i % 2 === 0
+
+                            const startRaw = r?.startTime ?? r?.start ?? "—"
+                            const endRaw = r?.endTime ?? r?.end ?? "—"
+
+                            const unitsRaw = r?.units
+                            const unitsNum = Number(unitsRaw)
+                            const units = Number.isFinite(unitsNum) ? String(unitsNum) : "—"
+
+                            const rowStyle = isConflict
+                                ? styles.conflictRow
+                                : even
+                                  ? undefined
+                                  : styles.zebra
+
+                            return (
+                                <View key={id || i} style={[styles.row, rowStyle]} wrap={false}>
+                                    {cols.map((c, idx) => {
+                                        const value =
+                                            c.key === "term"
+                                                ? resolveTermLabel(r)
+                                                : c.key === "day"
+                                                  ? String(r?.dayOfWeek ?? r?.day ?? "—")
+                                                  : c.key === "start"
+                                                    ? formatTimeAmPm(startRaw)
+                                                    : c.key === "end"
+                                                      ? formatTimeAmPm(endRaw)
+                                                      : c.key === "room"
+                                                        ? String(r?.roomLabel ?? r?.room ?? "—")
+                                                        : c.key === "faculty"
+                                                          ? String(r?.facultyLabel ?? r?.faculty ?? "—")
+                                                          : c.key === "code"
+                                                            ? String(r?.subjectCode ?? r?.code ?? "—")
+                                                            : c.key === "title"
+                                                              ? String(r?.subjectTitle ?? r?.title ?? "—")
+                                                              : c.key === "units"
+                                                                ? units
+                                                                : c.key === "conflict"
+                                                                  ? isConflict
+                                                                      ? "Conflict"
+                                                                      : "Clear"
+                                                                  : ""
+
+                                        const align =
+                                            c.key === "day" ||
+                                            c.key === "start" ||
+                                            c.key === "end" ||
+                                            c.key === "units" ||
+                                            c.key === "conflict"
+                                                ? "center"
+                                                : "left"
+
+                                        const isLast = idx === cols.length - 1
+
+                                        return (
+                                            <View
+                                                key={c.key}
+                                                style={{
+                                                    width: c.w,
+                                                    borderRightWidth: isLast ? 0 : 1,
+                                                    borderRightColor: "#CBD5E1",
+                                                }}
+                                            >
+                                                <Text
+                                                    style={{
+                                                        ...styles.cell,
+                                                        borderRightWidth: 0,
+                                                        textAlign: align,
+                                                        fontWeight: c.key === "conflict" ? 700 : 400,
+                                                        color:
+                                                            c.key === "conflict"
+                                                                ? isConflict
+                                                                    ? "#7F1D1D"
+                                                                    : "#065F46"
+                                                                : "#0F172A",
+                                                    }}
+                                                >
+                                                    {String(value ?? "—")}
+                                                </Text>
+                                            </View>
+                                        )
+                                    })}
+                                </View>
+                            )
+                        })}
+                    </View>
+
+                    <View style={styles.footer} fixed>
+                        <Text>
+                            {rows.length} record{rows.length === 1 ? "" : "s"}
+                        </Text>
+                        <Text>WorkloadHub</Text>
+                    </View>
+                </Page>
+            </Document>
+        )
+
+        const blob: Blob = await pdf(<RecordsPdfDocument />).toBlob()
+        return { blob, filename }
+    }, [rows, resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel])
+
+    const onExportExcel = React.useCallback(async () => {
         if (!hasRows) {
             toast.error("No records to export.")
             return
         }
 
-        setBusy(true)
+        setExcelBusy(true)
         try {
             const { blob, filename, supportsStyles } = await buildWorkbookBlob()
 
@@ -381,13 +616,76 @@ export function RecordsExcelActions({
         } catch (e: any) {
             toast.error(e?.message ?? "Failed to export Excel.")
         } finally {
-            setBusy(false)
+            setExcelBusy(false)
         }
     }, [hasRows, buildWorkbookBlob])
 
-    const onDownloadFromPreview = React.useCallback(async () => {
-        await onExport()
-    }, [onExport])
+    const onExportPdf = React.useCallback(async () => {
+        if (!hasRows) {
+            toast.error("No records to export.")
+            return
+        }
+
+        setPdfBusy(true)
+        try {
+            const { blob, filename } = await buildPdfBlob()
+            downloadBlob(blob, filename)
+            toast.success("PDF exported.")
+        } catch (e: any) {
+            toast.error(e?.message ?? "Failed to export PDF.")
+        } finally {
+            setPdfBusy(false)
+        }
+    }, [hasRows, buildPdfBlob])
+
+    const ensurePdfPreview = React.useCallback(async () => {
+        if (!hasRows) return
+        if (pdfUrl) return
+        if (pdfPreviewBusy) return
+
+        setPdfPreviewBusy(true)
+        try {
+            const { blob } = await buildPdfBlob()
+            const url = URL.createObjectURL(blob)
+
+            // cleanup previous url if any
+            if (pdfUrlRef.current) {
+                URL.revokeObjectURL(pdfUrlRef.current)
+            }
+            pdfUrlRef.current = url
+            setPdfUrl(url)
+        } catch (e: any) {
+            toast.error(e?.message ?? "Failed to generate PDF preview.")
+        } finally {
+            setPdfPreviewBusy(false)
+        }
+    }, [hasRows, pdfUrl, pdfPreviewBusy, buildPdfBlob])
+
+    // Generate PDF preview on demand when user switches to PDF tab
+    React.useEffect(() => {
+        if (!previewOpen) return
+        if (previewTab !== "pdf") return
+        void ensurePdfPreview()
+    }, [previewOpen, previewTab, ensurePdfPreview])
+
+    // Cleanup PDF preview URL on close/unmount
+    React.useEffect(() => {
+        if (previewOpen) return
+        if (pdfUrlRef.current) {
+            URL.revokeObjectURL(pdfUrlRef.current)
+            pdfUrlRef.current = null
+        }
+        setPdfUrl(null)
+        setPdfPreviewBusy(false)
+    }, [previewOpen])
+
+    const onDownloadFromPreviewExcel = React.useCallback(async () => {
+        await onExportExcel()
+    }, [onExportExcel])
+
+    const onDownloadFromPreviewPdf = React.useCallback(async () => {
+        await onExportPdf()
+    }, [onExportPdf])
 
     return (
         <>
@@ -395,25 +693,40 @@ export function RecordsExcelActions({
                 <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setPreviewOpen(true)}
+                    onClick={() => openPreview("excel")}
                     disabled={!hasRows}
                 >
                     <Eye className="mr-2 h-4 w-4" />
                     Preview Excel
                 </Button>
 
-                <Button size="sm" onClick={() => void onExport()} disabled={!hasRows || busy}>
-                    <FileSpreadsheet className="mr-2 h-4 w-4" />
-                    {busy ? "Exporting..." : "Export Excel"}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openPreview("pdf")}
+                    disabled={!hasRows}
+                >
+                    <Eye className="mr-2 h-4 w-4" />
+                    Preview PDF
+                </Button>
+
+                <Button size="sm" onClick={() => void onExportExcel()} disabled={!hasRows || excelBusy || pdfBusy}>
+                    {excelBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
+                    {excelBusy ? "Exporting..." : "Export Excel"}
+                </Button>
+
+                <Button size="sm" onClick={() => void onExportPdf()} disabled={!hasRows || pdfBusy || excelBusy}>
+                    {pdfBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                    {pdfBusy ? "Exporting..." : "Export PDF"}
                 </Button>
             </div>
 
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
                 <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
                     <DialogHeader>
-                        <DialogTitle>Excel Preview — List of Records</DialogTitle>
+                        <DialogTitle>Export Preview — List of Records</DialogTitle>
                         <DialogDescription>
-                            This preview matches the exported Excel columns. Conflict rows are highlighted.
+                            Switch between Excel and PDF previews. Conflict rows are highlighted.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -425,86 +738,134 @@ export function RecordsExcelActions({
                         </Badge>
                     </div>
 
-                    {/* ✅ Prevent dialog width overflow; ScrollArea handles both axes */}
-                    <div className="rounded-md border min-w-0 max-w-full">
-                        <ScrollArea className="h-[60vh] w-full min-w-0">
-                            <Table
-                                // Let the table size to its columns so the ScrollArea can scroll horizontally
-                                containerClassName="w-max overflow-visible"
-                                className="w-full"
-                            >
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-56">Term</TableHead>
-                                        <TableHead className="w-28">Day</TableHead>
-                                        <TableHead className="w-32">Start</TableHead>
-                                        <TableHead className="w-32">End</TableHead>
-                                        <TableHead className="w-48">Room</TableHead>
-                                        <TableHead className="w-72">Faculty</TableHead>
-                                        <TableHead className="w-40">Subject Code</TableHead>
-                                        <TableHead className="min-w-80">Subject Title</TableHead>
-                                        <TableHead className="w-20">Units</TableHead>
-                                        <TableHead className="w-28">Conflict</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {rows.map((r: any, idx: number) => {
-                                        const id = safeId(r)
-                                        const isConflict = id ? conflictRecordIds.has(id) : false
+                    <Tabs value={previewTab} onValueChange={(v: any) => setPreviewTab(v)} className="w-full">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="excel">Excel</TabsTrigger>
+                            <TabsTrigger value="pdf">PDF</TabsTrigger>
+                        </TabsList>
 
-                                        const startRaw = r?.startTime ?? r?.start ?? "—"
-                                        const endRaw = r?.endTime ?? r?.end ?? "—"
-
-                                        return (
-                                            <TableRow
-                                                key={id || idx}
-                                                className={isConflict ? "bg-destructive/10" : ""}
-                                            >
-                                                <TableCell className="text-muted-foreground">
-                                                    {resolveTermLabel(r)}
-                                                </TableCell>
-                                                <TableCell>{String(r?.dayOfWeek ?? r?.day ?? "—")}</TableCell>
-                                                <TableCell>{formatTimeAmPm(startRaw)}</TableCell>
-                                                <TableCell>{formatTimeAmPm(endRaw)}</TableCell>
-                                                <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
-                                                <TableCell className="text-muted-foreground">
-                                                    {String(r?.facultyLabel ?? r?.faculty ?? "—")}
-                                                </TableCell>
-                                                <TableCell className="font-medium">
-                                                    {String(r?.subjectCode ?? r?.code ?? "—")}
-                                                </TableCell>
-                                                <TableCell className="text-muted-foreground">
-                                                    {String(r?.subjectTitle ?? r?.title ?? "—")}
-                                                </TableCell>
-                                                <TableCell>{r?.units ?? "—"}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant={isConflict ? "destructive" : "secondary"}>
-                                                        {isConflict ? "Conflict" : "Clear"}
-                                                    </Badge>
-                                                </TableCell>
+                        <TabsContent value="excel" className="mt-3">
+                            {/* ✅ Prevent dialog width overflow; ScrollArea handles both axes */}
+                            <div className="rounded-md border min-w-0 max-w-full">
+                                <ScrollArea className="h-[60vh] w-full min-w-0">
+                                    <Table
+                                        // Let the table size to its columns so the ScrollArea can scroll horizontally
+                                        containerClassName="w-max overflow-visible"
+                                        className="w-full"
+                                    >
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="w-56">Term</TableHead>
+                                                <TableHead className="w-28">Day</TableHead>
+                                                <TableHead className="w-32">Start</TableHead>
+                                                <TableHead className="w-32">End</TableHead>
+                                                <TableHead className="w-48">Room</TableHead>
+                                                <TableHead className="w-72">Faculty</TableHead>
+                                                <TableHead className="w-40">Subject Code</TableHead>
+                                                <TableHead className="min-w-80">Subject Title</TableHead>
+                                                <TableHead className="w-20">Units</TableHead>
+                                                <TableHead className="w-28">Conflict</TableHead>
                                             </TableRow>
-                                        )
-                                    })}
-                                </TableBody>
-                            </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {rows.map((r: any, idx: number) => {
+                                                const id = safeId(r)
+                                                const isConflict = id ? conflictRecordIds.has(id) : false
 
-                            <ScrollBar orientation="horizontal" />
-                            <ScrollBar orientation="vertical" />
-                        </ScrollArea>
-                    </div>
+                                                const startRaw = r?.startTime ?? r?.start ?? "—"
+                                                const endRaw = r?.endTime ?? r?.end ?? "—"
+
+                                                return (
+                                                    <TableRow
+                                                        key={id || idx}
+                                                        className={isConflict ? "bg-destructive/10" : ""}
+                                                    >
+                                                        <TableCell className="text-muted-foreground">
+                                                            {resolveTermLabel(r)}
+                                                        </TableCell>
+                                                        <TableCell>{String(r?.dayOfWeek ?? r?.day ?? "—")}</TableCell>
+                                                        <TableCell>{formatTimeAmPm(startRaw)}</TableCell>
+                                                        <TableCell>{formatTimeAmPm(endRaw)}</TableCell>
+                                                        <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
+                                                        <TableCell className="text-muted-foreground">
+                                                            {String(r?.facultyLabel ?? r?.faculty ?? "—")}
+                                                        </TableCell>
+                                                        <TableCell className="font-medium">
+                                                            {String(r?.subjectCode ?? r?.code ?? "—")}
+                                                        </TableCell>
+                                                        <TableCell className="text-muted-foreground">
+                                                            {String(r?.subjectTitle ?? r?.title ?? "—")}
+                                                        </TableCell>
+                                                        <TableCell>{r?.units ?? "—"}</TableCell>
+                                                        <TableCell>
+                                                            <Badge variant={isConflict ? "destructive" : "secondary"}>
+                                                                {isConflict ? "Conflict" : "Clear"}
+                                                            </Badge>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )
+                                            })}
+                                        </TableBody>
+                                    </Table>
+
+                                    <ScrollBar orientation="horizontal" />
+                                    <ScrollBar orientation="vertical" />
+                                </ScrollArea>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="pdf" className="mt-3">
+                            <div className="rounded-md border min-w-0 max-w-full overflow-hidden">
+                                {pdfPreviewBusy ? (
+                                    <div className="p-4 space-y-3">
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                            Generating PDF preview...
+                                        </div>
+                                        <Skeleton className="h-8 w-full" />
+                                        <Skeleton className="h-[52vh] w-full" />
+                                    </div>
+                                ) : pdfUrl ? (
+                                    <iframe
+                                        title="PDF Preview"
+                                        src={pdfUrl}
+                                        className="h-[60vh] w-full"
+                                    />
+                                ) : (
+                                    <div className="p-4 text-sm text-muted-foreground">
+                                        PDF preview is not ready. Click “Preview PDF” again or export PDF.
+                                    </div>
+                                )}
+                            </div>
+                        </TabsContent>
+                    </Tabs>
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            Exported file includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight.
+                            Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight.
+                            PDF export uses A4 landscape layout with the same columns and conflict highlighting.
                         </div>
 
                         <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
                                 Close
                             </Button>
-                            <Button onClick={() => void onDownloadFromPreview()} disabled={busy || !hasRows}>
+
+                            <Button
+                                variant="outline"
+                                onClick={() => void onDownloadFromPreviewExcel()}
+                                disabled={excelBusy || pdfBusy || !hasRows}
+                            >
                                 <Download className="mr-2 h-4 w-4" />
-                                {busy ? "Preparing..." : "Download Excel"}
+                                Download Excel
+                            </Button>
+
+                            <Button
+                                onClick={() => void onDownloadFromPreviewPdf()}
+                                disabled={pdfBusy || excelBusy || !hasRows}
+                            >
+                                <Download className="mr-2 h-4 w-4" />
+                                Download PDF
                             </Button>
                         </div>
                     </DialogFooter>
