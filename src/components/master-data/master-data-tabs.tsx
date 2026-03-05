@@ -73,6 +73,68 @@ function isUnknownLabel(v: any) {
     return !s || s === "unknown" || s.includes("unknown term") || s.startsWith("unknown •") || s.startsWith("unknown ")
 }
 
+/**
+ * Accepts:
+ * - "08:00", "8:00", "08:00:00"
+ * - "8:00 AM", "8 AM", "8:00PM", "12:15 pm"
+ */
+function parseTimeToMinutes(input: string): number | null {
+    const raw = String(input ?? "").trim()
+    if (!raw) return null
+
+    const s = raw.toLowerCase().replace(/\s+/g, " ")
+
+    // 12-hour format: "h", "h:mm" with AM/PM (with or without space)
+    const twelve = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i)
+    if (twelve) {
+        const hh = Number(twelve[1])
+        const mm = Number(twelve[2] ?? "0")
+        const mer = String(twelve[3]).toLowerCase()
+
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
+        if (hh < 1 || hh > 12) return null
+        if (mm < 0 || mm > 59) return null
+
+        let hour24 = hh % 12
+        if (mer === "pm") hour24 += 12
+        return hour24 * 60 + mm
+    }
+
+    // 24-hour format: "h:mm" or "hh:mm(:ss)"
+    const twentyFour = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+    if (twentyFour) {
+        const hh = Number(twentyFour[1])
+        const mm = Number(twentyFour[2])
+
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
+        if (hh < 0 || hh > 23) return null
+        if (mm < 0 || mm > 59) return null
+
+        return hh * 60 + mm
+    }
+
+    return null
+}
+
+function normalizeTimeInput(input: string): string | null {
+    const mins = parseTimeToMinutes(input)
+    if (mins == null) return null
+    const h = Math.floor(mins / 60)
+    const m = mins % 60
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+}
+
+function formatTimeAmPm(input: any): string {
+    const mins = parseTimeToMinutes(String(input ?? "").trim())
+    if (mins == null) return "—"
+    const h24 = Math.floor(mins / 60)
+    const m = mins % 60
+    const period = h24 >= 12 ? "PM" : "AM"
+    let h12 = h24 % 12
+    if (h12 === 0) h12 = 12
+    return `${h12}:${String(m).padStart(2, "0")} ${period}`
+}
+
 export function MasterDataTabs({ vm }: Props) {
     // ===================== RECORD EDIT (LOCAL DIALOG) =====================
     const [recordEditOpen, setRecordEditOpen] = React.useState(false)
@@ -190,13 +252,29 @@ export function MasterDataTabs({ vm }: Props) {
             return
         }
 
-        const start = recordStartTime.trim()
-        const end = recordEndTime.trim()
-        if (!start || !end) {
+        const startRaw = recordStartTime.trim()
+        const endRaw = recordEndTime.trim()
+        if (!startRaw || !endRaw) {
             toast.error("Start time and End time are required.")
             return
         }
-        if (start >= end) {
+
+        const startNorm = normalizeTimeInput(startRaw)
+        const endNorm = normalizeTimeInput(endRaw)
+
+        if (!startNorm || !endNorm) {
+            toast.error("Invalid time format. Use 8:00 AM / 1:30 PM or 08:00 / 13:30.")
+            return
+        }
+
+        const startMin = parseTimeToMinutes(startNorm)
+        const endMin = parseTimeToMinutes(endNorm)
+        if (startMin == null || endMin == null) {
+            toast.error("Invalid time value.")
+            return
+        }
+
+        if (startMin >= endMin) {
             toast.error("Start time must be before End time.")
             return
         }
@@ -232,12 +310,12 @@ export function MasterDataTabs({ vm }: Props) {
         else if (hasOwn(recordEditingRow, "day")) payload.day = recordDay
         else if (hasOwn(recordEditingRow, "dow")) payload.dow = recordDay
 
-        // TIME
-        if (hasOwn(recordEditingRow, "startTime")) payload.startTime = start
-        else if (hasOwn(recordEditingRow, "start")) payload.start = start
+        // TIME (store normalized HH:mm for consistency)
+        if (hasOwn(recordEditingRow, "startTime")) payload.startTime = startNorm
+        else if (hasOwn(recordEditingRow, "start")) payload.start = startNorm
 
-        if (hasOwn(recordEditingRow, "endTime")) payload.endTime = end
-        else if (hasOwn(recordEditingRow, "end")) payload.end = end
+        if (hasOwn(recordEditingRow, "endTime")) payload.endTime = endNorm
+        else if (hasOwn(recordEditingRow, "end")) payload.end = endNorm
 
         // ROOM
         if (hasOwn(recordEditingRow, "roomLabel")) payload.roomLabel = room
@@ -999,7 +1077,7 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                                                 <TableCell className="text-muted-foreground">{termText}</TableCell>
                                                                 <TableCell>{r.dayOfWeek || "—"}</TableCell>
                                                                 <TableCell>
-                                                                    {r.startTime} - {r.endTime}
+                                                                    {formatTimeAmPm(r.startTime)} - {formatTimeAmPm(r.endTime)}
                                                                 </TableCell>
                                                                 <TableCell>{r.roomLabel}</TableCell>
                                                                 <TableCell className="text-muted-foreground">{r.facultyLabel}</TableCell>
@@ -1093,8 +1171,11 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                         <Input
                                             value={recordStartTime}
                                             onChange={(e) => setRecordStartTime(e.target.value)}
-                                            placeholder="08:00"
+                                            placeholder="8:00 AM"
                                         />
+                                        <div className="text-xs text-muted-foreground">
+                                            Accepted: 8:00 AM / 1:30 PM or 08:00 / 13:30
+                                        </div>
                                     </div>
 
                                     <div className="grid gap-2">
@@ -1102,8 +1183,11 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                         <Input
                                             value={recordEndTime}
                                             onChange={(e) => setRecordEndTime(e.target.value)}
-                                            placeholder="09:00"
+                                            placeholder="9:00 AM"
                                         />
+                                        <div className="text-xs text-muted-foreground">
+                                            Accepted: 8:00 AM / 1:30 PM or 08:00 / 13:30
+                                        </div>
                                     </div>
                                 </div>
 
