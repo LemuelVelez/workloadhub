@@ -1239,6 +1239,7 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                             conflictRecordIds={vm.conflictRecordIds}
                                             subjectFilterLabel={recordSubjectFilterLabel}
                                             unitFilterLabel={recordUnitFilterLabel}
+                                            showBatchFacultyExport={false}
                                         />
 
                                         <RecordsPdfActions
@@ -1247,6 +1248,7 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                             conflictRecordIds={vm.conflictRecordIds}
                                             subjectFilterLabel={recordSubjectFilterLabel}
                                             unitFilterLabel={recordUnitFilterLabel}
+                                            showBatchFacultyExport={false}
                                         />
                                     </div>
                                 </div>
@@ -1288,6 +1290,26 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                                 </AccordionTrigger>
 
                                                 <AccordionContent className="space-y-4 pb-4">
+                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                                                        <RecordsExcelActions
+                                                            rows={group.rows}
+                                                            resolveTermLabel={resolveTermLabel}
+                                                            conflictRecordIds={vm.conflictRecordIds}
+                                                            subjectFilterLabel={recordSubjectFilterLabel}
+                                                            unitFilterLabel={recordUnitFilterLabel}
+                                                            showBatchFacultyExport={false}
+                                                        />
+
+                                                        <RecordsPdfActions
+                                                            rows={group.rows}
+                                                            resolveTermLabel={resolveTermLabel}
+                                                            conflictRecordIds={vm.conflictRecordIds}
+                                                            subjectFilterLabel={recordSubjectFilterLabel}
+                                                            unitFilterLabel={recordUnitFilterLabel}
+                                                            showBatchFacultyExport={false}
+                                                        />
+                                                    </div>
+
                                                     <div className="sm:hidden">
                                                         <RecordMobileCards
                                                             rows={group.rows}

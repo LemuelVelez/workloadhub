@@ -32,6 +32,7 @@ type Props = {
     conflictRecordIds: Set<string>
     subjectFilterLabel?: string
     unitFilterLabel?: string
+    showBatchFacultyExport?: boolean
 }
 
 function pad2(n: number) {
@@ -83,6 +84,19 @@ function groupRowsByFaculty(rows: any[]) {
             facultyLabel,
             rows: groupedRows,
         }))
+}
+
+function inferSingleFacultyLabel(rows: any[]) {
+    const labels = Array.from(
+        new Set(
+            rows
+                .map((row) => facultyLabelOf(row))
+                .map((label) => label.trim())
+                .filter(Boolean)
+        )
+    )
+
+    return labels.length === 1 ? labels[0] : null
 }
 
 function wait(ms: number) {
@@ -177,6 +191,7 @@ export function RecordsExcelActions({
     conflictRecordIds,
     subjectFilterLabel = "All Subjects",
     unitFilterLabel = "All Units",
+    showBatchFacultyExport = true,
 }: Props) {
     const [previewOpen, setPreviewOpen] = React.useState(false)
 
@@ -187,6 +202,7 @@ export function RecordsExcelActions({
     const hasRows = rows && rows.length > 0
 
     const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
+    const singleFacultyLabel = React.useMemo(() => inferSingleFacultyLabel(rows), [rows])
 
     const buildWorkbookBlob = React.useCallback(
         async (targetRows: any[], facultyLabel?: string) => {
@@ -258,42 +274,37 @@ export function RecordsExcelActions({
             const ws = XLSX.utils.aoa_to_sheet(aoa)
 
             const totalCols = headers.length
-            const headerRowIndex = 5 // 1-based row number in Excel (row 5 contains headers)
+            const headerRowIndex = 5
             const firstDataRowIndex = headerRowIndex + 1
 
-            // Merge title across all columns
             ws["!merges"] = ws["!merges"] || []
             ws["!merges"].push({
                 s: { r: 0, c: 0 },
                 e: { r: 0, c: totalCols - 1 },
             })
 
-            // Column widths (more space for long text)
             ws["!cols"] = [
-                { wch: 28 }, // Term
-                { wch: 14 }, // Day
-                { wch: 14 }, // Start
-                { wch: 14 }, // End
-                { wch: 22 }, // Room
-                { wch: 34 }, // Faculty
-                { wch: 18 }, // Subject Code
-                { wch: 48 }, // Subject Title
-                { wch: 10 }, // Units
-                { wch: 12 }, // Conflict
+                { wch: 28 },
+                { wch: 14 },
+                { wch: 14 },
+                { wch: 14 },
+                { wch: 22 },
+                { wch: 34 },
+                { wch: 18 },
+                { wch: 48 },
+                { wch: 10 },
+                { wch: 12 },
             ]
 
-            // Row heights (more space for wrapped/long text)
             ws["!rows"] = ws["!rows"] || []
-            ws["!rows"][0] = { hpt: 28 } // title
-            ws["!rows"][1] = { hpt: 20 } // filters
-            ws["!rows"][2] = { hpt: 20 } // generated at
-            ws["!rows"][4] = { hpt: 24 } // headers (row 5)
+            ws["!rows"][0] = { hpt: 28 }
+            ws["!rows"][1] = { hpt: 20 }
+            ws["!rows"][2] = { hpt: 20 }
+            ws["!rows"][4] = { hpt: 24 }
 
-            // Auto-filter for header row
             const lastColLetter = XLSX.utils.encode_col(totalCols - 1)
             ws["!autofilter"] = { ref: `A${headerRowIndex}:${lastColLetter}${headerRowIndex}` }
 
-            // Styling helpers (requires xlsx-js-style; safe to set even if unsupported)
             const border = {
                 top: { style: "thin", color: { rgb: "CBD5E1" } },
                 bottom: { style: "thin", color: { rgb: "CBD5E1" } },
@@ -320,7 +331,6 @@ export function RecordsExcelActions({
                 border,
             }
 
-            // Base style for data rows (adds visible spacing via indent + taller rows)
             const rowStyleBase = {
                 alignment: { horizontal: "left", vertical: "top", wrapText: true, indent: 1 },
                 border,
@@ -331,15 +341,13 @@ export function RecordsExcelActions({
                 fgColor: { rgb: even ? "FFFFFF" : "F8FAFC" },
             })
 
-            const conflictFill = { patternType: "solid", fgColor: { rgb: "FEE2E2" } } // light red
-            const clearFill = { patternType: "solid", fgColor: { rgb: "ECFDF5" } } // light green-ish
+            const conflictFill = { patternType: "solid", fgColor: { rgb: "FEE2E2" } }
+            const clearFill = { patternType: "solid", fgColor: { rgb: "ECFDF5" } }
 
-            // Title cell style
             const titleCellAddr = "A1"
             if (ws[titleCellAddr]) ws[titleCellAddr].s = titleStyle
 
-            // Meta rows merge + style
-            const metaRows = [2, 3] // Excel row numbers
+            const metaRows = [2, 3]
             for (const r of metaRows) {
                 const addr = `A${r}`
                 if (ws[addr]) {
@@ -351,20 +359,17 @@ export function RecordsExcelActions({
                 }
             }
 
-            // Header style
             for (let c = 0; c < totalCols; c++) {
                 const addr = XLSX.utils.encode_cell({ r: headerRowIndex - 1, c })
                 if (ws[addr]) ws[addr].s = headerStyle
             }
 
-            // Data rows style + conditional conflict highlight
             for (let i = 0; i < dataRows.length; i++) {
                 const excelRow = firstDataRowIndex + i
                 const even = i % 2 === 0
                 const recordId = safeId(targetRows[i])
                 const isConflict = recordId ? conflictRecordIds.has(recordId) : false
 
-                // more room for wrapped text
                 ws["!rows"][excelRow - 1] = { hpt: 30 }
 
                 for (let c = 0; c < totalCols; c++) {
@@ -382,13 +387,13 @@ export function RecordsExcelActions({
                               : zebraFill(even)
 
                     const align =
-                        c === 1 // Day
+                        c === 1
                             ? { horizontal: "center", vertical: "center", wrapText: true }
-                            : c === 2 || c === 3 // Start/End time
+                            : c === 2 || c === 3
                               ? { horizontal: "center", vertical: "center", wrapText: true }
-                              : c === 8 // Units
+                              : c === 8
                                 ? { horizontal: "center", vertical: "center", wrapText: true }
-                                : c === 9 // Conflict
+                                : c === 9
                                   ? { horizontal: "center", vertical: "center", wrapText: true }
                                   : rowStyleBase.alignment
 
@@ -401,7 +406,6 @@ export function RecordsExcelActions({
                             : undefined,
                     }
 
-                    // Units number formatting (if numeric)
                     if (c === 8 && typeof ws[addr]?.v === "number") {
                         ws[addr].z = "0"
                     }
@@ -429,7 +433,10 @@ export function RecordsExcelActions({
 
         setExcelBusy(true)
         try {
-            const { blob, filename, supportsStyles } = await buildWorkbookBlob(rows)
+            const { blob, filename, supportsStyles } = await buildWorkbookBlob(
+                rows,
+                singleFacultyLabel ?? undefined
+            )
 
             if (!supportsStyles && !warnedStylesRef.current) {
                 warnedStylesRef.current = true
@@ -443,7 +450,7 @@ export function RecordsExcelActions({
         } finally {
             setExcelBusy(false)
         }
-    }, [hasRows, buildWorkbookBlob, rows])
+    }, [hasRows, buildWorkbookBlob, rows, singleFacultyLabel])
 
     const onExportFacultyExcel = React.useCallback(async () => {
         if (!hasRows) {
@@ -499,20 +506,22 @@ export function RecordsExcelActions({
                     Preview Excel
                 </Button>
 
-                <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => void onExportFacultyExcel()}
-                    disabled={!hasRows || excelBusy || facultyExcelBusy}
-                    aria-label="Export individual faculty Excel files"
-                    title="Export individual faculty Excel files"
-                >
-                    {facultyExcelBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Download className="h-4 w-4" />
-                    )}
-                </Button>
+                {showBatchFacultyExport ? (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => void onExportFacultyExcel()}
+                        disabled={!hasRows || excelBusy || facultyExcelBusy}
+                        aria-label="Export individual faculty Excel files"
+                        title="Export individual faculty Excel files"
+                    >
+                        {facultyExcelBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Download className="h-4 w-4" />
+                        )}
+                    </Button>
+                ) : null}
 
                 <Button
                     size="sm"
@@ -531,7 +540,10 @@ export function RecordsExcelActions({
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
                 <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
                     <DialogHeader>
-                        <DialogTitle>Excel Preview — List of Records</DialogTitle>
+                        <DialogTitle>
+                            Excel Preview — List of Records
+                            {singleFacultyLabel ? ` — ${singleFacultyLabel}` : ""}
+                        </DialogTitle>
                         <DialogDescription>
                             Preview the Excel table layout before downloading. Conflict rows are highlighted.
                         </DialogDescription>
@@ -540,6 +552,7 @@ export function RecordsExcelActions({
                     <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{subjectFilterLabel}</Badge>
                         <Badge variant="secondary">{unitFilterLabel}</Badge>
+                        {singleFacultyLabel ? <Badge variant="secondary">{singleFacultyLabel}</Badge> : null}
                         <Badge variant="outline">
                             {rows.length} record{rows.length === 1 ? "" : "s"}
                         </Badge>
@@ -621,8 +634,9 @@ export function RecordsExcelActions({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            Excel export includes styled title/header rows, zebra striping, borders,
-                            extra spacing for long text, conflict highlight, and individual faculty export using the icon button.
+                            {showBatchFacultyExport
+                                ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, conflict highlight, and batch individual faculty export using the icon button."
+                                : "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight for this faculty selection."}
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -630,20 +644,22 @@ export function RecordsExcelActions({
                                 Close
                             </Button>
 
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => void onExportFacultyExcel()}
-                                disabled={facultyExcelBusy || excelBusy || !hasRows}
-                                aria-label="Export individual faculty Excel files"
-                                title="Export individual faculty Excel files"
-                            >
-                                {facultyExcelBusy ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Download className="h-4 w-4" />
-                                )}
-                            </Button>
+                            {showBatchFacultyExport ? (
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => void onExportFacultyExcel()}
+                                    disabled={facultyExcelBusy || excelBusy || !hasRows}
+                                    aria-label="Export individual faculty Excel files"
+                                    title="Export individual faculty Excel files"
+                                >
+                                    {facultyExcelBusy ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Download className="h-4 w-4" />
+                                    )}
+                                </Button>
+                            ) : null}
 
                             <Button
                                 onClick={() => void onExportExcel()}

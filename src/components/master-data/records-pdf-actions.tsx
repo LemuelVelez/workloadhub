@@ -23,6 +23,7 @@ type Props = {
     conflictRecordIds: Set<string>
     subjectFilterLabel?: string
     unitFilterLabel?: string
+    showBatchFacultyExport?: boolean
 }
 
 function pad2(n: number) {
@@ -74,6 +75,19 @@ function groupRowsByFaculty(rows: any[]) {
             facultyLabel,
             rows: groupedRows,
         }))
+}
+
+function inferSingleFacultyLabel(rows: any[]) {
+    const labels = Array.from(
+        new Set(
+            rows
+                .map((row) => facultyLabelOf(row))
+                .map((label) => label.trim())
+                .filter(Boolean)
+        )
+    )
+
+    return labels.length === 1 ? labels[0] : null
 }
 
 function wait(ms: number) {
@@ -152,6 +166,7 @@ export function RecordsPdfActions({
     conflictRecordIds,
     subjectFilterLabel = "All Subjects",
     unitFilterLabel = "All Units",
+    showBatchFacultyExport = true,
 }: Props) {
     const [previewOpen, setPreviewOpen] = React.useState(false)
     const [pdfBusy, setPdfBusy] = React.useState(false)
@@ -163,6 +178,7 @@ export function RecordsPdfActions({
 
     const hasRows = rows && rows.length > 0
     const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
+    const singleFacultyLabel = React.useMemo(() => inferSingleFacultyLabel(rows), [rows])
 
     const buildPdfBlob = React.useCallback(
         async (targetRows: any[], facultyLabel?: string) => {
@@ -394,7 +410,7 @@ export function RecordsPdfActions({
 
         setPdfPreviewBusy(true)
         try {
-            const { blob } = await buildPdfBlob(rows)
+            const { blob } = await buildPdfBlob(rows, singleFacultyLabel ?? undefined)
             const url = URL.createObjectURL(blob)
 
             if (pdfUrlRef.current) {
@@ -407,7 +423,7 @@ export function RecordsPdfActions({
         } finally {
             setPdfPreviewBusy(false)
         }
-    }, [hasRows, pdfUrl, pdfPreviewBusy, buildPdfBlob, rows])
+    }, [hasRows, pdfUrl, pdfPreviewBusy, buildPdfBlob, rows, singleFacultyLabel])
 
     React.useEffect(() => {
         if (!previewOpen) return
@@ -441,7 +457,7 @@ export function RecordsPdfActions({
 
         setPdfBusy(true)
         try {
-            const { blob, filename } = await buildPdfBlob(rows)
+            const { blob, filename } = await buildPdfBlob(rows, singleFacultyLabel ?? undefined)
             downloadBlob(blob, filename)
             toast.success("PDF exported.")
         } catch (e: any) {
@@ -449,7 +465,7 @@ export function RecordsPdfActions({
         } finally {
             setPdfBusy(false)
         }
-    }, [hasRows, buildPdfBlob, rows])
+    }, [hasRows, buildPdfBlob, rows, singleFacultyLabel])
 
     const onExportFacultyPdf = React.useCallback(async () => {
         if (!hasRows) {
@@ -496,20 +512,22 @@ export function RecordsPdfActions({
                     Preview PDF
                 </Button>
 
-                <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => void onExportFacultyPdf()}
-                    disabled={!hasRows || pdfBusy || facultyPdfBusy}
-                    aria-label="Export individual faculty PDF files"
-                    title="Export individual faculty PDF files"
-                >
-                    {facultyPdfBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Download className="h-4 w-4" />
-                    )}
-                </Button>
+                {showBatchFacultyExport ? (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => void onExportFacultyPdf()}
+                        disabled={!hasRows || pdfBusy || facultyPdfBusy}
+                        aria-label="Export individual faculty PDF files"
+                        title="Export individual faculty PDF files"
+                    >
+                        {facultyPdfBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Download className="h-4 w-4" />
+                        )}
+                    </Button>
+                ) : null}
 
                 <Button
                     size="sm"
@@ -528,7 +546,10 @@ export function RecordsPdfActions({
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
                 <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
                     <DialogHeader>
-                        <DialogTitle>PDF Preview — List of Records</DialogTitle>
+                        <DialogTitle>
+                            PDF Preview — List of Records
+                            {singleFacultyLabel ? ` — ${singleFacultyLabel}` : ""}
+                        </DialogTitle>
                         <DialogDescription>
                             Preview the PDF layout before downloading. Conflict rows are highlighted.
                         </DialogDescription>
@@ -537,6 +558,7 @@ export function RecordsPdfActions({
                     <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{subjectFilterLabel}</Badge>
                         <Badge variant="secondary">{unitFilterLabel}</Badge>
+                        {singleFacultyLabel ? <Badge variant="secondary">{singleFacultyLabel}</Badge> : null}
                         <Badge variant="outline">
                             {rows.length} record{rows.length === 1 ? "" : "s"}
                         </Badge>
@@ -563,7 +585,9 @@ export function RecordsPdfActions({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            PDF export uses A4 landscape layout with the same columns, conflict highlighting, and individual faculty export using the icon button.
+                            {showBatchFacultyExport
+                                ? "PDF export uses A4 landscape layout with the same columns, conflict highlighting, and batch individual faculty export using the icon button."
+                                : "PDF export uses A4 landscape layout with the same columns and conflict highlighting for this faculty selection."}
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -571,20 +595,22 @@ export function RecordsPdfActions({
                                 Close
                             </Button>
 
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => void onExportFacultyPdf()}
-                                disabled={facultyPdfBusy || pdfBusy || !hasRows}
-                                aria-label="Export individual faculty PDF files"
-                                title="Export individual faculty PDF files"
-                            >
-                                {facultyPdfBusy ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Download className="h-4 w-4" />
-                                )}
-                            </Button>
+                            {showBatchFacultyExport ? (
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => void onExportFacultyPdf()}
+                                    disabled={facultyPdfBusy || pdfBusy || !hasRows}
+                                    aria-label="Export individual faculty PDF files"
+                                    title="Export individual faculty PDF files"
+                                >
+                                    {facultyPdfBusy ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Download className="h-4 w-4" />
+                                    )}
+                                </Button>
+                            ) : null}
 
                             <Button
                                 onClick={() => void onExportPdf()}
