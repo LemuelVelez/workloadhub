@@ -51,6 +51,46 @@ function safeId(r: any) {
     return String(r?.id ?? r?.$id ?? r?.recordId ?? r?.record_id ?? "").trim()
 }
 
+function facultyLabelOf(r: any) {
+    const raw = String(r?.facultyLabel ?? r?.faculty ?? "").trim()
+    return raw || "Unknown Faculty"
+}
+
+function sanitizeFilenamePart(value: any) {
+    const sanitized = String(value ?? "")
+        .trim()
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase()
+
+    return sanitized || "unknown-faculty"
+}
+
+function groupRowsByFaculty(rows: any[]) {
+    const map = new Map<string, any[]>()
+
+    for (const row of rows) {
+        const label = facultyLabelOf(row)
+        if (!map.has(label)) {
+            map.set(label, [])
+        }
+        map.get(label)?.push(row)
+    }
+
+    return Array.from(map.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([facultyLabel, groupedRows]) => ({
+            facultyLabel,
+            rows: groupedRows,
+        }))
+}
+
+function wait(ms: number) {
+    return new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms)
+    })
+}
+
 /**
  * Display time as 12-hour clock with AM/PM.
  * Accepts: "08:00", "8:00", "08:00:00", already formatted "8:00 AM", etc.
@@ -141,227 +181,245 @@ export function RecordsExcelActions({
     const [previewOpen, setPreviewOpen] = React.useState(false)
 
     const [excelBusy, setExcelBusy] = React.useState(false)
+    const [facultyExcelBusy, setFacultyExcelBusy] = React.useState(false)
     const warnedStylesRef = React.useRef(false)
 
     const hasRows = rows && rows.length > 0
 
-    const buildWorkbookBlob = React.useCallback(async () => {
-        const { XLSX, supportsStyles } = await loadXlsxModule()
+    const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
 
-        const title = "WorkloadHub — List of Records"
-        const generatedAt = new Date()
-        const filename = `list-of-records_${formatTimestamp(generatedAt)}.xlsx`
+    const buildWorkbookBlob = React.useCallback(
+        async (targetRows: any[], facultyLabel?: string) => {
+            const { XLSX, supportsStyles } = await loadXlsxModule()
 
-        const headers = [
-            "Term",
-            "Day",
-            "Start Time",
-            "End Time",
-            "Room",
-            "Faculty",
-            "Subject Code",
-            "Subject Title",
-            "Units",
-            "Conflict",
-        ]
+            const generatedAt = new Date()
+            const isIndividualFaculty = Boolean(facultyLabel?.trim())
+            const normalizedFacultyLabel = facultyLabel?.trim() || ""
 
-        const dataRows = rows.map((r: any) => {
-            const id = safeId(r)
-            const hasConflict = id ? conflictRecordIds.has(id) : false
+            const title = isIndividualFaculty
+                ? `WorkloadHub — List of Records — ${normalizedFacultyLabel}`
+                : "WorkloadHub — List of Records"
 
-            const unitsRaw = r?.units
-            const unitsNum = Number(unitsRaw)
-            const units = Number.isFinite(unitsNum) ? unitsNum : "—"
+            const filename = isIndividualFaculty
+                ? `list-of-records_${sanitizeFilenamePart(normalizedFacultyLabel)}_${formatTimestamp(generatedAt)}.xlsx`
+                : `list-of-records_${formatTimestamp(generatedAt)}.xlsx`
 
-            const startRaw = r?.startTime ?? r?.start ?? "—"
-            const endRaw = r?.endTime ?? r?.end ?? "—"
+            const filtersLine = isIndividualFaculty
+                ? `Filters: ${subjectFilterLabel} • ${unitFilterLabel} • Faculty: ${normalizedFacultyLabel}`
+                : `Filters: ${subjectFilterLabel} • ${unitFilterLabel}`
 
-            return [
-                resolveTermLabel(r),
-                String(r?.dayOfWeek ?? r?.day ?? "—"),
-                formatTimeAmPm(startRaw),
-                formatTimeAmPm(endRaw),
-                String(r?.roomLabel ?? r?.room ?? "—"),
-                String(r?.facultyLabel ?? r?.faculty ?? "—"),
-                String(r?.subjectCode ?? r?.code ?? "—"),
-                String(r?.subjectTitle ?? r?.title ?? "—"),
-                units,
-                hasConflict ? "Conflict" : "Clear",
+            const headers = [
+                "Term",
+                "Day",
+                "Start Time",
+                "End Time",
+                "Room",
+                "Faculty",
+                "Subject Code",
+                "Subject Title",
+                "Units",
+                "Conflict",
             ]
-        })
 
-        const aoa: any[][] = [
-            [title],
-            [`Filters: ${subjectFilterLabel} • ${unitFilterLabel}`],
-            [`Generated at: ${formatDateTimeAmPm(generatedAt)}`],
-            [],
-            headers,
-            ...dataRows,
-        ]
+            const dataRows = targetRows.map((r: any) => {
+                const id = safeId(r)
+                const hasConflict = id ? conflictRecordIds.has(id) : false
 
-        const ws = XLSX.utils.aoa_to_sheet(aoa)
+                const unitsRaw = r?.units
+                const unitsNum = Number(unitsRaw)
+                const units = Number.isFinite(unitsNum) ? unitsNum : "—"
 
-        const totalCols = headers.length
-        const headerRowIndex = 5 // 1-based row number in Excel (row 5 contains headers)
-        const firstDataRowIndex = headerRowIndex + 1
+                const startRaw = r?.startTime ?? r?.start ?? "—"
+                const endRaw = r?.endTime ?? r?.end ?? "—"
 
-        // Merge title across all columns
-        ws["!merges"] = ws["!merges"] || []
-        ws["!merges"].push({
-            s: { r: 0, c: 0 },
-            e: { r: 0, c: totalCols - 1 },
-        })
+                return [
+                    resolveTermLabel(r),
+                    String(r?.dayOfWeek ?? r?.day ?? "—"),
+                    formatTimeAmPm(startRaw),
+                    formatTimeAmPm(endRaw),
+                    String(r?.roomLabel ?? r?.room ?? "—"),
+                    facultyLabelOf(r),
+                    String(r?.subjectCode ?? r?.code ?? "—"),
+                    String(r?.subjectTitle ?? r?.title ?? "—"),
+                    units,
+                    hasConflict ? "Conflict" : "Clear",
+                ]
+            })
 
-        // Column widths (more space for long text)
-        ws["!cols"] = [
-            { wch: 28 }, // Term
-            { wch: 14 }, // Day
-            { wch: 14 }, // Start
-            { wch: 14 }, // End
-            { wch: 22 }, // Room
-            { wch: 34 }, // Faculty
-            { wch: 18 }, // Subject Code
-            { wch: 48 }, // Subject Title
-            { wch: 10 }, // Units
-            { wch: 12 }, // Conflict
-        ]
+            const aoa: any[][] = [
+                [title],
+                [filtersLine],
+                [`Generated at: ${formatDateTimeAmPm(generatedAt)}`],
+                [],
+                headers,
+                ...dataRows,
+            ]
 
-        // Row heights (more space for wrapped/long text)
-        ws["!rows"] = ws["!rows"] || []
-        ws["!rows"][0] = { hpt: 28 } // title
-        ws["!rows"][1] = { hpt: 20 } // filters
-        ws["!rows"][2] = { hpt: 20 } // generated at
-        ws["!rows"][4] = { hpt: 24 } // headers (row 5)
+            const ws = XLSX.utils.aoa_to_sheet(aoa)
 
-        // Auto-filter for header row
-        const lastColLetter = XLSX.utils.encode_col(totalCols - 1)
-        ws["!autofilter"] = { ref: `A${headerRowIndex}:${lastColLetter}${headerRowIndex}` }
+            const totalCols = headers.length
+            const headerRowIndex = 5 // 1-based row number in Excel (row 5 contains headers)
+            const firstDataRowIndex = headerRowIndex + 1
 
-        // Styling helpers (requires xlsx-js-style; safe to set even if unsupported)
-        const border = {
-            top: { style: "thin", color: { rgb: "CBD5E1" } },
-            bottom: { style: "thin", color: { rgb: "CBD5E1" } },
-            left: { style: "thin", color: { rgb: "CBD5E1" } },
-            right: { style: "thin", color: { rgb: "CBD5E1" } },
-        }
+            // Merge title across all columns
+            ws["!merges"] = ws["!merges"] || []
+            ws["!merges"].push({
+                s: { r: 0, c: 0 },
+                e: { r: 0, c: totalCols - 1 },
+            })
 
-        const titleStyle = {
-            font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
-            fill: { patternType: "solid", fgColor: { rgb: "0F172A" } },
-            alignment: { horizontal: "center", vertical: "center" },
-        }
+            // Column widths (more space for long text)
+            ws["!cols"] = [
+                { wch: 28 }, // Term
+                { wch: 14 }, // Day
+                { wch: 14 }, // Start
+                { wch: 14 }, // End
+                { wch: 22 }, // Room
+                { wch: 34 }, // Faculty
+                { wch: 18 }, // Subject Code
+                { wch: 48 }, // Subject Title
+                { wch: 10 }, // Units
+                { wch: 12 }, // Conflict
+            ]
 
-        const metaStyle = {
-            font: { color: { rgb: "334155" }, sz: 10 },
-            fill: { patternType: "solid", fgColor: { rgb: "F1F5F9" } },
-            alignment: { horizontal: "left", vertical: "center", indent: 1 },
-        }
+            // Row heights (more space for wrapped/long text)
+            ws["!rows"] = ws["!rows"] || []
+            ws["!rows"][0] = { hpt: 28 } // title
+            ws["!rows"][1] = { hpt: 20 } // filters
+            ws["!rows"][2] = { hpt: 20 } // generated at
+            ws["!rows"][4] = { hpt: 24 } // headers (row 5)
 
-        const headerStyle = {
-            font: { bold: true, color: { rgb: "FFFFFF" } },
-            fill: { patternType: "solid", fgColor: { rgb: "1E293B" } },
-            alignment: { horizontal: "center", vertical: "center", wrapText: true },
-            border,
-        }
+            // Auto-filter for header row
+            const lastColLetter = XLSX.utils.encode_col(totalCols - 1)
+            ws["!autofilter"] = { ref: `A${headerRowIndex}:${lastColLetter}${headerRowIndex}` }
 
-        // Base style for data rows (adds visible spacing via indent + taller rows)
-        const rowStyleBase = {
-            alignment: { horizontal: "left", vertical: "top", wrapText: true, indent: 1 },
-            border,
-        }
-
-        const zebraFill = (even: boolean) => ({
-            patternType: "solid",
-            fgColor: { rgb: even ? "FFFFFF" : "F8FAFC" },
-        })
-
-        const conflictFill = { patternType: "solid", fgColor: { rgb: "FEE2E2" } } // light red
-        const clearFill = { patternType: "solid", fgColor: { rgb: "ECFDF5" } } // light green-ish
-
-        // Title cell style
-        const titleCellAddr = "A1"
-        if (ws[titleCellAddr]) ws[titleCellAddr].s = titleStyle
-
-        // Meta rows merge + style
-        const metaRows = [2, 3] // Excel row numbers
-        for (const r of metaRows) {
-            const addr = `A${r}`
-            if (ws[addr]) {
-                ws[addr].s = metaStyle
-                ws["!merges"].push({
-                    s: { r: r - 1, c: 0 },
-                    e: { r: r - 1, c: totalCols - 1 },
-                })
+            // Styling helpers (requires xlsx-js-style; safe to set even if unsupported)
+            const border = {
+                top: { style: "thin", color: { rgb: "CBD5E1" } },
+                bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+                left: { style: "thin", color: { rgb: "CBD5E1" } },
+                right: { style: "thin", color: { rgb: "CBD5E1" } },
             }
-        }
 
-        // Header style
-        for (let c = 0; c < totalCols; c++) {
-            const addr = XLSX.utils.encode_cell({ r: headerRowIndex - 1, c })
-            if (ws[addr]) ws[addr].s = headerStyle
-        }
+            const titleStyle = {
+                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
+                fill: { patternType: "solid", fgColor: { rgb: "0F172A" } },
+                alignment: { horizontal: "center", vertical: "center" },
+            }
 
-        // Data rows style + conditional conflict highlight
-        for (let i = 0; i < dataRows.length; i++) {
-            const excelRow = firstDataRowIndex + i
-            const even = i % 2 === 0
-            const recordId = safeId(rows[i])
-            const isConflict = recordId ? conflictRecordIds.has(recordId) : false
+            const metaStyle = {
+                font: { color: { rgb: "334155" }, sz: 10 },
+                fill: { patternType: "solid", fgColor: { rgb: "F1F5F9" } },
+                alignment: { horizontal: "left", vertical: "center", indent: 1 },
+            }
 
-            // more room for wrapped text
-            ws["!rows"][excelRow - 1] = { hpt: 30 }
+            const headerStyle = {
+                font: { bold: true, color: { rgb: "FFFFFF" } },
+                fill: { patternType: "solid", fgColor: { rgb: "1E293B" } },
+                alignment: { horizontal: "center", vertical: "center", wrapText: true },
+                border,
+            }
 
+            // Base style for data rows (adds visible spacing via indent + taller rows)
+            const rowStyleBase = {
+                alignment: { horizontal: "left", vertical: "top", wrapText: true, indent: 1 },
+                border,
+            }
+
+            const zebraFill = (even: boolean) => ({
+                patternType: "solid",
+                fgColor: { rgb: even ? "FFFFFF" : "F8FAFC" },
+            })
+
+            const conflictFill = { patternType: "solid", fgColor: { rgb: "FEE2E2" } } // light red
+            const clearFill = { patternType: "solid", fgColor: { rgb: "ECFDF5" } } // light green-ish
+
+            // Title cell style
+            const titleCellAddr = "A1"
+            if (ws[titleCellAddr]) ws[titleCellAddr].s = titleStyle
+
+            // Meta rows merge + style
+            const metaRows = [2, 3] // Excel row numbers
+            for (const r of metaRows) {
+                const addr = `A${r}`
+                if (ws[addr]) {
+                    ws[addr].s = metaStyle
+                    ws["!merges"].push({
+                        s: { r: r - 1, c: 0 },
+                        e: { r: r - 1, c: totalCols - 1 },
+                    })
+                }
+            }
+
+            // Header style
             for (let c = 0; c < totalCols; c++) {
-                const addr = XLSX.utils.encode_cell({ r: excelRow - 1, c })
-                if (!ws[addr]) continue
+                const addr = XLSX.utils.encode_cell({ r: headerRowIndex - 1, c })
+                if (ws[addr]) ws[addr].s = headerStyle
+            }
 
-                const isConflictCol = c === totalCols - 1
-                const fill =
-                    isConflictCol
-                        ? isConflict
-                            ? conflictFill
-                            : clearFill
-                        : isConflict
-                          ? conflictFill
-                          : zebraFill(even)
+            // Data rows style + conditional conflict highlight
+            for (let i = 0; i < dataRows.length; i++) {
+                const excelRow = firstDataRowIndex + i
+                const even = i % 2 === 0
+                const recordId = safeId(targetRows[i])
+                const isConflict = recordId ? conflictRecordIds.has(recordId) : false
 
-                const align =
-                    c === 1 // Day
-                        ? { horizontal: "center", vertical: "center", wrapText: true }
-                        : c === 2 || c === 3 // Start/End time
-                          ? { horizontal: "center", vertical: "center", wrapText: true }
-                          : c === 8 // Units
+                // more room for wrapped text
+                ws["!rows"][excelRow - 1] = { hpt: 30 }
+
+                for (let c = 0; c < totalCols; c++) {
+                    const addr = XLSX.utils.encode_cell({ r: excelRow - 1, c })
+                    if (!ws[addr]) continue
+
+                    const isConflictCol = c === totalCols - 1
+                    const fill =
+                        isConflictCol
+                            ? isConflict
+                                ? conflictFill
+                                : clearFill
+                            : isConflict
+                              ? conflictFill
+                              : zebraFill(even)
+
+                    const align =
+                        c === 1 // Day
                             ? { horizontal: "center", vertical: "center", wrapText: true }
-                            : c === 9 // Conflict
+                            : c === 2 || c === 3 // Start/End time
                               ? { horizontal: "center", vertical: "center", wrapText: true }
-                              : rowStyleBase.alignment
+                              : c === 8 // Units
+                                ? { horizontal: "center", vertical: "center", wrapText: true }
+                                : c === 9 // Conflict
+                                  ? { horizontal: "center", vertical: "center", wrapText: true }
+                                  : rowStyleBase.alignment
 
-                ws[addr].s = {
-                    ...rowStyleBase,
-                    alignment: align,
-                    fill,
-                    font: isConflictCol
-                        ? { bold: true, color: { rgb: isConflict ? "7F1D1D" : "065F46" } }
-                        : undefined,
-                }
+                    ws[addr].s = {
+                        ...rowStyleBase,
+                        alignment: align,
+                        fill,
+                        font: isConflictCol
+                            ? { bold: true, color: { rgb: isConflict ? "7F1D1D" : "065F46" } }
+                            : undefined,
+                    }
 
-                // Units number formatting (if numeric)
-                if (c === 8 && typeof ws[addr]?.v === "number") {
-                    ws[addr].z = "0"
+                    // Units number formatting (if numeric)
+                    if (c === 8 && typeof ws[addr]?.v === "number") {
+                        ws[addr].z = "0"
+                    }
                 }
             }
-        }
 
-        const wb = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(wb, ws, "List of Records")
+            const wb = XLSX.utils.book_new()
+            XLSX.utils.book_append_sheet(wb, ws, "List of Records")
 
-        const out: ArrayBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" })
-        const blob = new Blob([out], {
-            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        })
+            const out: ArrayBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+            const blob = new Blob([out], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            })
 
-        return { blob, filename, supportsStyles }
-    }, [rows, resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel])
+            return { blob, filename, supportsStyles }
+        },
+        [resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel]
+    )
 
     const onExportExcel = React.useCallback(async () => {
         if (!hasRows) {
@@ -371,7 +429,7 @@ export function RecordsExcelActions({
 
         setExcelBusy(true)
         try {
-            const { blob, filename, supportsStyles } = await buildWorkbookBlob()
+            const { blob, filename, supportsStyles } = await buildWorkbookBlob(rows)
 
             if (!supportsStyles && !warnedStylesRef.current) {
                 warnedStylesRef.current = true
@@ -385,7 +443,48 @@ export function RecordsExcelActions({
         } finally {
             setExcelBusy(false)
         }
-    }, [hasRows, buildWorkbookBlob])
+    }, [hasRows, buildWorkbookBlob, rows])
+
+    const onExportFacultyExcel = React.useCallback(async () => {
+        if (!hasRows) {
+            toast.error("No records to export.")
+            return
+        }
+
+        if (facultyGroups.length === 0) {
+            toast.error("No faculty groups found to export.")
+            return
+        }
+
+        setFacultyExcelBusy(true)
+        try {
+            let exportedCount = 0
+
+            for (const group of facultyGroups) {
+                const { blob, filename, supportsStyles } = await buildWorkbookBlob(
+                    group.rows,
+                    group.facultyLabel
+                )
+
+                if (!supportsStyles && !warnedStylesRef.current) {
+                    warnedStylesRef.current = true
+                    toast.message("Tip: Install xlsx-js-style to enable colored/styled Excel export.")
+                }
+
+                downloadBlob(blob, filename)
+                exportedCount += 1
+                await wait(180)
+            }
+
+            toast.success(
+                `Exported ${exportedCount} faculty Excel file${exportedCount === 1 ? "" : "s"}.`
+            )
+        } catch (e: any) {
+            toast.error(e?.message ?? "Failed to export individual faculty Excel files.")
+        } finally {
+            setFacultyExcelBusy(false)
+        }
+    }, [hasRows, facultyGroups, buildWorkbookBlob])
 
     return (
         <>
@@ -401,9 +500,24 @@ export function RecordsExcelActions({
                 </Button>
 
                 <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => void onExportFacultyExcel()}
+                    disabled={!hasRows || excelBusy || facultyExcelBusy}
+                    aria-label="Export individual faculty Excel files"
+                    title="Export individual faculty Excel files"
+                >
+                    {facultyExcelBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Download className="h-4 w-4" />
+                    )}
+                </Button>
+
+                <Button
                     size="sm"
                     onClick={() => void onExportExcel()}
-                    disabled={!hasRows || excelBusy}
+                    disabled={!hasRows || excelBusy || facultyExcelBusy}
                 >
                     {excelBusy ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -479,7 +593,7 @@ export function RecordsExcelActions({
                                                     <TableCell>{formatTimeAmPm(endRaw)}</TableCell>
                                                     <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
                                                     <TableCell className="text-muted-foreground">
-                                                        {String(r?.facultyLabel ?? r?.faculty ?? "—")}
+                                                        {facultyLabelOf(r)}
                                                     </TableCell>
                                                     <TableCell className="font-medium">
                                                         {String(r?.subjectCode ?? r?.code ?? "—")}
@@ -507,7 +621,8 @@ export function RecordsExcelActions({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight.
+                            Excel export includes styled title/header rows, zebra striping, borders,
+                            extra spacing for long text, conflict highlight, and individual faculty export using the icon button.
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -516,8 +631,23 @@ export function RecordsExcelActions({
                             </Button>
 
                             <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => void onExportFacultyExcel()}
+                                disabled={facultyExcelBusy || excelBusy || !hasRows}
+                                aria-label="Export individual faculty Excel files"
+                                title="Export individual faculty Excel files"
+                            >
+                                {facultyExcelBusy ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Download className="h-4 w-4" />
+                                )}
+                            </Button>
+
+                            <Button
                                 onClick={() => void onExportExcel()}
-                                disabled={excelBusy || !hasRows}
+                                disabled={excelBusy || facultyExcelBusy || !hasRows}
                             >
                                 <Download className="mr-2 h-4 w-4" />
                                 Download Excel

@@ -42,6 +42,46 @@ function safeId(r: any) {
     return String(r?.id ?? r?.$id ?? r?.recordId ?? r?.record_id ?? "").trim()
 }
 
+function facultyLabelOf(r: any) {
+    const raw = String(r?.facultyLabel ?? r?.faculty ?? "").trim()
+    return raw || "Unknown Faculty"
+}
+
+function sanitizeFilenamePart(value: any) {
+    const sanitized = String(value ?? "")
+        .trim()
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase()
+
+    return sanitized || "unknown-faculty"
+}
+
+function groupRowsByFaculty(rows: any[]) {
+    const map = new Map<string, any[]>()
+
+    for (const row of rows) {
+        const label = facultyLabelOf(row)
+        if (!map.has(label)) {
+            map.set(label, [])
+        }
+        map.get(label)?.push(row)
+    }
+
+    return Array.from(map.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([facultyLabel, groupedRows]) => ({
+            facultyLabel,
+            rows: groupedRows,
+        }))
+}
+
+function wait(ms: number) {
+    return new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms)
+    })
+}
+
 /**
  * Display time as 12-hour clock with AM/PM.
  * Accepts: "08:00", "8:00", "08:00:00", already formatted "8:00 AM", etc.
@@ -115,221 +155,237 @@ export function RecordsPdfActions({
 }: Props) {
     const [previewOpen, setPreviewOpen] = React.useState(false)
     const [pdfBusy, setPdfBusy] = React.useState(false)
+    const [facultyPdfBusy, setFacultyPdfBusy] = React.useState(false)
 
     const [pdfUrl, setPdfUrl] = React.useState<string | null>(null)
     const pdfUrlRef = React.useRef<string | null>(null)
     const [pdfPreviewBusy, setPdfPreviewBusy] = React.useState(false)
 
     const hasRows = rows && rows.length > 0
+    const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
 
-    const buildPdfBlob = React.useCallback(async () => {
-        const m: any = await loadPdfRenderer()
-        const Document = m.Document as any
-        const Page = m.Page as any
-        const Text = m.Text as any
-        const View = m.View as any
-        const StyleSheet = m.StyleSheet as any
-        const pdf = m.pdf as any
+    const buildPdfBlob = React.useCallback(
+        async (targetRows: any[], facultyLabel?: string) => {
+            const m: any = await loadPdfRenderer()
+            const Document = m.Document as any
+            const Page = m.Page as any
+            const Text = m.Text as any
+            const View = m.View as any
+            const StyleSheet = m.StyleSheet as any
+            const pdf = m.pdf as any
 
-        const generatedAt = new Date()
-        const filename = `list-of-records_${formatTimestamp(generatedAt)}.pdf`
+            const generatedAt = new Date()
+            const isIndividualFaculty = Boolean(facultyLabel?.trim())
+            const normalizedFacultyLabel = facultyLabel?.trim() || ""
 
-        const title = "WorkloadHub — List of Records"
-        const subtitle = `Filters: ${subjectFilterLabel} • ${unitFilterLabel}`
-        const generatedLabel = `Generated at: ${formatDateTimeAmPm(generatedAt)}`
+            const filename = isIndividualFaculty
+                ? `list-of-records_${sanitizeFilenamePart(normalizedFacultyLabel)}_${formatTimestamp(generatedAt)}.pdf`
+                : `list-of-records_${formatTimestamp(generatedAt)}.pdf`
 
-        const cols = [
-            { key: "term", label: "Term", w: "13%" },
-            { key: "day", label: "Day", w: "7%" },
-            { key: "start", label: "Start", w: "7%" },
-            { key: "end", label: "End", w: "7%" },
-            { key: "room", label: "Room", w: "10%" },
-            { key: "faculty", label: "Faculty", w: "16%" },
-            { key: "code", label: "Subject Code", w: "10%" },
-            { key: "title", label: "Subject Title", w: "18%" },
-            { key: "units", label: "Units", w: "5%" },
-            { key: "conflict", label: "Conflict", w: "7%" },
-        ] as const
+            const title = isIndividualFaculty
+                ? `WorkloadHub — List of Records — ${normalizedFacultyLabel}`
+                : "WorkloadHub — List of Records"
 
-        const styles = StyleSheet.create({
-            page: { padding: 24, fontSize: 9, fontFamily: "Helvetica" },
-            title: { fontSize: 14, fontWeight: 700, marginBottom: 4, color: "#0F172A" },
-            meta: { fontSize: 9, color: "#475569", marginBottom: 2 },
-            table: { marginTop: 10, borderWidth: 1, borderColor: "#CBD5E1" },
+            const subtitle = isIndividualFaculty
+                ? `Filters: ${subjectFilterLabel} • ${unitFilterLabel} • Faculty: ${normalizedFacultyLabel}`
+                : `Filters: ${subjectFilterLabel} • ${unitFilterLabel}`
 
-            headerRow: { flexDirection: "row", backgroundColor: "#0F172A" },
-            headerCell: {
-                padding: 6,
-                color: "#FFFFFF",
-                fontWeight: 700,
-                borderRightWidth: 1,
-                borderRightColor: "#CBD5E1",
-            },
-            row: { flexDirection: "row" },
-            cell: {
-                padding: 6,
-                borderTopWidth: 1,
-                borderTopColor: "#CBD5E1",
-                borderRightWidth: 1,
-                borderRightColor: "#CBD5E1",
-                color: "#0F172A",
-            },
-            zebra: { backgroundColor: "#F8FAFC" },
-            conflictRow: { backgroundColor: "#FEE2E2" },
+            const generatedLabel = `Generated at: ${formatDateTimeAmPm(generatedAt)}`
 
-            footer: {
-                position: "absolute",
-                bottom: 14,
-                left: 24,
-                right: 24,
-                flexDirection: "row",
-                justifyContent: "space-between",
-                fontSize: 8,
-                color: "#64748B",
-            },
-        })
+            const cols = [
+                { key: "term", label: "Term", w: "13%" },
+                { key: "day", label: "Day", w: "7%" },
+                { key: "start", label: "Start", w: "7%" },
+                { key: "end", label: "End", w: "7%" },
+                { key: "room", label: "Room", w: "10%" },
+                { key: "faculty", label: "Faculty", w: "16%" },
+                { key: "code", label: "Subject Code", w: "10%" },
+                { key: "title", label: "Subject Title", w: "18%" },
+                { key: "units", label: "Units", w: "5%" },
+                { key: "conflict", label: "Conflict", w: "7%" },
+            ] as const
 
-        const RecordsPdfDocument = () => (
-            <Document title={title}>
-                <Page size="A4" orientation="landscape" style={styles.page}>
-                    <Text style={styles.title}>{title}</Text>
-                    <Text style={styles.meta}>{subtitle}</Text>
-                    <Text style={styles.meta}>{generatedLabel}</Text>
+            const styles = StyleSheet.create({
+                page: { padding: 24, fontSize: 9, fontFamily: "Helvetica" },
+                title: { fontSize: 14, fontWeight: 700, marginBottom: 4, color: "#0F172A" },
+                meta: { fontSize: 9, color: "#475569", marginBottom: 2 },
+                table: { marginTop: 10, borderWidth: 1, borderColor: "#CBD5E1" },
 
-                    <View style={styles.table}>
-                        <View style={styles.headerRow} wrap={false}>
-                            {cols.map((c, idx) => (
-                                <View
-                                    key={c.key}
-                                    style={{
-                                        width: c.w,
-                                        borderRightWidth: idx === cols.length - 1 ? 0 : 1,
-                                        borderRightColor: "#CBD5E1",
-                                    }}
-                                >
-                                    <Text
+                headerRow: { flexDirection: "row", backgroundColor: "#0F172A" },
+                headerCell: {
+                    padding: 6,
+                    color: "#FFFFFF",
+                    fontWeight: 700,
+                    borderRightWidth: 1,
+                    borderRightColor: "#CBD5E1",
+                },
+                row: { flexDirection: "row" },
+                cell: {
+                    padding: 6,
+                    borderTopWidth: 1,
+                    borderTopColor: "#CBD5E1",
+                    borderRightWidth: 1,
+                    borderRightColor: "#CBD5E1",
+                    color: "#0F172A",
+                },
+                zebra: { backgroundColor: "#F8FAFC" },
+                conflictRow: { backgroundColor: "#FEE2E2" },
+
+                footer: {
+                    position: "absolute",
+                    bottom: 14,
+                    left: 24,
+                    right: 24,
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    fontSize: 8,
+                    color: "#64748B",
+                },
+            })
+
+            const RecordsPdfDocument = () => (
+                <Document title={title}>
+                    <Page size="A4" orientation="landscape" style={styles.page}>
+                        <Text style={styles.title}>{title}</Text>
+                        <Text style={styles.meta}>{subtitle}</Text>
+                        <Text style={styles.meta}>{generatedLabel}</Text>
+
+                        <View style={styles.table}>
+                            <View style={styles.headerRow} wrap={false}>
+                                {cols.map((c, idx) => (
+                                    <View
+                                        key={c.key}
                                         style={{
-                                            ...styles.headerCell,
-                                            borderRightWidth: 0,
-                                            textAlign:
+                                            width: c.w,
+                                            borderRightWidth: idx === cols.length - 1 ? 0 : 1,
+                                            borderRightColor: "#CBD5E1",
+                                        }}
+                                    >
+                                        <Text
+                                            style={{
+                                                ...styles.headerCell,
+                                                borderRightWidth: 0,
+                                                textAlign:
+                                                    c.key === "day" ||
+                                                    c.key === "start" ||
+                                                    c.key === "end" ||
+                                                    c.key === "units" ||
+                                                    c.key === "conflict"
+                                                        ? "center"
+                                                        : "left",
+                                            }}
+                                        >
+                                            {c.label}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+
+                            {targetRows.map((r: any, i: number) => {
+                                const id = safeId(r)
+                                const isConflict = id ? conflictRecordIds.has(id) : false
+                                const even = i % 2 === 0
+
+                                const startRaw = r?.startTime ?? r?.start ?? "—"
+                                const endRaw = r?.endTime ?? r?.end ?? "—"
+
+                                const unitsRaw = r?.units
+                                const unitsNum = Number(unitsRaw)
+                                const units = Number.isFinite(unitsNum) ? String(unitsNum) : "—"
+
+                                const rowStyle = isConflict
+                                    ? styles.conflictRow
+                                    : even
+                                      ? undefined
+                                      : styles.zebra
+
+                                return (
+                                    <View key={id || i} style={[styles.row, rowStyle]} wrap={false}>
+                                        {cols.map((c, idx) => {
+                                            const value =
+                                                c.key === "term"
+                                                    ? resolveTermLabel(r)
+                                                    : c.key === "day"
+                                                      ? String(r?.dayOfWeek ?? r?.day ?? "—")
+                                                      : c.key === "start"
+                                                        ? formatTimeAmPm(startRaw)
+                                                        : c.key === "end"
+                                                          ? formatTimeAmPm(endRaw)
+                                                          : c.key === "room"
+                                                            ? String(r?.roomLabel ?? r?.room ?? "—")
+                                                            : c.key === "faculty"
+                                                              ? facultyLabelOf(r)
+                                                              : c.key === "code"
+                                                                ? String(r?.subjectCode ?? r?.code ?? "—")
+                                                                : c.key === "title"
+                                                                  ? String(r?.subjectTitle ?? r?.title ?? "—")
+                                                                  : c.key === "units"
+                                                                    ? units
+                                                                    : c.key === "conflict"
+                                                                      ? isConflict
+                                                                          ? "Conflict"
+                                                                          : "Clear"
+                                                                      : ""
+
+                                            const align =
                                                 c.key === "day" ||
                                                 c.key === "start" ||
                                                 c.key === "end" ||
                                                 c.key === "units" ||
                                                 c.key === "conflict"
                                                     ? "center"
-                                                    : "left",
-                                        }}
-                                    >
-                                        {c.label}
-                                    </Text>
-                                </View>
-                            ))}
-                        </View>
+                                                    : "left"
 
-                        {rows.map((r: any, i: number) => {
-                            const id = safeId(r)
-                            const isConflict = id ? conflictRecordIds.has(id) : false
-                            const even = i % 2 === 0
+                                            const isLast = idx === cols.length - 1
 
-                            const startRaw = r?.startTime ?? r?.start ?? "—"
-                            const endRaw = r?.endTime ?? r?.end ?? "—"
-
-                            const unitsRaw = r?.units
-                            const unitsNum = Number(unitsRaw)
-                            const units = Number.isFinite(unitsNum) ? String(unitsNum) : "—"
-
-                            const rowStyle = isConflict
-                                ? styles.conflictRow
-                                : even
-                                  ? undefined
-                                  : styles.zebra
-
-                            return (
-                                <View key={id || i} style={[styles.row, rowStyle]} wrap={false}>
-                                    {cols.map((c, idx) => {
-                                        const value =
-                                            c.key === "term"
-                                                ? resolveTermLabel(r)
-                                                : c.key === "day"
-                                                  ? String(r?.dayOfWeek ?? r?.day ?? "—")
-                                                  : c.key === "start"
-                                                    ? formatTimeAmPm(startRaw)
-                                                    : c.key === "end"
-                                                      ? formatTimeAmPm(endRaw)
-                                                      : c.key === "room"
-                                                        ? String(r?.roomLabel ?? r?.room ?? "—")
-                                                        : c.key === "faculty"
-                                                          ? String(r?.facultyLabel ?? r?.faculty ?? "—")
-                                                          : c.key === "code"
-                                                            ? String(r?.subjectCode ?? r?.code ?? "—")
-                                                            : c.key === "title"
-                                                              ? String(r?.subjectTitle ?? r?.title ?? "—")
-                                                              : c.key === "units"
-                                                                ? units
-                                                                : c.key === "conflict"
-                                                                  ? isConflict
-                                                                      ? "Conflict"
-                                                                      : "Clear"
-                                                                  : ""
-
-                                        const align =
-                                            c.key === "day" ||
-                                            c.key === "start" ||
-                                            c.key === "end" ||
-                                            c.key === "units" ||
-                                            c.key === "conflict"
-                                                ? "center"
-                                                : "left"
-
-                                        const isLast = idx === cols.length - 1
-
-                                        return (
-                                            <View
-                                                key={c.key}
-                                                style={{
-                                                    width: c.w,
-                                                    borderRightWidth: isLast ? 0 : 1,
-                                                    borderRightColor: "#CBD5E1",
-                                                }}
-                                            >
-                                                <Text
+                                            return (
+                                                <View
+                                                    key={c.key}
                                                     style={{
-                                                        ...styles.cell,
-                                                        borderRightWidth: 0,
-                                                        textAlign: align,
-                                                        fontWeight: c.key === "conflict" ? 700 : 400,
-                                                        color:
-                                                            c.key === "conflict"
-                                                                ? isConflict
-                                                                    ? "#7F1D1D"
-                                                                    : "#065F46"
-                                                                : "#0F172A",
+                                                        width: c.w,
+                                                        borderRightWidth: isLast ? 0 : 1,
+                                                        borderRightColor: "#CBD5E1",
                                                     }}
                                                 >
-                                                    {String(value ?? "—")}
-                                                </Text>
-                                            </View>
-                                        )
-                                    })}
-                                </View>
-                            )
-                        })}
-                    </View>
+                                                    <Text
+                                                        style={{
+                                                            ...styles.cell,
+                                                            borderRightWidth: 0,
+                                                            textAlign: align,
+                                                            fontWeight: c.key === "conflict" ? 700 : 400,
+                                                            color:
+                                                                c.key === "conflict"
+                                                                    ? isConflict
+                                                                        ? "#7F1D1D"
+                                                                        : "#065F46"
+                                                                    : "#0F172A",
+                                                        }}
+                                                    >
+                                                        {String(value ?? "—")}
+                                                    </Text>
+                                                </View>
+                                            )
+                                        })}
+                                    </View>
+                                )
+                            })}
+                        </View>
 
-                    <View style={styles.footer} fixed>
-                        <Text>
-                            {rows.length} record{rows.length === 1 ? "" : "s"}
-                        </Text>
-                        <Text>WorkloadHub</Text>
-                    </View>
-                </Page>
-            </Document>
-        )
+                        <View style={styles.footer} fixed>
+                            <Text>
+                                {targetRows.length} record{targetRows.length === 1 ? "" : "s"}
+                            </Text>
+                            <Text>WorkloadHub</Text>
+                        </View>
+                    </Page>
+                </Document>
+            )
 
-        const blob: Blob = await pdf(<RecordsPdfDocument />).toBlob()
-        return { blob, filename }
-    }, [rows, resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel])
+            const blob: Blob = await pdf(<RecordsPdfDocument />).toBlob()
+            return { blob, filename }
+        },
+        [resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel]
+    )
 
     const ensurePdfPreview = React.useCallback(async () => {
         if (!hasRows) return
@@ -338,7 +394,7 @@ export function RecordsPdfActions({
 
         setPdfPreviewBusy(true)
         try {
-            const { blob } = await buildPdfBlob()
+            const { blob } = await buildPdfBlob(rows)
             const url = URL.createObjectURL(blob)
 
             if (pdfUrlRef.current) {
@@ -351,7 +407,7 @@ export function RecordsPdfActions({
         } finally {
             setPdfPreviewBusy(false)
         }
-    }, [hasRows, pdfUrl, pdfPreviewBusy, buildPdfBlob])
+    }, [hasRows, pdfUrl, pdfPreviewBusy, buildPdfBlob, rows])
 
     React.useEffect(() => {
         if (!previewOpen) return
@@ -385,7 +441,7 @@ export function RecordsPdfActions({
 
         setPdfBusy(true)
         try {
-            const { blob, filename } = await buildPdfBlob()
+            const { blob, filename } = await buildPdfBlob(rows)
             downloadBlob(blob, filename)
             toast.success("PDF exported.")
         } catch (e: any) {
@@ -393,7 +449,39 @@ export function RecordsPdfActions({
         } finally {
             setPdfBusy(false)
         }
-    }, [hasRows, buildPdfBlob])
+    }, [hasRows, buildPdfBlob, rows])
+
+    const onExportFacultyPdf = React.useCallback(async () => {
+        if (!hasRows) {
+            toast.error("No records to export.")
+            return
+        }
+
+        if (facultyGroups.length === 0) {
+            toast.error("No faculty groups found to export.")
+            return
+        }
+
+        setFacultyPdfBusy(true)
+        try {
+            let exportedCount = 0
+
+            for (const group of facultyGroups) {
+                const { blob, filename } = await buildPdfBlob(group.rows, group.facultyLabel)
+                downloadBlob(blob, filename)
+                exportedCount += 1
+                await wait(180)
+            }
+
+            toast.success(
+                `Exported ${exportedCount} faculty PDF file${exportedCount === 1 ? "" : "s"}.`
+            )
+        } catch (e: any) {
+            toast.error(e?.message ?? "Failed to export individual faculty PDF files.")
+        } finally {
+            setFacultyPdfBusy(false)
+        }
+    }, [hasRows, facultyGroups, buildPdfBlob])
 
     return (
         <>
@@ -409,9 +497,24 @@ export function RecordsPdfActions({
                 </Button>
 
                 <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => void onExportFacultyPdf()}
+                    disabled={!hasRows || pdfBusy || facultyPdfBusy}
+                    aria-label="Export individual faculty PDF files"
+                    title="Export individual faculty PDF files"
+                >
+                    {facultyPdfBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Download className="h-4 w-4" />
+                    )}
+                </Button>
+
+                <Button
                     size="sm"
                     onClick={() => void onExportPdf()}
-                    disabled={!hasRows || pdfBusy}
+                    disabled={!hasRows || pdfBusy || facultyPdfBusy}
                 >
                     {pdfBusy ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -460,7 +563,7 @@ export function RecordsPdfActions({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            PDF export uses A4 landscape layout with the same columns and conflict highlighting.
+                            PDF export uses A4 landscape layout with the same columns, conflict highlighting, and individual faculty export using the icon button.
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -469,8 +572,23 @@ export function RecordsPdfActions({
                             </Button>
 
                             <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => void onExportFacultyPdf()}
+                                disabled={facultyPdfBusy || pdfBusy || !hasRows}
+                                aria-label="Export individual faculty PDF files"
+                                title="Export individual faculty PDF files"
+                            >
+                                {facultyPdfBusy ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Download className="h-4 w-4" />
+                                )}
+                            </Button>
+
+                            <Button
                                 onClick={() => void onExportPdf()}
-                                disabled={pdfBusy || !hasRows}
+                                disabled={pdfBusy || facultyPdfBusy || !hasRows}
                             >
                                 <Download className="mr-2 h-4 w-4" />
                                 Download PDF

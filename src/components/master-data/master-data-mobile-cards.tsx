@@ -57,90 +57,96 @@ function formatTimeAmPm(value: any) {
 
 export function FacultyMobileCards({ vm }: Props) {
     return (
-        <div className="space-y-3">
+        <div className="space-y-2">
             {vm.filteredFaculty.map((f) => {
                 const u = vm.facultyUserMap.get(String(f.userId).trim()) ?? null
                 const facultyName = u ? vm.facultyDisplay(u) : "Unknown faculty"
                 const collegeName = vm.collegeLabel(vm.colleges, f.departmentId)
 
                 return (
-                    <Card key={f.$id}>
-                        <CardHeader className="space-y-3">
-                            <div className="flex flex-col gap-3">
+                    <Card key={f.$id} className="min-w-0 w-full max-w-full overflow-hidden">
+                        <CardHeader className="space-y-2 px-3 py-3">
+                            <div className="flex min-w-0 flex-col gap-2">
                                 <div className="min-w-0 space-y-1">
-                                    <CardTitle className="wrap-break-word text-base leading-6">
+                                    <CardTitle className="wrap-break-word text-sm leading-5">
                                         {facultyName}
                                     </CardTitle>
-                                    <CardDescription className="wrap-break-word">
+                                    <CardDescription className="wrap-break-word text-xs leading-5">
                                         {collegeName}
                                     </CardDescription>
                                 </div>
 
                                 <Badge
                                     variant="secondary"
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     {f.employeeNo || "No employee no"}
                                 </Badge>
                             </div>
 
-                            <div className="flex flex-col gap-2">
+                            <div className="flex min-w-0 flex-col gap-2">
                                 <Badge
                                     variant="outline"
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     {f.rank || "No rank"}
                                 </Badge>
                                 <Badge
                                     variant="outline"
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     Units: {f.maxUnits ?? "—"}
                                 </Badge>
                                 <Badge
                                     variant="outline"
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     Hours: {f.maxHours ?? "—"}
                                 </Badge>
                             </div>
                         </CardHeader>
 
-                        <CardContent className="space-y-3">
-                            <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
-                                <div className="grid gap-1">
+                        <CardContent className="space-y-2 px-3 pb-3 pt-0">
+                            <div className="flex min-w-0 flex-col gap-2 rounded-lg border p-2.5 text-sm">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">User ID</div>
-                                    <div className="break-all">{f.userId}</div>
+                                    <div className="wrap-break-word text-sm leading-5">{f.userId}</div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Employee No</div>
-                                    <div className="wrap-break-word">{f.employeeNo || "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {f.employeeNo || "—"}
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">College</div>
-                                    <div className="wrap-break-word">{collegeName}</div>
+                                    <div className="wrap-break-word text-sm leading-5">{collegeName}</div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Rank</div>
-                                    <div className="wrap-break-word">{f.rank || "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">{f.rank || "—"}</div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Max Units</div>
-                                    <div>{f.maxUnits ?? "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {f.maxUnits ?? "—"}
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Max Hours</div>
-                                    <div>{f.maxHours ?? "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {f.maxHours ?? "—"}
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Notes</div>
-                                    <div className="whitespace-pre-wrap wrap-break-word">
+                                    <div className="wrap-break-word whitespace-pre-wrap text-sm leading-5">
                                         {f.notes || "—"}
                                     </div>
                                 </div>
@@ -150,7 +156,7 @@ export function FacultyMobileCards({ vm }: Props) {
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="w-full justify-start"
+                                    className="h-9 w-full justify-start px-3"
                                     onClick={() => {
                                         vm.setFacultyEditing(f)
                                         vm.setFacultyOpen(true)
@@ -163,7 +169,7 @@ export function FacultyMobileCards({ vm }: Props) {
                                 <Button
                                     variant="destructive"
                                     size="sm"
-                                    className="w-full justify-start"
+                                    className="h-9 w-full justify-start px-3"
                                     onClick={() => vm.setDeleteIntent({ type: "faculty", doc: f })}
                                 >
                                     <Trash2 className="mr-2 h-4 w-4" />
@@ -185,86 +191,96 @@ export function RecordMobileCards({
     onEdit,
 }: RecordCardsProps) {
     return (
-        <div className="space-y-3">
+        <div className="space-y-2">
             {rows.map((r, idx) => {
                 const recordId = safeRecordId(r) || `record-${idx}`
                 const hasConflict = recordId ? conflictRecordIds.has(recordId) : false
 
                 return (
-                    <Card key={recordId}>
-                        <CardHeader className="space-y-3">
-                            <div className="flex flex-col gap-3">
+                    <Card key={recordId} className="min-w-0 w-full max-w-full overflow-hidden">
+                        <CardHeader className="space-y-2 px-3 py-3">
+                            <div className="flex min-w-0 flex-col gap-2">
                                 <div className="min-w-0 space-y-1">
-                                    <CardTitle className="wrap-break-word text-base leading-6">
+                                    <CardTitle className="wrap-break-word text-sm leading-5">
                                         {r.subjectCode || "TBA"}
                                     </CardTitle>
-                                    <CardDescription className="wrap-break-word">
+                                    <CardDescription className="wrap-break-word text-xs leading-5">
                                         {r.subjectTitle || "Unknown Subject"}
                                     </CardDescription>
                                 </div>
 
                                 <Badge
                                     variant={hasConflict ? "destructive" : "secondary"}
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     {hasConflict ? "Conflict" : "Clear"}
                                 </Badge>
                             </div>
 
-                            <div className="flex flex-col gap-2">
+                            <div className="flex min-w-0 flex-col gap-2">
                                 <Badge
                                     variant="outline"
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     {resolveTermLabel(r)}
                                 </Badge>
                                 <Badge
                                     variant="outline"
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     {r.dayOfWeek || "—"}
                                 </Badge>
                                 <Badge
                                     variant="outline"
-                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
                                 >
                                     {r.units ?? "—"} unit{Number(r.units) > 1 ? "s" : ""}
                                 </Badge>
                             </div>
                         </CardHeader>
 
-                        <CardContent className="space-y-3">
-                            <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
-                                <div className="grid gap-1">
+                        <CardContent className="space-y-2 px-3 pb-3 pt-0">
+                            <div className="flex min-w-0 flex-col gap-2 rounded-lg border p-2.5 text-sm">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Time</div>
-                                    <div className="wrap-break-word">
+                                    <div className="wrap-break-word text-sm leading-5">
                                         {formatTimeAmPm(r.startTime)} - {formatTimeAmPm(r.endTime)}
                                     </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Room</div>
-                                    <div className="wrap-break-word">{r.roomLabel || "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {r.roomLabel || "—"}
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">College</div>
-                                    <div className="wrap-break-word">{r.collegeLabel || "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {r.collegeLabel || "—"}
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Program</div>
-                                    <div className="wrap-break-word">{r.programLabel || "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {r.programLabel || "—"}
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Section</div>
-                                    <div className="wrap-break-word">{r.sectionLabel || "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {r.sectionLabel || "—"}
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-1">
+                                <div className="grid min-w-0 gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Class Code</div>
-                                    <div className="wrap-break-word">{r.classCode || "—"}</div>
+                                    <div className="wrap-break-word text-sm leading-5">
+                                        {r.classCode || "—"}
+                                    </div>
                                 </div>
                             </div>
 
@@ -272,7 +288,7 @@ export function RecordMobileCards({
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="w-full justify-start"
+                                    className="h-9 w-full justify-start px-3"
                                     onClick={() => onEdit(r)}
                                 >
                                     <Pencil className="mr-2 h-4 w-4" />
