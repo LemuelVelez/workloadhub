@@ -19,6 +19,42 @@ type Props = {
     vm: MasterDataManagementVM
 }
 
+type RecordCardsProps = {
+    rows: any[]
+    resolveTermLabel: (r: any) => string
+    conflictRecordIds: Set<string>
+    onEdit: (r: any) => void
+}
+
+function safeRecordId(r: any) {
+    return String(r?.id ?? r?.$id ?? r?.recordId ?? r?.record_id ?? "").trim()
+}
+
+function pad2(n: number) {
+    return String(n).padStart(2, "0")
+}
+
+function formatTimeAmPm(value: any) {
+    const raw = String(value ?? "").trim()
+    if (!raw || raw === "—") return "—"
+
+    if (/\b(am|pm)\b/i.test(raw)) {
+        return raw.replace(/\s+/g, " ").trim()
+    }
+
+    const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(raw)
+    if (!m) return raw
+
+    const hh = Number(m[1])
+    const mm = Number(m[2])
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return raw
+
+    const suffix = hh >= 12 ? "PM" : "AM"
+    const h12 = hh % 12 === 0 ? 12 : hh % 12
+    return `${h12}:${pad2(mm)} ${suffix}`
+}
+
 export function FacultyMobileCards({ vm }: Props) {
     return (
         <div className="space-y-3">
@@ -118,6 +154,98 @@ export function FacultyMobileCards({ vm }: Props) {
                                 >
                                     <Trash2 className="mr-2 h-4 w-4" />
                                     Delete
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )
+            })}
+        </div>
+    )
+}
+
+export function RecordMobileCards({
+    rows,
+    resolveTermLabel,
+    conflictRecordIds,
+    onEdit,
+}: RecordCardsProps) {
+    return (
+        <div className="space-y-3">
+            {rows.map((r, idx) => {
+                const recordId = safeRecordId(r) || `record-${idx}`
+                const hasConflict = recordId ? conflictRecordIds.has(recordId) : false
+
+                return (
+                    <Card key={recordId}>
+                        <CardHeader className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                    <CardTitle className="text-base leading-6 wrap-break-word">
+                                        {r.subjectCode || "TBA"}
+                                    </CardTitle>
+                                    <CardDescription className="wrap-break-word">
+                                        {r.subjectTitle || "Unknown Subject"}
+                                    </CardDescription>
+                                </div>
+
+                                <Badge variant={hasConflict ? "destructive" : "secondary"} className="shrink-0">
+                                    {hasConflict ? "Conflict" : "Clear"}
+                                </Badge>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                                <Badge variant="outline">{resolveTermLabel(r)}</Badge>
+                                <Badge variant="outline">{r.dayOfWeek || "—"}</Badge>
+                                <Badge variant="outline">
+                                    {r.units ?? "—"} unit{Number(r.units) > 1 ? "s" : ""}
+                                </Badge>
+                            </div>
+                        </CardHeader>
+
+                        <CardContent className="space-y-3">
+                            <div className="grid gap-3 rounded-lg border p-3 text-sm">
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">Time</div>
+                                    <div>
+                                        {formatTimeAmPm(r.startTime)} - {formatTimeAmPm(r.endTime)}
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">Room</div>
+                                    <div>{r.roomLabel || "—"}</div>
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">College</div>
+                                    <div>{r.collegeLabel || "—"}</div>
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">Program</div>
+                                    <div>{r.programLabel || "—"}</div>
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">Section</div>
+                                    <div>{r.sectionLabel || "—"}</div>
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">Class Code</div>
+                                    <div>{r.classCode || "—"}</div>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => onEdit(r)}
+                                >
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Edit
                                 </Button>
                             </div>
                         </CardContent>

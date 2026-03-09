@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Plus, Pencil, Trash2 } from "lucide-react"
 
 import type { MasterDataManagementVM } from "./use-master-data"
-import { FacultyMobileCards } from "./master-data-mobile-cards"
+import { FacultyMobileCards, RecordMobileCards } from "./master-data-mobile-cards"
 import { RecordsExcelActions } from "./records-excel-actions"
 import { RecordsPdfActions } from "./records-pdf-actions"
 
@@ -143,6 +143,20 @@ function formatTimeAmPm(input: any): string {
     return `${h12}:${String(m).padStart(2, "0")} ${period}`
 }
 
+function normalizeGroupKey(value: any) {
+    return String(value ?? "").trim().toLowerCase()
+}
+
+function daySortIndex(day: any) {
+    const idx = DAYS.findIndex((d) => d.toLowerCase() === String(day ?? "").trim().toLowerCase())
+    return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER
+}
+
+function safeTimeSortValue(value: any) {
+    const mins = parseTimeToMinutes(String(value ?? "").trim())
+    return mins == null ? Number.MAX_SAFE_INTEGER : mins
+}
+
 export function MasterDataTabs({ vm }: Props) {
     // ===================== RECORD EDIT (LOCAL DIALOG) =====================
     const [recordEditOpen, setRecordEditOpen] = React.useState(false)
@@ -244,6 +258,68 @@ export function MasterDataTabs({ vm }: Props) {
         if (!Number.isFinite(n)) return "Selected Units"
         return `${n} unit${n > 1 ? "s" : ""}`
     }, [vm])
+
+    const groupedRecordRows = React.useMemo(() => {
+        const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" })
+
+        const sortedRows = [...vm.filteredRecordRows].sort((a, b) => {
+            const facultyCmp = collator.compare(
+                String(a?.facultyLabel ?? ""),
+                String(b?.facultyLabel ?? "")
+            )
+            if (facultyCmp !== 0) return facultyCmp
+
+            const termCmp = collator.compare(resolveTermLabel(a), resolveTermLabel(b))
+            if (termCmp !== 0) return termCmp
+
+            const dayCmp = daySortIndex(a?.dayOfWeek) - daySortIndex(b?.dayOfWeek)
+            if (dayCmp !== 0) return dayCmp
+
+            const startCmp = safeTimeSortValue(a?.startTime) - safeTimeSortValue(b?.startTime)
+            if (startCmp !== 0) return startCmp
+
+            return collator.compare(
+                String(a?.subjectCode ?? ""),
+                String(b?.subjectCode ?? "")
+            )
+        })
+
+        const groups = new Map<
+            string,
+            {
+                key: string
+                facultyLabel: string
+                rows: any[]
+                conflictCount: number
+            }
+        >()
+
+        for (const row of sortedRows) {
+            const key =
+                normalizeGroupKey(row?.facultyUserId) ||
+                normalizeGroupKey(row?.facultyLabel) ||
+                "tba-faculty"
+
+            const label = String(row?.facultyLabel ?? "").trim() || "TBA Faculty"
+            const existing = groups.get(key)
+
+            if (existing) {
+                existing.rows.push(row)
+                if (vm.conflictRecordIds.has(String(row?.id ?? "").trim())) {
+                    existing.conflictCount += 1
+                }
+            } else {
+                groups.set(key, {
+                    key,
+                    facultyLabel: label,
+                    rows: [row],
+                    conflictCount: vm.conflictRecordIds.has(String(row?.id ?? "").trim()) ? 1 : 0,
+                })
+            }
+        }
+
+        return Array.from(groups.values())
+    }, [vm.filteredRecordRows, vm.conflictRecordIds, resolveTermLabel])
 
     const saveEditedRecord = React.useCallback(async () => {
         if (!recordEditingRow) return
@@ -1145,7 +1221,6 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                     </div>
                                 </div>
 
-                                {/* ✅ Export actions (separate Excel & PDF components; no combined tabs) */}
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="text-sm text-muted-foreground">
                                         Showing{" "}
@@ -1179,75 +1254,116 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
 
                             {vm.loading ? (
                                 <div className="space-y-3">
-                                    <Skeleton className="h-10 w-full" />
-                                    <Skeleton className="h-10 w-full" />
-                                    <Skeleton className="h-10 w-full" />
+                                    <Skeleton className="h-16 w-full" />
+                                    <Skeleton className="h-16 w-full" />
+                                    <Skeleton className="h-16 w-full" />
                                 </div>
                             ) : vm.filteredRecordRows.length === 0 ? (
                                 <div className="text-sm text-muted-foreground">No records found using current filters.</div>
                             ) : (
-                                <div className="rounded-md border">
-                                    {/* ✅ Both horizontal + vertical scrollbars (fix overflow) */}
-                                    <ScrollArea className="h-[65vh] w-full">
-                                        <div className="min-w-max">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead className="w-48">Term</TableHead>
-                                                        <TableHead className="w-28">Day</TableHead>
-                                                        <TableHead className="w-36">Time</TableHead>
-                                                        <TableHead className="w-48">Room</TableHead>
-                                                        <TableHead className="w-72">Faculty</TableHead>
-                                                        <TableHead className="w-80">Subject</TableHead>
-                                                        <TableHead className="w-20">Units</TableHead>
-                                                        <TableHead className="w-28">Conflict</TableHead>
-                                                        <TableHead className="w-32 text-right">Actions</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {vm.filteredRecordRows.map((r) => {
-                                                        const hasConflict = vm.conflictRecordIds.has(r.id)
-                                                        const termText = resolveTermLabel(r)
+                                <div className="overflow-hidden rounded-md border">
+                                    <Accordion type="single" collapsible className="w-full">
+                                        {groupedRecordRows.map((group, index) => (
+                                            <AccordionItem
+                                                key={`${group.key}-${index}`}
+                                                value={`${group.key}-${index}`}
+                                                className="px-4"
+                                            >
+                                                <AccordionTrigger className="gap-4 hover:no-underline">
+                                                    <div className="flex min-w-0 flex-1 flex-col text-left">
+                                                        <div className="truncate text-sm font-semibold">
+                                                            {group.facultyLabel}
+                                                        </div>
 
-                                                        return (
-                                                            <TableRow key={r.id}>
-                                                                <TableCell className="text-muted-foreground">{termText}</TableCell>
-                                                                <TableCell>{r.dayOfWeek || "—"}</TableCell>
-                                                                <TableCell>
-                                                                    {formatTimeAmPm(r.startTime)} - {formatTimeAmPm(r.endTime)}
-                                                                </TableCell>
-                                                                <TableCell>{r.roomLabel}</TableCell>
-                                                                <TableCell className="text-muted-foreground">{r.facultyLabel}</TableCell>
-                                                                <TableCell>
-                                                                    <div className="font-medium">{r.subjectCode}</div>
-                                                                    <div className="text-xs text-muted-foreground">{r.subjectTitle}</div>
-                                                                </TableCell>
-                                                                <TableCell>{r.units ?? "—"}</TableCell>
-                                                                <TableCell>
-                                                                    <Badge variant={hasConflict ? "destructive" : "secondary"}>
-                                                                        {hasConflict ? "Conflict" : "Clear"}
-                                                                    </Badge>
-                                                                </TableCell>
-                                                                <TableCell className="text-right">
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() => openEditRecord(r)}
-                                                                    >
-                                                                        <Pencil className="mr-2 h-4 w-4" />
-                                                                        Edit
-                                                                    </Button>
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        )
-                                                    })}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
+                                                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                                            <span>
+                                                                {group.rows.length} record{group.rows.length === 1 ? "" : "s"}
+                                                            </span>
+                                                            <span>•</span>
+                                                            <span>
+                                                                {group.conflictCount} conflict{group.conflictCount === 1 ? "" : "s"}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </AccordionTrigger>
 
-                                        <ScrollBar orientation="horizontal" />
-                                        <ScrollBar orientation="vertical" />
-                                    </ScrollArea>
+                                                <AccordionContent className="space-y-4 pb-4">
+                                                    <div className="sm:hidden">
+                                                        <RecordMobileCards
+                                                            rows={group.rows}
+                                                            resolveTermLabel={resolveTermLabel}
+                                                            conflictRecordIds={vm.conflictRecordIds}
+                                                            onEdit={openEditRecord}
+                                                        />
+                                                    </div>
+
+                                                    <div className="hidden rounded-md border sm:block">
+                                                        <ScrollArea className="w-full">
+                                                            <div className="min-w-max">
+                                                                <Table>
+                                                                    <TableHeader>
+                                                                        <TableRow>
+                                                                            <TableHead className="w-48">Term</TableHead>
+                                                                            <TableHead className="w-28">Day</TableHead>
+                                                                            <TableHead className="w-36">Time</TableHead>
+                                                                            <TableHead className="w-48">Room</TableHead>
+                                                                            <TableHead className="w-80">Subject</TableHead>
+                                                                            <TableHead className="w-20">Units</TableHead>
+                                                                            <TableHead className="w-28">Conflict</TableHead>
+                                                                            <TableHead className="w-32 text-right">Actions</TableHead>
+                                                                        </TableRow>
+                                                                    </TableHeader>
+                                                                    <TableBody>
+                                                                        {group.rows.map((r) => {
+                                                                            const hasConflict = vm.conflictRecordIds.has(r.id)
+                                                                            const termText = resolveTermLabel(r)
+
+                                                                            return (
+                                                                                <TableRow key={r.id}>
+                                                                                    <TableCell className="text-muted-foreground">
+                                                                                        {termText}
+                                                                                    </TableCell>
+                                                                                    <TableCell>{r.dayOfWeek || "—"}</TableCell>
+                                                                                    <TableCell>
+                                                                                        {formatTimeAmPm(r.startTime)} - {formatTimeAmPm(r.endTime)}
+                                                                                    </TableCell>
+                                                                                    <TableCell>{r.roomLabel}</TableCell>
+                                                                                    <TableCell>
+                                                                                        <div className="font-medium">{r.subjectCode}</div>
+                                                                                        <div className="text-xs text-muted-foreground">
+                                                                                            {r.subjectTitle}
+                                                                                        </div>
+                                                                                    </TableCell>
+                                                                                    <TableCell>{r.units ?? "—"}</TableCell>
+                                                                                    <TableCell>
+                                                                                        <Badge variant={hasConflict ? "destructive" : "secondary"}>
+                                                                                            {hasConflict ? "Conflict" : "Clear"}
+                                                                                        </Badge>
+                                                                                    </TableCell>
+                                                                                    <TableCell className="text-right">
+                                                                                        <Button
+                                                                                            variant="outline"
+                                                                                            size="sm"
+                                                                                            onClick={() => openEditRecord(r)}
+                                                                                        >
+                                                                                            <Pencil className="mr-2 h-4 w-4" />
+                                                                                            Edit
+                                                                                        </Button>
+                                                                                    </TableCell>
+                                                                                </TableRow>
+                                                                            )
+                                                                        })}
+                                                                    </TableBody>
+                                                                </Table>
+                                                            </div>
+
+                                                            <ScrollBar orientation="horizontal" />
+                                                        </ScrollArea>
+                                                    </div>
+                                                </AccordionContent>
+                                            </AccordionItem>
+                                        ))}
+                                    </Accordion>
                                 </div>
                             )}
                         </TabsContent>
