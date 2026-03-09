@@ -66,9 +66,9 @@ export function FacultyMobileCards({ vm }: Props) {
                 return (
                     <Card key={f.$id}>
                         <CardHeader className="space-y-3">
-                            <div className="flex items-start justify-between gap-3">
+                            <div className="flex flex-col gap-3">
                                 <div className="min-w-0 space-y-1">
-                                    <CardTitle className="text-base leading-6 wrap-break-word">
+                                    <CardTitle className="wrap-break-word text-base leading-6">
                                         {facultyName}
                                     </CardTitle>
                                     <CardDescription className="wrap-break-word">
@@ -76,24 +76,38 @@ export function FacultyMobileCards({ vm }: Props) {
                                     </CardDescription>
                                 </div>
 
-                                <Badge variant="secondary" className="shrink-0">
+                                <Badge
+                                    variant="secondary"
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
                                     {f.employeeNo || "No employee no"}
                                 </Badge>
                             </div>
 
-                            <div className="flex flex-wrap gap-2">
-                                <Badge variant="outline">{f.rank || "No rank"}</Badge>
-                                <Badge variant="outline">
+                            <div className="flex flex-col gap-2">
+                                <Badge
+                                    variant="outline"
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
+                                    {f.rank || "No rank"}
+                                </Badge>
+                                <Badge
+                                    variant="outline"
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
                                     Units: {f.maxUnits ?? "—"}
                                 </Badge>
-                                <Badge variant="outline">
+                                <Badge
+                                    variant="outline"
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
                                     Hours: {f.maxHours ?? "—"}
                                 </Badge>
                             </div>
                         </CardHeader>
 
                         <CardContent className="space-y-3">
-                            <div className="grid gap-3 rounded-lg border p-3 text-sm">
+                            <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">User ID</div>
                                     <div className="break-all">{f.userId}</div>
@@ -101,29 +115,27 @@ export function FacultyMobileCards({ vm }: Props) {
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Employee No</div>
-                                    <div>{f.employeeNo || "—"}</div>
+                                    <div className="wrap-break-word">{f.employeeNo || "—"}</div>
                                 </div>
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">College</div>
-                                    <div>{collegeName}</div>
+                                    <div className="wrap-break-word">{collegeName}</div>
                                 </div>
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Rank</div>
-                                    <div>{f.rank || "—"}</div>
+                                    <div className="wrap-break-word">{f.rank || "—"}</div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="grid gap-1">
-                                        <div className="text-xs font-medium text-muted-foreground">Max Units</div>
-                                        <div>{f.maxUnits ?? "—"}</div>
-                                    </div>
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">Max Units</div>
+                                    <div>{f.maxUnits ?? "—"}</div>
+                                </div>
 
-                                    <div className="grid gap-1">
-                                        <div className="text-xs font-medium text-muted-foreground">Max Hours</div>
-                                        <div>{f.maxHours ?? "—"}</div>
-                                    </div>
+                                <div className="grid gap-1">
+                                    <div className="text-xs font-medium text-muted-foreground">Max Hours</div>
+                                    <div>{f.maxHours ?? "—"}</div>
                                 </div>
 
                                 <div className="grid gap-1">
@@ -138,6 +150,7 @@ export function FacultyMobileCards({ vm }: Props) {
                                 <Button
                                     variant="outline"
                                     size="sm"
+                                    className="w-full justify-start"
                                     onClick={() => {
                                         vm.setFacultyEditing(f)
                                         vm.setFacultyOpen(true)
@@ -150,6 +163,7 @@ export function FacultyMobileCards({ vm }: Props) {
                                 <Button
                                     variant="destructive"
                                     size="sm"
+                                    className="w-full justify-start"
                                     onClick={() => vm.setDeleteIntent({ type: "faculty", doc: f })}
                                 >
                                     <Trash2 className="mr-2 h-4 w-4" />
@@ -179,9 +193,9 @@ export function RecordMobileCards({
                 return (
                     <Card key={recordId}>
                         <CardHeader className="space-y-3">
-                            <div className="flex items-start justify-between gap-3">
+                            <div className="flex flex-col gap-3">
                                 <div className="min-w-0 space-y-1">
-                                    <CardTitle className="text-base leading-6 wrap-break-word">
+                                    <CardTitle className="wrap-break-word text-base leading-6">
                                         {r.subjectCode || "TBA"}
                                     </CardTitle>
                                     <CardDescription className="wrap-break-word">
@@ -189,52 +203,68 @@ export function RecordMobileCards({
                                     </CardDescription>
                                 </div>
 
-                                <Badge variant={hasConflict ? "destructive" : "secondary"} className="shrink-0">
+                                <Badge
+                                    variant={hasConflict ? "destructive" : "secondary"}
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
                                     {hasConflict ? "Conflict" : "Clear"}
                                 </Badge>
                             </div>
 
-                            <div className="flex flex-wrap gap-2">
-                                <Badge variant="outline">{resolveTermLabel(r)}</Badge>
-                                <Badge variant="outline">{r.dayOfWeek || "—"}</Badge>
-                                <Badge variant="outline">
+                            <div className="flex flex-col gap-2">
+                                <Badge
+                                    variant="outline"
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
+                                    {resolveTermLabel(r)}
+                                </Badge>
+                                <Badge
+                                    variant="outline"
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
+                                    {r.dayOfWeek || "—"}
+                                </Badge>
+                                <Badge
+                                    variant="outline"
+                                    className="w-fit max-w-full wrap-break-word whitespace-normal text-left"
+                                >
                                     {r.units ?? "—"} unit{Number(r.units) > 1 ? "s" : ""}
                                 </Badge>
                             </div>
                         </CardHeader>
 
                         <CardContent className="space-y-3">
-                            <div className="grid gap-3 rounded-lg border p-3 text-sm">
+                            <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Time</div>
-                                    <div>
+                                    <div className="wrap-break-word">
                                         {formatTimeAmPm(r.startTime)} - {formatTimeAmPm(r.endTime)}
                                     </div>
                                 </div>
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Room</div>
-                                    <div>{r.roomLabel || "—"}</div>
+                                    <div className="wrap-break-word">{r.roomLabel || "—"}</div>
                                 </div>
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">College</div>
-                                    <div>{r.collegeLabel || "—"}</div>
+                                    <div className="wrap-break-word">{r.collegeLabel || "—"}</div>
                                 </div>
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Program</div>
-                                    <div>{r.programLabel || "—"}</div>
+                                    <div className="wrap-break-word">{r.programLabel || "—"}</div>
                                 </div>
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Section</div>
-                                    <div>{r.sectionLabel || "—"}</div>
+                                    <div className="wrap-break-word">{r.sectionLabel || "—"}</div>
                                 </div>
 
                                 <div className="grid gap-1">
                                     <div className="text-xs font-medium text-muted-foreground">Class Code</div>
-                                    <div>{r.classCode || "—"}</div>
+                                    <div className="wrap-break-word">{r.classCode || "—"}</div>
                                 </div>
                             </div>
 
@@ -242,6 +272,7 @@ export function RecordMobileCards({
                                 <Button
                                     variant="outline"
                                     size="sm"
+                                    className="w-full justify-start"
                                     onClick={() => onEdit(r)}
                                 >
                                     <Pencil className="mr-2 h-4 w-4" />
