@@ -208,18 +208,30 @@ export function RecordsPdfActions({
 
             const generatedLabel = `Generated at: ${formatDateTimeAmPm(generatedAt)}`
 
-            const cols = [
-                { key: "term", label: "Term", w: "13%" },
-                { key: "day", label: "Day", w: "7%" },
-                { key: "start", label: "Start", w: "7%" },
-                { key: "end", label: "End", w: "7%" },
-                { key: "room", label: "Room", w: "10%" },
-                { key: "faculty", label: "Faculty", w: "16%" },
-                { key: "code", label: "Subject Code", w: "10%" },
-                { key: "title", label: "Subject Title", w: "18%" },
-                { key: "units", label: "Units", w: "5%" },
-                { key: "conflict", label: "Conflict", w: "7%" },
-            ] as const
+            const cols = isIndividualFaculty
+                ? ([
+                      { key: "term", label: "Term", w: "15%" },
+                      { key: "day", label: "Day", w: "8%" },
+                      { key: "start", label: "Start", w: "8%" },
+                      { key: "end", label: "End", w: "8%" },
+                      { key: "room", label: "Room", w: "12%" },
+                      { key: "code", label: "Subject Code", w: "12%" },
+                      { key: "title", label: "Subject Title", w: "22%" },
+                      { key: "units", label: "Units", w: "6%" },
+                      { key: "conflict", label: "Conflict", w: "9%" },
+                  ] as const)
+                : ([
+                      { key: "term", label: "Term", w: "13%" },
+                      { key: "day", label: "Day", w: "7%" },
+                      { key: "start", label: "Start", w: "7%" },
+                      { key: "end", label: "End", w: "7%" },
+                      { key: "room", label: "Room", w: "10%" },
+                      { key: "faculty", label: "Faculty", w: "16%" },
+                      { key: "code", label: "Subject Code", w: "10%" },
+                      { key: "title", label: "Subject Title", w: "18%" },
+                      { key: "units", label: "Units", w: "5%" },
+                      { key: "conflict", label: "Conflict", w: "7%" },
+                  ] as const)
 
             const styles = StyleSheet.create({
                 page: { padding: 24, fontSize: 9, fontFamily: "Helvetica" },
@@ -586,8 +598,10 @@ export function RecordsPdfActions({
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             {showBatchFacultyExport
-                                ? "PDF export uses A4 landscape layout with the same columns, conflict highlighting, and batch individual faculty export using the icon button."
-                                : "PDF export uses A4 landscape layout with the same columns and conflict highlighting for this faculty selection."}
+                                ? "PDF export uses A4 landscape layout with conflict highlighting. Individual faculty exports automatically remove the Faculty column."
+                                : singleFacultyLabel
+                                  ? "PDF export uses A4 landscape layout with conflict highlighting and removes the Faculty column for this individual faculty export."
+                                  : "PDF export uses A4 landscape layout with the same columns and conflict highlighting."}
                         </div>
 
                         <div className="flex items-center gap-2">

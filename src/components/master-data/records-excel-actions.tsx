@@ -113,12 +113,10 @@ function formatTimeAmPm(value: any) {
     const raw = String(value ?? "").trim()
     if (!raw || raw === "—") return "—"
 
-    // If already contains AM/PM, keep it as-is (normalize spacing a bit)
     if (/\b(am|pm)\b/i.test(raw)) {
         return raw.replace(/\s+/g, " ").trim()
     }
 
-    // Handle "HH:mm" or "HH:mm:ss"
     const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(raw)
     if (!m) return raw
 
@@ -143,7 +141,6 @@ function formatDateTimeAmPm(d: Date) {
             hour12: true,
         })
     } catch {
-        // Fallback (still AM/PM)
         const yyyy = d.getFullYear()
         const mm = pad2(d.getMonth() + 1)
         const dd = pad2(d.getDate())
@@ -204,6 +201,55 @@ export function RecordsExcelActions({
     const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
     const singleFacultyLabel = React.useMemo(() => inferSingleFacultyLabel(rows), [rows])
 
+    const previewColumns = React.useMemo(() => {
+        const isIndividualFaculty = Boolean(singleFacultyLabel?.trim())
+
+        return isIndividualFaculty
+            ? [
+                  { key: "term", label: "Term", className: "w-56" },
+                  { key: "day", label: "Day", className: "w-28" },
+                  { key: "start", label: "Start", className: "w-32" },
+                  { key: "end", label: "End", className: "w-32" },
+                  { key: "room", label: "Room", className: "w-48" },
+                  { key: "code", label: "Subject Code", className: "w-40" },
+                  { key: "title", label: "Subject Title", className: "min-w-80" },
+                  { key: "units", label: "Units", className: "w-20" },
+                  { key: "conflict", label: "Conflict", className: "w-28" },
+              ]
+            : [
+                  { key: "term", label: "Term", className: "w-56" },
+                  { key: "day", label: "Day", className: "w-28" },
+                  { key: "start", label: "Start", className: "w-32" },
+                  { key: "end", label: "End", className: "w-32" },
+                  { key: "room", label: "Room", className: "w-48" },
+                  { key: "faculty", label: "Faculty", className: "w-72" },
+                  { key: "code", label: "Subject Code", className: "w-40" },
+                  { key: "title", label: "Subject Title", className: "min-w-80" },
+                  { key: "units", label: "Units", className: "w-20" },
+                  { key: "conflict", label: "Conflict", className: "w-28" },
+              ]
+    }, [singleFacultyLabel])
+
+    const getPreviewCellValue = React.useCallback(
+        (r: any, key: string, isConflict: boolean) => {
+            const startRaw = r?.startTime ?? r?.start ?? "—"
+            const endRaw = r?.endTime ?? r?.end ?? "—"
+
+            if (key === "term") return resolveTermLabel(r)
+            if (key === "day") return String(r?.dayOfWeek ?? r?.day ?? "—")
+            if (key === "start") return formatTimeAmPm(startRaw)
+            if (key === "end") return formatTimeAmPm(endRaw)
+            if (key === "room") return String(r?.roomLabel ?? r?.room ?? "—")
+            if (key === "faculty") return facultyLabelOf(r)
+            if (key === "code") return String(r?.subjectCode ?? r?.code ?? "—")
+            if (key === "title") return String(r?.subjectTitle ?? r?.title ?? "—")
+            if (key === "units") return r?.units ?? "—"
+            if (key === "conflict") return isConflict ? "Conflict" : "Clear"
+            return "—"
+        },
+        [resolveTermLabel]
+    )
+
     const buildWorkbookBlob = React.useCallback(
         async (targetRows: any[], facultyLabel?: string) => {
             const { XLSX, supportsStyles } = await loadXlsxModule()
@@ -224,18 +270,32 @@ export function RecordsExcelActions({
                 ? `Filters: ${subjectFilterLabel} • ${unitFilterLabel} • Faculty: ${normalizedFacultyLabel}`
                 : `Filters: ${subjectFilterLabel} • ${unitFilterLabel}`
 
-            const headers = [
-                "Term",
-                "Day",
-                "Start Time",
-                "End Time",
-                "Room",
-                "Faculty",
-                "Subject Code",
-                "Subject Title",
-                "Units",
-                "Conflict",
-            ]
+            const columns = isIndividualFaculty
+                ? [
+                      { key: "term", label: "Term", wch: 28 },
+                      { key: "day", label: "Day", wch: 14 },
+                      { key: "start", label: "Start Time", wch: 14 },
+                      { key: "end", label: "End Time", wch: 14 },
+                      { key: "room", label: "Room", wch: 22 },
+                      { key: "code", label: "Subject Code", wch: 18 },
+                      { key: "title", label: "Subject Title", wch: 48 },
+                      { key: "units", label: "Units", wch: 10 },
+                      { key: "conflict", label: "Conflict", wch: 12 },
+                  ]
+                : [
+                      { key: "term", label: "Term", wch: 28 },
+                      { key: "day", label: "Day", wch: 14 },
+                      { key: "start", label: "Start Time", wch: 14 },
+                      { key: "end", label: "End Time", wch: 14 },
+                      { key: "room", label: "Room", wch: 22 },
+                      { key: "faculty", label: "Faculty", wch: 34 },
+                      { key: "code", label: "Subject Code", wch: 18 },
+                      { key: "title", label: "Subject Title", wch: 48 },
+                      { key: "units", label: "Units", wch: 10 },
+                      { key: "conflict", label: "Conflict", wch: 12 },
+                  ]
+
+            const headers = columns.map((column) => column.label)
 
             const dataRows = targetRows.map((r: any) => {
                 const id = safeId(r)
@@ -248,18 +308,19 @@ export function RecordsExcelActions({
                 const startRaw = r?.startTime ?? r?.start ?? "—"
                 const endRaw = r?.endTime ?? r?.end ?? "—"
 
-                return [
-                    resolveTermLabel(r),
-                    String(r?.dayOfWeek ?? r?.day ?? "—"),
-                    formatTimeAmPm(startRaw),
-                    formatTimeAmPm(endRaw),
-                    String(r?.roomLabel ?? r?.room ?? "—"),
-                    facultyLabelOf(r),
-                    String(r?.subjectCode ?? r?.code ?? "—"),
-                    String(r?.subjectTitle ?? r?.title ?? "—"),
-                    units,
-                    hasConflict ? "Conflict" : "Clear",
-                ]
+                return columns.map((column) => {
+                    if (column.key === "term") return resolveTermLabel(r)
+                    if (column.key === "day") return String(r?.dayOfWeek ?? r?.day ?? "—")
+                    if (column.key === "start") return formatTimeAmPm(startRaw)
+                    if (column.key === "end") return formatTimeAmPm(endRaw)
+                    if (column.key === "room") return String(r?.roomLabel ?? r?.room ?? "—")
+                    if (column.key === "faculty") return facultyLabelOf(r)
+                    if (column.key === "code") return String(r?.subjectCode ?? r?.code ?? "—")
+                    if (column.key === "title") return String(r?.subjectTitle ?? r?.title ?? "—")
+                    if (column.key === "units") return units
+                    if (column.key === "conflict") return hasConflict ? "Conflict" : "Clear"
+                    return "—"
+                })
             })
 
             const aoa: any[][] = [
@@ -283,18 +344,7 @@ export function RecordsExcelActions({
                 e: { r: 0, c: totalCols - 1 },
             })
 
-            ws["!cols"] = [
-                { wch: 28 },
-                { wch: 14 },
-                { wch: 14 },
-                { wch: 14 },
-                { wch: 22 },
-                { wch: 34 },
-                { wch: 18 },
-                { wch: 48 },
-                { wch: 10 },
-                { wch: 12 },
-            ]
+            ws["!cols"] = columns.map((column) => ({ wch: column.wch }))
 
             ws["!rows"] = ws["!rows"] || []
             ws["!rows"][0] = { hpt: 28 }
@@ -376,7 +426,15 @@ export function RecordsExcelActions({
                     const addr = XLSX.utils.encode_cell({ r: excelRow - 1, c })
                     if (!ws[addr]) continue
 
-                    const isConflictCol = c === totalCols - 1
+                    const columnKey = columns[c]?.key
+                    const isConflictCol = columnKey === "conflict"
+                    const isCenterColumn =
+                        columnKey === "day" ||
+                        columnKey === "start" ||
+                        columnKey === "end" ||
+                        columnKey === "units" ||
+                        columnKey === "conflict"
+
                     const fill =
                         isConflictCol
                             ? isConflict
@@ -386,27 +444,18 @@ export function RecordsExcelActions({
                               ? conflictFill
                               : zebraFill(even)
 
-                    const align =
-                        c === 1
-                            ? { horizontal: "center", vertical: "center", wrapText: true }
-                            : c === 2 || c === 3
-                              ? { horizontal: "center", vertical: "center", wrapText: true }
-                              : c === 8
-                                ? { horizontal: "center", vertical: "center", wrapText: true }
-                                : c === 9
-                                  ? { horizontal: "center", vertical: "center", wrapText: true }
-                                  : rowStyleBase.alignment
-
                     ws[addr].s = {
                         ...rowStyleBase,
-                        alignment: align,
+                        alignment: isCenterColumn
+                            ? { horizontal: "center", vertical: "center", wrapText: true }
+                            : rowStyleBase.alignment,
                         fill,
                         font: isConflictCol
                             ? { bold: true, color: { rgb: isConflict ? "7F1D1D" : "065F46" } }
                             : undefined,
                     }
 
-                    if (c === 8 && typeof ws[addr]?.v === "number") {
+                    if (columnKey === "units" && typeof ws[addr]?.v === "number") {
                         ws[addr].z = "0"
                     }
                 }
@@ -563,23 +612,18 @@ export function RecordsExcelActions({
                             <Table containerClassName="w-max overflow-visible" className="w-full">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="w-56">Term</TableHead>
-                                        <TableHead className="w-28">Day</TableHead>
-                                        <TableHead className="w-32">Start</TableHead>
-                                        <TableHead className="w-32">End</TableHead>
-                                        <TableHead className="w-48">Room</TableHead>
-                                        <TableHead className="w-72">Faculty</TableHead>
-                                        <TableHead className="w-40">Subject Code</TableHead>
-                                        <TableHead className="min-w-80">Subject Title</TableHead>
-                                        <TableHead className="w-20">Units</TableHead>
-                                        <TableHead className="w-28">Conflict</TableHead>
+                                        {previewColumns.map((column) => (
+                                            <TableHead key={column.key} className={column.className}>
+                                                {column.label}
+                                            </TableHead>
+                                        ))}
                                     </TableRow>
                                 </TableHeader>
 
                                 <TableBody>
                                     {!hasRows ? (
                                         <TableRow>
-                                            <TableCell colSpan={10}>
+                                            <TableCell colSpan={previewColumns.length}>
                                                 <div className="p-4">
                                                     <Skeleton className="h-8 w-full" />
                                                 </div>
@@ -590,36 +634,71 @@ export function RecordsExcelActions({
                                             const id = safeId(r)
                                             const isConflict = id ? conflictRecordIds.has(id) : false
 
-                                            const startRaw = r?.startTime ?? r?.start ?? "—"
-                                            const endRaw = r?.endTime ?? r?.end ?? "—"
-
                                             return (
                                                 <TableRow
                                                     key={id || idx}
                                                     className={isConflict ? "bg-destructive/10" : ""}
                                                 >
-                                                    <TableCell className="text-muted-foreground">
-                                                        {resolveTermLabel(r)}
-                                                    </TableCell>
-                                                    <TableCell>{String(r?.dayOfWeek ?? r?.day ?? "—")}</TableCell>
-                                                    <TableCell>{formatTimeAmPm(startRaw)}</TableCell>
-                                                    <TableCell>{formatTimeAmPm(endRaw)}</TableCell>
-                                                    <TableCell>{String(r?.roomLabel ?? r?.room ?? "—")}</TableCell>
-                                                    <TableCell className="text-muted-foreground">
-                                                        {facultyLabelOf(r)}
-                                                    </TableCell>
-                                                    <TableCell className="font-medium">
-                                                        {String(r?.subjectCode ?? r?.code ?? "—")}
-                                                    </TableCell>
-                                                    <TableCell className="text-muted-foreground">
-                                                        {String(r?.subjectTitle ?? r?.title ?? "—")}
-                                                    </TableCell>
-                                                    <TableCell>{r?.units ?? "—"}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={isConflict ? "destructive" : "secondary"}>
-                                                            {isConflict ? "Conflict" : "Clear"}
-                                                        </Badge>
-                                                    </TableCell>
+                                                    {previewColumns.map((column) => {
+                                                        const value = getPreviewCellValue(r, column.key, isConflict)
+
+                                                        if (column.key === "term") {
+                                                            return (
+                                                                <TableCell
+                                                                    key={column.key}
+                                                                    className="text-muted-foreground"
+                                                                >
+                                                                    {value}
+                                                                </TableCell>
+                                                            )
+                                                        }
+
+                                                        if (column.key === "faculty") {
+                                                            return (
+                                                                <TableCell
+                                                                    key={column.key}
+                                                                    className="text-muted-foreground"
+                                                                >
+                                                                    {value}
+                                                                </TableCell>
+                                                            )
+                                                        }
+
+                                                        if (column.key === "code") {
+                                                            return (
+                                                                <TableCell key={column.key} className="font-medium">
+                                                                    {value}
+                                                                </TableCell>
+                                                            )
+                                                        }
+
+                                                        if (column.key === "title") {
+                                                            return (
+                                                                <TableCell
+                                                                    key={column.key}
+                                                                    className="text-muted-foreground"
+                                                                >
+                                                                    {value}
+                                                                </TableCell>
+                                                            )
+                                                        }
+
+                                                        if (column.key === "conflict") {
+                                                            return (
+                                                                <TableCell key={column.key}>
+                                                                    <Badge
+                                                                        variant={
+                                                                            isConflict ? "destructive" : "secondary"
+                                                                        }
+                                                                    >
+                                                                        {value}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                            )
+                                                        }
+
+                                                        return <TableCell key={column.key}>{value}</TableCell>
+                                                    })}
                                                 </TableRow>
                                             )
                                         })
@@ -635,8 +714,10 @@ export function RecordsExcelActions({
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             {showBatchFacultyExport
-                                ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, conflict highlight, and batch individual faculty export using the icon button."
-                                : "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight for this faculty selection."}
+                                ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight. Individual faculty exports automatically remove the Faculty column."
+                                : singleFacultyLabel
+                                  ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, conflict highlight, and removes the Faculty column for this individual faculty export."
+                                  : "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight."}
                         </div>
 
                         <div className="flex items-center gap-2">
