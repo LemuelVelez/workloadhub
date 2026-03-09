@@ -6,12 +6,19 @@ import { toast } from "sonner"
 import { Plus, Pencil, Trash2 } from "lucide-react"
 
 import type { MasterDataManagementVM } from "./use-master-data"
+import { FacultyMobileCards } from "./master-data-mobile-cards"
 import { RecordsExcelActions } from "./records-excel-actions"
 import { RecordsPdfActions } from "./records-pdf-actions"
 
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -743,77 +750,167 @@ export function MasterDataTabs({ vm }: Props) {
 
                             {vm.loading ? (
                                 <div className="space-y-3">
-                                    <Skeleton className="h-10 w-full" />
-                                    <Skeleton className="h-10 w-full" />
-                                    <Skeleton className="h-10 w-full" />
+                                    <Skeleton className="h-24 w-full" />
+                                    <Skeleton className="h-24 w-full" />
+                                    <Skeleton className="h-24 w-full" />
                                 </div>
                             ) : vm.filteredFaculty.length === 0 ? (
                                 <div className="text-sm text-muted-foreground">No faculty found.</div>
                             ) : (
-                                <div className="overflow-hidden rounded-md border">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Faculty</TableHead>
-                                                <TableHead className="w-64">User ID</TableHead>
-                                                <TableHead className="w-40">Employee No</TableHead>
-                                                <TableHead>College</TableHead>
-                                                <TableHead className="w-44">Max Load</TableHead>
-                                                <TableHead className="w-32 text-right">Actions</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
+                                <>
+                                    <div className="sm:hidden">
+                                        <FacultyMobileCards vm={vm} />
+                                    </div>
+
+                                    <div className="hidden overflow-hidden rounded-md border sm:block">
+                                        <Accordion type="single" collapsible className="w-full">
                                             {vm.filteredFaculty.map((f) => {
                                                 const u = vm.facultyUserMap.get(String(f.userId).trim()) ?? null
+                                                const facultyName = u ? vm.facultyDisplay(u) : "Unknown faculty"
+                                                const collegeName = vm.collegeLabel(vm.colleges, f.departmentId)
+
                                                 return (
-                                                    <TableRow key={f.$id}>
-                                                        <TableCell className="font-medium">
-                                                            {u ? vm.facultyDisplay(u) : "Unknown faculty"}
-                                                        </TableCell>
-                                                        <TableCell className="text-muted-foreground">{f.userId}</TableCell>
-                                                        <TableCell className="text-muted-foreground">{f.employeeNo || "—"}</TableCell>
-                                                        <TableCell className="text-muted-foreground">
-                                                            {vm.collegeLabel(vm.colleges, f.departmentId)}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <div className="text-xs text-muted-foreground">
-                                                                Units:{" "}
-                                                                <span className="font-medium text-foreground">{f.maxUnits ?? "—"}</span>
+                                                    <AccordionItem key={f.$id} value={f.$id} className="px-4">
+                                                        <AccordionTrigger className="hover:no-underline">
+                                                            <div className="flex min-w-0 flex-1 flex-col text-left">
+                                                                <div className="truncate text-sm font-semibold">
+                                                                    {facultyName}
+                                                                </div>
+
+                                                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                                                    <span>{collegeName}</span>
+                                                                    <span>•</span>
+                                                                    <span>{f.employeeNo || "No employee no"}</span>
+                                                                    <span>•</span>
+                                                                    <span>Units: {f.maxUnits ?? "—"}</span>
+                                                                    <span>•</span>
+                                                                    <span>Hours: {f.maxHours ?? "—"}</span>
+                                                                </div>
                                                             </div>
-                                                            <div className="text-xs text-muted-foreground">
-                                                                Hours:{" "}
-                                                                <span className="font-medium text-foreground">{f.maxHours ?? "—"}</span>
+                                                        </AccordionTrigger>
+
+                                                        <AccordionContent>
+                                                            <div className="grid gap-4">
+                                                                <div className="grid gap-4 lg:grid-cols-2">
+                                                                    <div className="rounded-md border p-4">
+                                                                        <div className="mb-3 text-sm font-medium">
+                                                                            Faculty Details
+                                                                        </div>
+
+                                                                        <div className="grid gap-3 text-sm">
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Faculty
+                                                                                </div>
+                                                                                <div className="wrap-break-word font-medium">
+                                                                                    {facultyName}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    User ID
+                                                                                </div>
+                                                                                <div className="break-all text-muted-foreground">
+                                                                                    {f.userId}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Employee No
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {f.employeeNo || "—"}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    College
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {collegeName}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Rank
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {f.rank || "—"}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="rounded-md border p-4">
+                                                                        <div className="mb-3 text-sm font-medium">
+                                                                            Load Rules
+                                                                        </div>
+
+                                                                        <div className="grid gap-3 text-sm">
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Max Units
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {f.maxUnits ?? "—"}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Max Hours
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {f.maxHours ?? "—"}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Notes
+                                                                                </div>
+                                                                                <div className="whitespace-pre-wrap wrap-break-word text-muted-foreground">
+                                                                                    {f.notes || "—"}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex justify-end gap-2">
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => {
+                                                                            vm.setFacultyEditing(f)
+                                                                            vm.setFacultyOpen(true)
+                                                                        }}
+                                                                    >
+                                                                        <Pencil className="mr-2 h-4 w-4" />
+                                                                        Edit
+                                                                    </Button>
+
+                                                                    <Button
+                                                                        variant="destructive"
+                                                                        size="sm"
+                                                                        onClick={() => vm.setDeleteIntent({ type: "faculty", doc: f })}
+                                                                    >
+                                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                                        Delete
+                                                                    </Button>
+                                                                </div>
                                                             </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            <div className="flex justify-end gap-2">
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => {
-                                                                        vm.setFacultyEditing(f)
-                                                                        vm.setFacultyOpen(true)
-                                                                    }}
-                                                                >
-                                                                    <Pencil className="mr-2 h-4 w-4" />
-                                                                    Edit
-                                                                </Button>
-                                                                <Button
-                                                                    variant="destructive"
-                                                                    size="sm"
-                                                                    onClick={() => vm.setDeleteIntent({ type: "faculty", doc: f })}
-                                                                >
-                                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                                    Delete
-                                                                </Button>
-                                                            </div>
-                                                        </TableCell>
-                                                    </TableRow>
+                                                        </AccordionContent>
+                                                    </AccordionItem>
                                                 )
                                             })}
-                                        </TableBody>
-                                    </Table>
-                                </div>
+                                        </Accordion>
+                                    </div>
+                                </>
                             )}
 
                             <Card>
