@@ -4,6 +4,11 @@ import { DAY_OPTIONS } from "./schedule-types"
 
 const MANUAL_FACULTY_TAG_REGEX = /\[\[manualFaculty:(.*?)\]\]/i
 const MANUAL_FACULTY_TAG_REMOVE_REGEX = /\s*\[\[manualFaculty:.*?\]\]\s*/gi
+const MERIDIEM_REGEX = /\b(AM|PM)\b/g
+
+function normalizeMeridiem(value: string) {
+  return String(value || "").replace(MERIDIEM_REGEX, (match) => match.toLowerCase())
+}
 
 export function shortId(id: string) {
   if (!id) return ""
@@ -14,13 +19,16 @@ export function fmtDate(iso?: string | null) {
   if (!iso) return "—"
   try {
     const d = new Date(iso)
-    return new Intl.DateTimeFormat(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(d)
+    return normalizeMeridiem(
+      new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }).format(d)
+    )
   } catch {
     return "—"
   }
@@ -78,8 +86,30 @@ export function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd
   return Math.max(aS, bS) < Math.min(aE, bE)
 }
 
+export function formatClockTime(value?: string | null) {
+  const raw = String(value || "").trim()
+  if (!raw) return "—"
+
+  const parts = raw.split(":")
+  const hh = Number.parseInt(parts[0] || "", 10)
+  const mm = Number.parseInt(parts[1] || "", 10)
+
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw
+
+  const d = new Date()
+  d.setHours(hh, mm, 0, 0)
+
+  return normalizeMeridiem(
+    new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(d)
+  )
+}
+
 export function formatTimeRange(start: string, end: string) {
-  return `${start || "—"} - ${end || "—"}`
+  return `${formatClockTime(start)} - ${formatClockTime(end)}`
 }
 
 export function extractManualFaculty(remarks?: string | null) {
@@ -137,7 +167,7 @@ function buildTimeOptions(stepMinutes = 30) {
       const value = `${hh}:${mm}`
 
       const h12 = ((h + 11) % 12) + 1
-      const period = h >= 12 ? "PM" : "AM"
+      const period = h >= 12 ? "pm" : "am"
       const label = `${h12}:${mm} ${period}`
 
       out.push({ value, label })

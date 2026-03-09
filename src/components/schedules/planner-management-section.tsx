@@ -77,7 +77,7 @@ import {
     FACULTY_OPTION_MANUAL,
     FACULTY_OPTION_NONE,
 } from "./schedule-types"
-import { formatTimeRange, meetingTypeLabel, roomTypeLabel, TIME_OPTIONS } from "./schedule-utils"
+import { fmtDate, formatTimeRange, meetingTypeLabel, roomTypeLabel, TIME_OPTIONS } from "./schedule-utils"
 
 type Props = {
     selectedVersion: ScheduleVersionDoc | null
@@ -553,13 +553,7 @@ export function PlannerManagementSection({
     }
 
     const generatedAt = React.useMemo(() => {
-        return new Intl.DateTimeFormat(undefined, {
-            year: "numeric",
-            month: "short",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-        }).format(new Date())
+        return fmtDate(new Date().toISOString())
     }, [visibleRows.length, selectedVersionId, showConflictsOnly])
 
     const downloadPdf = async () => {
@@ -1110,7 +1104,7 @@ export function PlannerManagementSection({
                                     <SelectContent>
                                         {TIME_OPTIONS.map((t) => (
                                             <SelectItem key={`st-${t.value}`} value={t.value}>
-                                                {t.label} ({t.value})
+                                                {t.label}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -1126,7 +1120,7 @@ export function PlannerManagementSection({
                                     <SelectContent>
                                         {TIME_OPTIONS.map((t) => (
                                             <SelectItem key={`et-${t.value}`} value={t.value}>
-                                                {t.label} ({t.value})
+                                                {t.label}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
