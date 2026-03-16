@@ -188,12 +188,51 @@ function formatPdfTimeText(startTime?: string, endTime?: string) {
     return `${start} to ${end}`
 }
 
+function normalizeSectionTrackPrefix(value?: string | null) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+
+    if (!normalized) return ""
+
+    if (
+        normalized === "IS" ||
+        normalized === "BSIS" ||
+        normalized === "INFORMATION SYSTEMS" ||
+        normalized === "BS INFORMATION SYSTEMS" ||
+        normalized === "INFO SYSTEMS" ||
+        normalized === "INFO SYS"
+    ) {
+        return "IS"
+    }
+
+    if (
+        normalized === "CS" ||
+        normalized === "BSCS" ||
+        normalized === "COMPUTER SCIENCE" ||
+        normalized === "BS COMPUTER SCIENCE" ||
+        normalized === "COMP SCI" ||
+        normalized === "COMSCI"
+    ) {
+        return "CS"
+    }
+
+    return ""
+}
+
 function inferSectionTrackPrefix(values: Array<string | number | null | undefined>) {
     const normalizedValues = values
         .map((value) => String(value ?? "").trim().toUpperCase())
         .filter(Boolean)
 
     if (normalizedValues.length === 0) return ""
+
+    const directPrefix = normalizedValues
+        .map((value) => normalizeSectionTrackPrefix(value))
+        .find(Boolean)
+
+    if (directPrefix) return directPrefix
 
     const joined = normalizedValues.join(" ")
     const tokens = joined
@@ -255,20 +294,40 @@ function formatSectionDisplayLabel({
     name,
     programCode,
     programName,
+    sectionReference,
+    track,
 }: {
     label?: string | null
     yearLevel?: string | number | null
     name?: string | null
     programCode?: string | null
     programName?: string | null
+    sectionReference?: string | null
+    track?: string | null
 }) {
     const rawLabel = String(label || "").trim()
     const rawName = String(name || "").trim()
-    const preferredPrefix = inferSectionTrackPrefix([rawLabel, rawName, programCode, programName])
+    const rawSectionReference = String(sectionReference || "").trim()
+    const rawTrack = String(track || "").trim()
+
+    const preferredPrefix = inferSectionTrackPrefix([
+        rawSectionReference,
+        rawTrack,
+        rawLabel,
+        rawName,
+        programCode,
+        programName,
+    ])
+
+    const normalizedPrefixOnlyLabel = normalizeSectionTrackPrefix(rawLabel)
+    const isPrefixOnlyLabel =
+        Boolean(rawLabel) &&
+        Boolean(normalizedPrefixOnlyLabel) &&
+        rawLabel.toUpperCase() === normalizedPrefixOnlyLabel
 
     const formattedFromLabel = buildFormattedSectionLabel(rawLabel, preferredPrefix)
     if (formattedFromLabel) return formattedFromLabel
-    if (rawLabel) return rawLabel
+    if (rawLabel && !isPrefixOnlyLabel) return rawLabel
 
     const formattedFromName = buildFormattedSectionLabel(rawName, preferredPrefix)
     if (formattedFromName) return formattedFromName
@@ -295,6 +354,8 @@ function formatRowSectionDisplayLabel(row: ScheduleRow) {
         name: rowAny.sectionName ?? rowAny.name,
         programCode: rowAny.sectionProgramCode ?? rowAny.programCode,
         programName: rowAny.sectionProgramName ?? rowAny.programName,
+        sectionReference: rowAny.sectionReference ?? rowAny.reference ?? rowAny.prefix,
+        track: rowAny.sectionTrack ?? rowAny.track,
     })
 }
 
@@ -1320,17 +1381,17 @@ export function PlannerManagementSection({
                     <DialogHeader>
                         <DialogTitle>{editingRow ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
                         <DialogDescription>
-                            Use dropdowns for section, subject, faculty, and room. Optional manual faculty entry is supported.
+                            Use dropdowns for section, subject, faculty, and room. Section labels now follow the saved CS/IS reference when available.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
                         <div className="grid gap-3 md:grid-cols-2">
                             <div className="space-y-1">
-                                <Label>Section</Label>
+                                <Label>Section (CS/IS Reference)</Label>
                                 <Select value={formSectionId} onValueChange={setFormSectionId}>
                                     <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select section" />
+                                        <SelectValue placeholder="Select section reference" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {sections.map((s) => {
@@ -1338,11 +1399,37 @@ export function PlannerManagementSection({
                                             const name = String(s.name || "").trim() || s.$id
                                             const y = Number(s.yearLevel || 0)
                                             const sectionLabel = formatSectionDisplayLabel({
-                                                label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
+                                                label: String(
+                                                    sectionAny.label ||
+                                                    sectionAny.sectionLabel ||
+                                                    sectionAny.displayLabel ||
+                                                    ""
+                                                ).trim(),
                                                 yearLevel: y,
                                                 name,
-                                                programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
-                                                programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
+                                                programCode: String(
+                                                    sectionAny.programCode ||
+                                                    sectionAny.sectionProgramCode ||
+                                                    sectionAny.courseCode ||
+                                                    ""
+                                                ).trim(),
+                                                programName: String(
+                                                    sectionAny.programName ||
+                                                    sectionAny.sectionProgramName ||
+                                                    sectionAny.courseName ||
+                                                    ""
+                                                ).trim(),
+                                                sectionReference: String(
+                                                    sectionAny.sectionReference ||
+                                                    sectionAny.reference ||
+                                                    sectionAny.prefix ||
+                                                    ""
+                                                ).trim(),
+                                                track: String(
+                                                    sectionAny.sectionTrack ||
+                                                    sectionAny.track ||
+                                                    ""
+                                                ).trim(),
                                             })
 
                                             return (

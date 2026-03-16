@@ -39,12 +39,51 @@ type Props = {
     vm: MasterDataManagementVM
 }
 
+function normalizeSectionTrackPrefix(value?: string | null) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+
+    if (!normalized) return ""
+
+    if (
+        normalized === "IS" ||
+        normalized === "BSIS" ||
+        normalized === "INFORMATION SYSTEMS" ||
+        normalized === "BS INFORMATION SYSTEMS" ||
+        normalized === "INFO SYSTEMS" ||
+        normalized === "INFO SYS"
+    ) {
+        return "IS"
+    }
+
+    if (
+        normalized === "CS" ||
+        normalized === "BSCS" ||
+        normalized === "COMPUTER SCIENCE" ||
+        normalized === "BS COMPUTER SCIENCE" ||
+        normalized === "COMP SCI" ||
+        normalized === "COMSCI"
+    ) {
+        return "CS"
+    }
+
+    return ""
+}
+
 function inferSectionTrackPrefix(values: Array<string | null | undefined>) {
     const normalizedValues = values
         .map((value) => String(value ?? "").trim().toUpperCase())
         .filter(Boolean)
 
     if (normalizedValues.length === 0) return ""
+
+    const directPrefix = normalizedValues
+        .map((value) => normalizeSectionTrackPrefix(value))
+        .find(Boolean)
+
+    if (directPrefix) return directPrefix
 
     const joined = normalizedValues.join(" ")
     const tokens = joined
@@ -512,10 +551,10 @@ export function MasterDataDialogs({ vm }: Props) {
                         </div>
 
                         <div className="rounded-md border border-dashed p-3">
-                            <div className="text-xs text-muted-foreground">Section Preview</div>
+                            <div className="text-xs text-muted-foreground">Section CS/IS Reference Preview</div>
                             <div className="mt-1 font-medium">{sectionPreviewLabel}</div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                                Prefix is derived automatically from the selected program. Example: BSCS → CS 1 - A, BSIS → IS 1 - A.
+                                Reference is derived automatically from the selected program. Example: BSCS → CS 1 - A, BSIS → IS 1 - A.
                             </div>
                         </div>
 
