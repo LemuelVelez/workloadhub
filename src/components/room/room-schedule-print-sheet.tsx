@@ -83,6 +83,9 @@ const HEADER_TOTAL_HEIGHT = HEADER_ROW_HEIGHT + HEADER_SUB_ROW_HEIGHT
 const GRID_WIDTH = TIME_COL_WIDTH + DAYS.length * (DAY_COL_WIDTH + SIGN_COL_WIDTH)
 const VERTICAL_SIGN_TEXT = "S\ni\ng\nn"
 
+const LEFT_LOGO_PATH = "/logo.png"
+const RIGHT_LOGO_PATH = "/CCS.png"
+
 const PASTEL_BLOCKS = [
     "#F5DEB8",
     "#F4CBD7",
@@ -340,17 +343,65 @@ async function blobToDataUrl(blob: Blob) {
     })
 }
 
+function isSvgAsset(path: string, blob: Blob) {
+    return /\.svg(?:$|\?)/i.test(path) || /image\/svg\+xml/i.test(blob.type)
+}
+
+async function loadImageElement(src: string) {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new window.Image()
+        image.decoding = "async"
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error("Failed to decode image asset."))
+        image.src = src
+    })
+}
+
+async function rasterizeSvgBlobToPngDataUrl(blob: Blob) {
+    const objectUrl = URL.createObjectURL(blob)
+
+    try {
+        const image = await loadImageElement(objectUrl)
+        const width = Math.max(image.naturalWidth || image.width || 1, 1)
+        const height = Math.max(image.naturalHeight || image.height || 1, 1)
+
+        const canvas = document.createElement("canvas")
+        canvas.width = width
+        canvas.height = height
+
+        const context = canvas.getContext("2d")
+        if (!context) {
+            throw new Error("Failed to prepare canvas for SVG conversion.")
+        }
+
+        context.clearRect(0, 0, width, height)
+        context.drawImage(image, 0, 0, width, height)
+
+        return canvas.toDataURL("image/png")
+    } finally {
+        URL.revokeObjectURL(objectUrl)
+    }
+}
+
+async function assetBlobToPdfDataUrl(path: string, blob: Blob) {
+    if (isSvgAsset(path, blob)) {
+        return await rasterizeSvgBlobToPngDataUrl(blob)
+    }
+
+    return await blobToDataUrl(blob)
+}
+
 function getAssetAsDataUrl(path: string) {
     if (!assetUrlCache.has(path)) {
         const promise = (async () => {
             try {
-                const response = await fetch(path)
+                const response = await fetch(path, { cache: "force-cache" })
                 if (!response.ok) {
                     throw new Error(`Failed to load asset: ${path}`)
                 }
 
                 const blob = await response.blob()
-                return await blobToDataUrl(blob)
+                return await assetBlobToPdfDataUrl(path, blob)
             } catch (error) {
                 assetUrlCache.delete(path)
                 throw error
@@ -392,6 +443,8 @@ export function RoomSchedulePrintSheet({
     const [pdfUrl, setPdfUrl] = React.useState<string | null>(null)
 
     const pdfUrlRef = React.useRef<string | null>(null)
+    const pdfPreviewBusyRef = React.useRef(false)
+    const previewRequestIdRef = React.useRef(0)
 
     const semesterSchoolYearLine = React.useMemo(
         () => toSemesterSchoolYearLine(semester, schoolYear),
@@ -404,10 +457,15 @@ export function RoomSchedulePrintSheet({
     )
 
     const cleanupPreviewUrl = React.useCallback(() => {
+        previewRequestIdRef.current += 1
+        pdfPreviewBusyRef.current = false
+
         if (pdfUrlRef.current) {
             URL.revokeObjectURL(pdfUrlRef.current)
             pdfUrlRef.current = null
         }
+
+        setPdfPreviewBusy(false)
         setPdfUrl(null)
     }, [])
 
@@ -426,8 +484,8 @@ export function RoomSchedulePrintSheet({
         const pdf = pdfLib.pdf as any
 
         const [leftLogoSrc, rightLogoSrc] = await Promise.all([
-            getAssetAsDataUrl("/logo.svg"),
-            getAssetAsDataUrl("/CCS.png"),
+            getAssetAsDataUrl(LEFT_LOGO_PATH),
+            getAssetAsDataUrl(RIGHT_LOGO_PATH),
         ])
 
         const generatedAt = new Date()
@@ -842,12 +900,22 @@ export function RoomSchedulePrintSheet({
     ])
 
     const ensurePdfPreview = React.useCallback(async () => {
-        if (disabled || pdfPreviewBusy) return
+        if (disabled || pdfPreviewBusyRef.current || pdfUrlRef.current) return
 
+        const requestId = previewRequestIdRef.current + 1
+        previewRequestIdRef.current = requestId
+        pdfPreviewBusyRef.current = true
         setPdfPreviewBusy(true)
+
         try {
             const { blob } = await buildPdfBlob()
+            if (previewRequestIdRef.current !== requestId) return
+
             const nextUrl = URL.createObjectURL(blob)
+            if (previewRequestIdRef.current !== requestId) {
+                URL.revokeObjectURL(nextUrl)
+                return
+            }
 
             if (pdfUrlRef.current) {
                 URL.revokeObjectURL(pdfUrlRef.current)
@@ -856,12 +924,17 @@ export function RoomSchedulePrintSheet({
             pdfUrlRef.current = nextUrl
             setPdfUrl(nextUrl)
         } catch (e: any) {
-            cleanupPreviewUrl()
-            toast.error(e?.message ?? "Failed to generate room schedule PDF preview.")
+            if (previewRequestIdRef.current === requestId) {
+                cleanupPreviewUrl()
+                toast.error(e?.message ?? "Failed to generate room schedule PDF preview.")
+            }
         } finally {
-            setPdfPreviewBusy(false)
+            if (previewRequestIdRef.current === requestId) {
+                pdfPreviewBusyRef.current = false
+                setPdfPreviewBusy(false)
+            }
         }
-    }, [buildPdfBlob, cleanupPreviewUrl, disabled, pdfPreviewBusy])
+    }, [buildPdfBlob, cleanupPreviewUrl, disabled])
 
     React.useEffect(() => {
         if (!previewOpen) {
@@ -939,7 +1012,7 @@ export function RoomSchedulePrintSheet({
                         </Badge>
                     </div>
 
-                    <div className="mt-3 overflow-hidden rounded-md border">
+                    <div className="mt-3 overflow-hidden rounded-md border bg-background">
                         {pdfPreviewBusy ? (
                             <div className="space-y-3 p-4">
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -951,9 +1024,10 @@ export function RoomSchedulePrintSheet({
                             </div>
                         ) : pdfUrl ? (
                             <iframe
+                                key={pdfUrl}
                                 title={`Room schedule PDF preview - ${roomLabel}`}
                                 src={pdfUrl}
-                                className="h-[75vh] w-full"
+                                className="block h-[75vh] w-full bg-background"
                             />
                         ) : (
                             <div className="p-4 text-sm text-muted-foreground">
@@ -964,7 +1038,7 @@ export function RoomSchedulePrintSheet({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            Includes the aligned upper-left logo, aligned upper-right CCS mark, corrected header
+                            Includes the official PNG logo, aligned upper-right CCS mark, corrected header
                             structure, and simplified official layout.
                         </div>
 
