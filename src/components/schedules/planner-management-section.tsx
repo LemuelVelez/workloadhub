@@ -911,15 +911,15 @@ export function PlannerManagementSection({
                             <Table dragScroll className="min-w-max table-fixed">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="w-24 whitespace-normal break-words align-top">Day</TableHead>
-                                        <TableHead className="w-32 whitespace-normal break-words align-top">Time</TableHead>
-                                        <TableHead className="w-56 whitespace-normal break-words align-top">Subject</TableHead>
-                                        <TableHead className="w-32 whitespace-normal break-words align-top">Section</TableHead>
-                                        <TableHead className="w-56 whitespace-normal break-words align-top">Faculty</TableHead>
-                                        <TableHead className="w-40 whitespace-normal break-words align-top">Room</TableHead>
-                                        <TableHead className="w-24 whitespace-normal break-words align-top">Type</TableHead>
-                                        <TableHead className="w-44 whitespace-normal break-words align-top">Conflicts</TableHead>
-                                        <TableHead className="w-20 text-right whitespace-normal break-words align-top">Actions</TableHead>
+                                        <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Day</TableHead>
+                                        <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Time</TableHead>
+                                        <TableHead className="w-56 whitespace-normal wrap-break-word align-top">Subject</TableHead>
+                                        <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Section</TableHead>
+                                        <TableHead className="w-56 whitespace-normal wrap-break-word align-top">Faculty</TableHead>
+                                        <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Room</TableHead>
+                                        <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Type</TableHead>
+                                        <TableHead className="w-44 whitespace-normal wrap-break-word align-top">Conflicts</TableHead>
+                                        <TableHead className="w-20 text-right whitespace-normal wrap-break-word align-top">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -928,33 +928,33 @@ export function PlannerManagementSection({
 
                                         return (
                                             <TableRow key={row.meetingId}>
-                                                <TableCell className="font-medium whitespace-normal break-words align-top leading-relaxed">
+                                                <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">
                                                     {row.dayOfWeek || "—"}
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
                                                     <div className="space-y-1 leading-snug">
                                                         <div className="font-medium">{formatTimeLabel(row.startTime)}</div>
                                                         <div className="text-xs text-muted-foreground">to {formatTimeLabel(row.endTime)}</div>
                                                     </div>
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
                                                     <div className="space-y-1 leading-relaxed">
                                                         <div className="font-medium">{row.subjectLabel}</div>
                                                         <div className="text-xs text-muted-foreground">Units: {row.subjectUnits ?? "—"}</div>
                                                     </div>
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top text-sm leading-relaxed">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top text-sm leading-relaxed">
                                                     {row.sectionLabel}
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
                                                     <div className="flex items-start gap-2">
                                                         <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                                                         <div className="min-w-0 space-y-1 leading-relaxed">
-                                                            <span className="block break-words">{row.facultyName}</span>
+                                                            <span className="block wrap-break-word">{row.facultyName}</span>
                                                             {row.isManualFaculty ? (
                                                                 <Badge variant="secondary" className="rounded-lg">
                                                                     Manual
@@ -964,20 +964,20 @@ export function PlannerManagementSection({
                                                     </div>
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
                                                     <div className="space-y-1 leading-relaxed">
                                                         <div className="font-medium">{row.roomLabel}</div>
                                                         <div className="text-xs text-muted-foreground">{roomTypeLabel(row.roomType)}</div>
                                                     </div>
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top">
                                                     <Badge variant="outline" className="rounded-lg">
                                                         {meetingTypeLabel(row.meetingType)}
                                                     </Badge>
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top">
                                                     {renderConflictBadges(flags)}
                                                 </TableCell>
 
@@ -1047,13 +1047,13 @@ export function PlannerManagementSection({
                             <Table dragScroll className="min-w-max table-fixed">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="w-40 whitespace-normal break-words align-top">Laboratory Room</TableHead>
-                                        <TableHead className="w-24 whitespace-normal break-words align-top">Day</TableHead>
-                                        <TableHead className="w-32 whitespace-normal break-words align-top">Time</TableHead>
-                                        <TableHead className="w-56 whitespace-normal break-words align-top">Assigned Faculty</TableHead>
-                                        <TableHead className="w-52 whitespace-normal break-words align-top">Subject</TableHead>
-                                        <TableHead className="w-32 whitespace-normal break-words align-top">Section</TableHead>
-                                        <TableHead className="w-40 whitespace-normal break-words align-top">Conflicts</TableHead>
+                                        <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Laboratory Room</TableHead>
+                                        <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Day</TableHead>
+                                        <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Time</TableHead>
+                                        <TableHead className="w-56 whitespace-normal wrap-break-word align-top">Assigned Faculty</TableHead>
+                                        <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Subject</TableHead>
+                                        <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Section</TableHead>
+                                        <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Conflicts</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1062,26 +1062,26 @@ export function PlannerManagementSection({
 
                                         return (
                                             <TableRow key={`lab-${row.meetingId}`}>
-                                                <TableCell className="font-medium whitespace-normal break-words align-top leading-relaxed">
+                                                <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">
                                                     {row.roomLabel}
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top leading-relaxed">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
                                                     {row.dayOfWeek}
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
                                                     <div className="space-y-1 leading-snug">
                                                         <div className="font-medium">{formatTimeLabel(row.startTime)}</div>
                                                         <div className="text-xs text-muted-foreground">to {formatTimeLabel(row.endTime)}</div>
                                                     </div>
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top">
                                                     <div className="flex items-start gap-2">
                                                         <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                                                         <div className="min-w-0 space-y-1 leading-relaxed">
-                                                            <span className="block break-words">{row.facultyName}</span>
+                                                            <span className="block wrap-break-word">{row.facultyName}</span>
                                                             {row.isManualFaculty ? (
                                                                 <Badge variant="secondary" className="rounded-lg">
                                                                     Manual
@@ -1091,15 +1091,15 @@ export function PlannerManagementSection({
                                                     </div>
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top leading-relaxed">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
                                                     {row.subjectLabel}
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top leading-relaxed">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
                                                     {row.sectionLabel}
                                                 </TableCell>
 
-                                                <TableCell className="whitespace-normal break-words align-top">
+                                                <TableCell className="whitespace-normal wrap-break-word align-top">
                                                     {renderConflictBadges(flags)}
                                                 </TableCell>
                                             </TableRow>
