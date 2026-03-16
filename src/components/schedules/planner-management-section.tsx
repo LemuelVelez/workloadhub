@@ -16,7 +16,7 @@ import {
     UserCircle2,
 } from "lucide-react"
 import { toast } from "sonner"
-import { Document, Page, PDFViewer, StyleSheet, Text, View, pdf } from "@react-pdf/renderer"
+import { Document, Image, Page, PDFViewer, StyleSheet, Text, View, pdf } from "@react-pdf/renderer"
 
 import { cn } from "@/lib/utils"
 
@@ -156,6 +156,20 @@ type Props = {
     onConfirmDeleteEntry: () => Promise<void> | void
 }
 
+const PDF_LEFT_LOGO_SRC = "/logo.png"
+const PDF_RIGHT_LOGO_SRC = "/CCS.png"
+
+function getPdfAssetUrl(path: string) {
+    if (!path) return ""
+    if (typeof window === "undefined") return path
+
+    try {
+        return new URL(path, window.location.origin).toString()
+    } catch {
+        return path
+    }
+}
+
 const styles = StyleSheet.create({
     page: {
         padding: 18,
@@ -173,22 +187,87 @@ const styles = StyleSheet.create({
         backgroundColor: "#ffffff",
     },
 
+    headerWrap: {
+        paddingTop: 12,
+        paddingBottom: 10,
+        paddingHorizontal: 16,
+        backgroundColor: "#ffffff",
+        borderBottomWidth: 1,
+        borderBottomColor: "#dbeafe",
+    },
+    headerRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+    logoWrap: {
+        width: 60,
+        height: 60,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    logo: {
+        width: 48,
+        height: 48,
+        objectFit: "contain",
+    },
+    headerCenter: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 8,
+    },
+    republicText: {
+        fontSize: 7.2,
+        color: "#475569",
+        textAlign: "center",
+        marginBottom: 1,
+    },
+    institutionText: {
+        fontSize: 11.5,
+        fontWeight: "bold",
+        textAlign: "center",
+        color: "#0f172a",
+        marginBottom: 1,
+    },
+    campusText: {
+        fontSize: 7.8,
+        color: "#475569",
+        textAlign: "center",
+        marginBottom: 4,
+    },
+    collegeText: {
+        fontSize: 8.8,
+        fontWeight: "bold",
+        textAlign: "center",
+        color: "#0f172a",
+        marginBottom: 2,
+    },
+    reportText: {
+        fontSize: 8.6,
+        textAlign: "center",
+        color: "#0f766e",
+        fontWeight: "bold",
+    },
+
     hero: {
-        paddingVertical: 14,
+        paddingVertical: 12,
         paddingHorizontal: 16,
         backgroundColor: "#0f766e",
         borderBottomWidth: 1,
         borderBottomColor: "#115e59",
     },
     heroTitle: {
-        fontSize: 16,
+        fontSize: 15,
         color: "#ffffff",
         fontWeight: "bold",
+        textAlign: "center",
     },
     heroSubTitle: {
         marginTop: 2,
         fontSize: 9,
         color: "#ccfbf1",
+        textAlign: "center",
     },
 
     section: {
@@ -356,10 +435,33 @@ function SchedulePdfDocument({
     stats: PlannerStats
     filteredByConflict: boolean
 }) {
+    const leftLogoSrc = getPdfAssetUrl(PDF_LEFT_LOGO_SRC)
+    const rightLogoSrc = getPdfAssetUrl(PDF_RIGHT_LOGO_SRC)
+
     return (
         <Document>
             <Page size="A4" style={styles.page} wrap>
                 <View style={styles.sheet}>
+                    <View style={styles.headerWrap}>
+                        <View style={styles.headerRow}>
+                            <View style={styles.logoWrap}>
+                                {leftLogoSrc ? <Image src={leftLogoSrc} style={styles.logo} /> : null}
+                            </View>
+
+                            <View style={styles.headerCenter}>
+                                <Text style={styles.republicText}>Republic of the Philippines</Text>
+                                <Text style={styles.institutionText}>JOSE RIZAL MEMORIAL STATE UNIVERSITY</Text>
+                                <Text style={styles.campusText}>The Premier University in Zamboanga del Norte</Text>
+                                <Text style={styles.collegeText}>COLLEGE OF COMPUTING STUDIES</Text>
+                                <Text style={styles.reportText}>Schedule Planner Report</Text>
+                            </View>
+
+                            <View style={styles.logoWrap}>
+                                {rightLogoSrc ? <Image src={rightLogoSrc} style={styles.logo} /> : null}
+                            </View>
+                        </View>
+                    </View>
+
                     <View style={styles.hero}>
                         <Text style={styles.heroTitle}>Schedule Planner Report</Text>
                         <Text style={styles.heroSubTitle}>Modern export from Admin Schedules</Text>
