@@ -1,6 +1,5 @@
 "use client"
 
-
 import type { MasterDataManagementVM } from "./use-master-data"
 import { DIALOG_CONTENT_CLASS, YEAR_LEVEL_OPTIONS } from "./types"
 import { SECTION_NAME_OPTIONS } from "@/model/schemaModel"
@@ -40,7 +39,77 @@ type Props = {
     vm: MasterDataManagementVM
 }
 
+function inferSectionTrackPrefix(values: Array<string | null | undefined>) {
+    const normalizedValues = values
+        .map((value) => String(value ?? "").trim().toUpperCase())
+        .filter(Boolean)
+
+    if (normalizedValues.length === 0) return ""
+
+    const joined = normalizedValues.join(" ")
+    const tokens = joined
+        .split(/[\s/-]+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+
+    if (
+        tokens.includes("BSIS") ||
+        tokens.includes("IS") ||
+        /INFORMATION\s+SYSTEMS?/.test(joined)
+    ) {
+        return "IS"
+    }
+
+    if (
+        tokens.includes("BSCS") ||
+        tokens.includes("CS") ||
+        /COMPUTER\s+SCIENCE/.test(joined)
+    ) {
+        return "CS"
+    }
+
+    return ""
+}
+
+function buildSectionPreviewLabel({
+    yearLevel,
+    sectionName,
+    programCode,
+    programName,
+}: {
+    yearLevel?: string | number | null
+    sectionName?: string | null
+    programCode?: string | null
+    programName?: string | null
+}) {
+    const parsedYear = Number(String(yearLevel ?? "").trim())
+    const safeSectionName = String(sectionName ?? "").trim()
+    const prefix = inferSectionTrackPrefix([programCode, programName])
+
+    const hasYear = Number.isFinite(parsedYear) && parsedYear > 0
+    if (!hasYear && !safeSectionName) return "—"
+
+    const core = hasYear && safeSectionName
+        ? `${parsedYear} - ${safeSectionName}`
+        : hasYear
+            ? String(parsedYear)
+            : safeSectionName
+
+    return prefix ? `${prefix} ${core}` : core
+}
+
 export function MasterDataDialogs({ vm }: Props) {
+    const selectedSectionProgram = vm.programsForSelectedCollege.find(
+        (program) => program.$id === vm.sectionProgramId
+    )
+
+    const sectionPreviewLabel = buildSectionPreviewLabel({
+        yearLevel: vm.sectionYear,
+        sectionName: vm.sectionName,
+        programCode: selectedSectionProgram?.code,
+        programName: selectedSectionProgram?.name,
+    })
+
     return (
         <>
             {/* College Dialog */}
@@ -421,7 +490,10 @@ export function MasterDataDialogs({ vm }: Props) {
 
                         <div className="grid gap-2">
                             <Label>Program (optional)</Label>
-                            <Select value={vm.sectionProgramId} onValueChange={vm.setSectionProgramId}>
+                            <Select
+                                value={vm.sectionProgramId || "__none__"}
+                                onValueChange={(v) => vm.setSectionProgramId(v === "__none__" ? "" : v)}
+                            >
                                 <SelectTrigger>
                                     <SelectValue placeholder="No Program" />
                                 </SelectTrigger>
@@ -436,6 +508,14 @@ export function MasterDataDialogs({ vm }: Props) {
                             </Select>
                             <div className="text-xs text-muted-foreground">
                                 Optional, but recommended if your schedule rules are program-based.
+                            </div>
+                        </div>
+
+                        <div className="rounded-md border border-dashed p-3">
+                            <div className="text-xs text-muted-foreground">Section Preview</div>
+                            <div className="mt-1 font-medium">{sectionPreviewLabel}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                                Prefix is derived automatically from the selected program. Example: BSCS → CS 1 - A, BSIS → IS 1 - A.
                             </div>
                         </div>
 

@@ -188,94 +188,114 @@ function formatPdfTimeText(startTime?: string, endTime?: string) {
     return `${start} to ${end}`
 }
 
-function inferSectionProgramPrefix(...values: Array<string | number | null | undefined>) {
+function inferSectionTrackPrefix(values: Array<string | number | null | undefined>) {
     const normalizedValues = values
         .map((value) => String(value ?? "").trim().toUpperCase())
         .filter(Boolean)
 
-    for (const value of normalizedValues) {
-        if (/\bBSIS\b|\bIS\b|\bINFORMATION\s+SYSTEMS?\b/.test(value)) return "IS"
-        if (/\bBSCS\b|\bCS\b|\bCOMPUTER\s+SCIENCE\b/.test(value)) return "CS"
+    if (normalizedValues.length === 0) return ""
+
+    const joined = normalizedValues.join(" ")
+    const tokens = joined
+        .split(/[\s/-]+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+
+    if (
+        tokens.includes("BSIS") ||
+        tokens.includes("IS") ||
+        /INFORMATION\s+SYSTEMS?/.test(joined)
+    ) {
+        return "IS"
     }
 
-    return null
+    if (
+        tokens.includes("BSCS") ||
+        tokens.includes("CS") ||
+        /COMPUTER\s+SCIENCE/.test(joined)
+    ) {
+        return "CS"
+    }
+
+    return ""
 }
 
-function stripSectionProgramTokens(value: string) {
-    return value
-        .replace(/\bBSIS\b/gi, "")
-        .replace(/\bBSCS\b/gi, "")
-        .replace(/\bIS\b/gi, "")
-        .replace(/\bCS\b/gi, "")
-        .replace(/\s+/g, " ")
-        .replace(/^\-\s*/, "")
+function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) {
+    const normalized = String(rawValue || "").trim().replace(/\s+/g, " ")
+    if (!normalized) return ""
+
+    const compactMatch = normalized.match(/^([A-Z]{2,6})\s*([1-9]\d*)\s*-\s*(.+)$/i)
+    if (compactMatch) {
+        const resolvedPrefix =
+            inferSectionTrackPrefix([compactMatch[1]]) || compactMatch[1].toUpperCase()
+
+        return `${resolvedPrefix} ${compactMatch[2]} - ${compactMatch[3].trim()}`
+    }
+
+    const withoutProgramPrefix = normalized
+        .replace(
+            /^(?:BSCS|BSIS|BS\s+COMPUTER\s+SCIENCE|BS\s+INFORMATION\s+SYSTEMS?|COMPUTER\s+SCIENCE|INFORMATION\s+SYSTEMS?)\s*/i,
+            ""
+        )
         .trim()
-}
 
-function getSectionProgramHint(section: SectionDoc) {
-    const raw = section as any
+    const yearSectionMatch = withoutProgramPrefix.match(/^Y?\s*([1-9]\d*)\s*-\s*(.+)$/i)
+    if (yearSectionMatch) {
+        const prefix = inferSectionTrackPrefix([normalized]) || preferredPrefix
+        const core = `${yearSectionMatch[1]} - ${yearSectionMatch[2].trim()}`
+        return prefix ? `${prefix} ${core}` : core
+    }
 
-    return [
-        raw.program,
-        raw.programCode,
-        raw.course,
-        raw.courseCode,
-        raw.degree,
-        raw.degreeCode,
-        raw.curriculum,
-        raw.curriculumCode,
-        raw.label,
-        raw.sectionLabel,
-        raw.name,
-    ]
-        .map((value) => String(value ?? "").trim())
-        .filter(Boolean)
-        .join(" ")
+    return ""
 }
 
 function formatSectionDisplayLabel({
     label,
     yearLevel,
     name,
-    program,
+    programCode,
+    programName,
 }: {
     label?: string | null
     yearLevel?: string | number | null
     name?: string | null
-    program?: string | null
+    programCode?: string | null
+    programName?: string | null
 }) {
     const rawLabel = String(label || "").trim()
     const rawName = String(name || "").trim()
+    const preferredPrefix = inferSectionTrackPrefix([rawLabel, rawName, programCode, programName])
+
+    const formattedFromLabel = buildFormattedSectionLabel(rawLabel, preferredPrefix)
+    if (formattedFromLabel) return formattedFromLabel
+    if (rawLabel) return rawLabel
+
+    const formattedFromName = buildFormattedSectionLabel(rawName, preferredPrefix)
+    if (formattedFromName) return formattedFromName
+
     const parsedYear = Number(yearLevel || 0)
-    const inferredPrefix = inferSectionProgramPrefix(rawLabel, rawName, program) || "CS"
-
-    if (rawLabel) {
-        const normalizedLabel = rawLabel
-            .replace(/\bBSIS\b/gi, "IS")
-            .replace(/\bBSCS\b/gi, "CS")
-            .replace(/\s+/g, " ")
-            .trim()
-
-        const explicitPrefix = inferSectionProgramPrefix(normalizedLabel)
-        const match = normalizedLabel.match(/^(?:(CS|IS)\s*)?Y?\s*([1-9]\d*)\s*-\s*(.+)$/i)
-
-        if (match) {
-            const prefix = String(match[1] || explicitPrefix || inferredPrefix).toUpperCase()
-            const suffix = stripSectionProgramTokens(match[3]) || match[3].trim()
-            return `${prefix} ${match[2]} - ${suffix}`
-        }
-
-        return normalizedLabel
-    }
-
     if (rawName && Number.isFinite(parsedYear) && parsedYear > 0) {
-        const suffix = stripSectionProgramTokens(rawName) || rawName
-        return `${inferredPrefix} ${parsedYear} - ${suffix}`
+        const core = `${parsedYear} - ${rawName}`
+        return preferredPrefix ? `${preferredPrefix} ${core}` : core
     }
-    if (rawName) return stripSectionProgramTokens(rawName) || rawName
-    if (Number.isFinite(parsedYear) && parsedYear > 0) return `${inferredPrefix} ${parsedYear}`
+    if (rawName) return rawName
+    if (Number.isFinite(parsedYear) && parsedYear > 0) {
+        return preferredPrefix ? `${preferredPrefix} ${parsedYear}` : `Year ${parsedYear}`
+    }
 
     return "—"
+}
+
+function formatRowSectionDisplayLabel(row: ScheduleRow) {
+    const rowAny = row as any
+
+    return formatSectionDisplayLabel({
+        label: row.sectionLabel,
+        yearLevel: rowAny.sectionYearLevel ?? rowAny.yearLevel,
+        name: rowAny.sectionName ?? rowAny.name,
+        programCode: rowAny.sectionProgramCode ?? rowAny.programCode,
+        programName: rowAny.sectionProgramName ?? rowAny.programName,
+    })
 }
 
 const styles = StyleSheet.create({
@@ -726,7 +746,7 @@ function SchedulePdfDocument({
 
                                             <View style={[styles.tableCell, styles.colSection]}>
                                                 <Text style={styles.cellText}>
-                                                    {formatSectionDisplayLabel({ label: r.sectionLabel })}
+                                                    {formatRowSectionDisplayLabel(r)}
                                                 </Text>
                                             </View>
 
@@ -1088,7 +1108,7 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm leading-relaxed">
-                                                    {formatSectionDisplayLabel({ label: row.sectionLabel })}
+                                                    {formatRowSectionDisplayLabel(row)}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
@@ -1236,7 +1256,7 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {formatSectionDisplayLabel({ label: row.sectionLabel })}
+                                                    {formatRowSectionDisplayLabel(row)}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
@@ -1314,12 +1334,15 @@ export function PlannerManagementSection({
                                     </SelectTrigger>
                                     <SelectContent>
                                         {sections.map((s) => {
+                                            const sectionAny = s as any
                                             const name = String(s.name || "").trim() || s.$id
                                             const y = Number(s.yearLevel || 0)
                                             const sectionLabel = formatSectionDisplayLabel({
+                                                label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
                                                 yearLevel: y,
                                                 name,
-                                                program: getSectionProgramHint(s),
+                                                programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
+                                                programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
                                             })
 
                                             return (
@@ -1550,7 +1573,7 @@ export function PlannerManagementSection({
                                         {candidateConflicts.slice(0, 6).map((c, idx) => (
                                             <li key={`${c.type}-${c.row.meetingId}-${idx}`}>
                                                 [{c.type.toUpperCase()}] {c.row.dayOfWeek} {formatTimeRange(c.row.startTime, c.row.endTime)} •{" "}
-                                                {c.row.subjectLabel} • {formatSectionDisplayLabel({ label: c.row.sectionLabel })} • {c.row.roomLabel}
+                                                {c.row.subjectLabel} • {formatRowSectionDisplayLabel(c.row)} • {c.row.roomLabel}
                                             </li>
                                         ))}
                                     </ul>
