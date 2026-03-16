@@ -170,6 +170,17 @@ function getPdfAssetUrl(path: string) {
     }
 }
 
+function formatTimeLabel(value?: string) {
+    const normalized = String(value || "").trim()
+    if (!normalized) return "—"
+
+    return TIME_OPTIONS.find((option) => option.value === normalized)?.label || normalized
+}
+
+function formatPdfTimeText(startTime?: string, endTime?: string) {
+    return `Start: ${formatTimeLabel(startTime)}\nEnd: ${formatTimeLabel(endTime)}`
+}
+
 const styles = StyleSheet.create({
     page: {
         padding: 18,
@@ -336,50 +347,74 @@ const styles = StyleSheet.create({
         color: "#0f172a",
     },
 
-    tableWrap: {
-        borderWidth: 1,
-        borderColor: "#cbd5e1",
-        borderRadius: 8,
-        overflow: "hidden",
-    },
-    tableHeader: {
-        flexDirection: "row",
-        backgroundColor: "#0f172a",
-        borderBottomWidth: 1,
-        borderBottomColor: "#0b1220",
-        paddingVertical: 7,
-        paddingHorizontal: 6,
-    },
-    tableHeaderText: {
-        color: "#f8fafc",
+    entriesTitle: {
+        marginBottom: 8,
+        fontSize: 9.5,
         fontWeight: "bold",
-        fontSize: 8.5,
-    },
-    tableRow: {
-        flexDirection: "row",
-        borderBottomWidth: 1,
-        borderBottomColor: "#e2e8f0",
-        paddingVertical: 6,
-        paddingHorizontal: 6,
-    },
-    tableRowOdd: {
-        backgroundColor: "#ffffff",
-    },
-    tableRowEven: {
-        backgroundColor: "#f8fafc",
-    },
-    cellText: {
-        fontSize: 8.3,
         color: "#0f172a",
     },
-
-    colDay: { width: "12%" },
-    colTime: { width: "14%" },
-    colSubject: { width: "22%" },
-    colSection: { width: "12%" },
-    colFaculty: { width: "18%" },
-    colRoom: { width: "12%" },
-    colType: { width: "10%" },
+    entryList: {
+        marginTop: 2,
+    },
+    entryCard: {
+        borderWidth: 1,
+        borderColor: "#dbeafe",
+        borderRadius: 10,
+        padding: 10,
+        marginBottom: 8,
+    },
+    entryCardOdd: {
+        backgroundColor: "#ffffff",
+    },
+    entryCardEven: {
+        backgroundColor: "#f8fafc",
+    },
+    entryTopRow: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+    },
+    entryTitleWrap: {
+        flex: 1,
+        paddingRight: 8,
+    },
+    entryIndex: {
+        fontSize: 7.2,
+        color: "#64748b",
+        marginBottom: 2,
+    },
+    entryTitle: {
+        fontSize: 10,
+        fontWeight: "bold",
+        color: "#0f172a",
+        lineHeight: 1.3,
+    },
+    entrySubTitle: {
+        marginTop: 3,
+        fontSize: 7.8,
+        color: "#64748b",
+        lineHeight: 1.35,
+    },
+    entryMetaStack: {
+        marginTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: "#e2e8f0",
+        paddingTop: 8,
+    },
+    entryMetaRow: {
+        marginBottom: 6,
+    },
+    entryMetaLabel: {
+        fontSize: 6.8,
+        color: "#64748b",
+        fontWeight: "bold",
+    },
+    entryMetaValue: {
+        marginTop: 2,
+        fontSize: 8.4,
+        color: "#0f172a",
+        lineHeight: 1.35,
+    },
 
     typePill: {
         borderRadius: 999,
@@ -506,17 +541,9 @@ function SchedulePdfDocument({
                             </View>
                         </View>
 
-                        <View style={styles.tableWrap}>
-                            <View style={styles.tableHeader}>
-                                <Text style={[styles.colDay, styles.tableHeaderText]}>Day</Text>
-                                <Text style={[styles.colTime, styles.tableHeaderText]}>Time</Text>
-                                <Text style={[styles.colSubject, styles.tableHeaderText]}>Subject</Text>
-                                <Text style={[styles.colSection, styles.tableHeaderText]}>Section</Text>
-                                <Text style={[styles.colFaculty, styles.tableHeaderText]}>Faculty</Text>
-                                <Text style={[styles.colRoom, styles.tableHeaderText]}>Room</Text>
-                                <Text style={[styles.colType, styles.tableHeaderText]}>Type</Text>
-                            </View>
+                        <Text style={styles.entriesTitle}>Schedule Entries</Text>
 
+                        <View style={styles.entryList}>
                             {rows.length === 0 ? (
                                 <Text style={styles.emptyState}>No schedule entries available for this export.</Text>
                             ) : (
@@ -533,20 +560,52 @@ function SchedulePdfDocument({
                                         <View
                                             key={`pdf-row-${r.meetingId}`}
                                             style={[
-                                                styles.tableRow,
-                                                idx % 2 === 0 ? styles.tableRowOdd : styles.tableRowEven,
+                                                styles.entryCard,
+                                                idx % 2 === 0 ? styles.entryCardOdd : styles.entryCardEven,
                                             ]}
                                             wrap={false}
                                         >
-                                            <Text style={[styles.colDay, styles.cellText]}>{r.dayOfWeek || "—"}</Text>
-                                            <Text style={[styles.colTime, styles.cellText]}>{formatTimeRange(r.startTime, r.endTime)}</Text>
-                                            <Text style={[styles.colSubject, styles.cellText]}>{r.subjectLabel || "—"}</Text>
-                                            <Text style={[styles.colSection, styles.cellText]}>{r.sectionLabel || "—"}</Text>
-                                            <Text style={[styles.colFaculty, styles.cellText]}>{r.facultyName || "—"}</Text>
-                                            <Text style={[styles.colRoom, styles.cellText]}>{r.roomLabel || "—"}</Text>
-                                            <View style={styles.colType}>
+                                            <View style={styles.entryTopRow}>
+                                                <View style={styles.entryTitleWrap}>
+                                                    <Text style={styles.entryIndex}>Entry {idx + 1}</Text>
+                                                    <Text style={styles.entryTitle}>{r.subjectLabel || "—"}</Text>
+                                                    <Text style={styles.entrySubTitle}>Units: {r.subjectUnits ?? "—"}</Text>
+                                                </View>
+
                                                 <View style={[styles.typePill, typeStyle]}>
                                                     <Text style={styles.typePillText}>{type}</Text>
+                                                </View>
+                                            </View>
+
+                                            <View style={styles.entryMetaStack}>
+                                                <View style={styles.entryMetaRow}>
+                                                    <Text style={styles.entryMetaLabel}>Day</Text>
+                                                    <Text style={styles.entryMetaValue}>{r.dayOfWeek || "—"}</Text>
+                                                </View>
+
+                                                <View style={styles.entryMetaRow}>
+                                                    <Text style={styles.entryMetaLabel}>Time</Text>
+                                                    <Text style={styles.entryMetaValue}>{formatPdfTimeText(r.startTime, r.endTime)}</Text>
+                                                </View>
+
+                                                <View style={styles.entryMetaRow}>
+                                                    <Text style={styles.entryMetaLabel}>Section</Text>
+                                                    <Text style={styles.entryMetaValue}>{r.sectionLabel || "—"}</Text>
+                                                </View>
+
+                                                <View style={styles.entryMetaRow}>
+                                                    <Text style={styles.entryMetaLabel}>Faculty</Text>
+                                                    <Text style={styles.entryMetaValue}>
+                                                        {r.isManualFaculty ? `${r.facultyName || "—"} • Manual entry` : r.facultyName || "—"}
+                                                    </Text>
+                                                </View>
+
+                                                <View style={styles.entryMetaRow}>
+                                                    <Text style={styles.entryMetaLabel}>Room</Text>
+                                                    <Text style={styles.entryMetaValue}>
+                                                        {r.roomLabel || "—"}
+                                                        {r.roomType ? ` • ${roomTypeLabel(r.roomType)}` : ""}
+                                                    </Text>
                                                 </View>
                                             </View>
                                         </View>
@@ -845,18 +904,22 @@ export function PlannerManagementSection({
                         </div>
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
-                            <Table>
+                            <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                Drag left or right anywhere in the table to scroll horizontally.
+                            </div>
+
+                            <Table dragScroll className="min-w-max table-fixed">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Day</TableHead>
-                                        <TableHead>Time</TableHead>
-                                        <TableHead>Subject</TableHead>
-                                        <TableHead>Section</TableHead>
-                                        <TableHead>Faculty</TableHead>
-                                        <TableHead>Room</TableHead>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>Conflicts</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
+                                        <TableHead className="w-24 whitespace-normal break-words align-top">Day</TableHead>
+                                        <TableHead className="w-32 whitespace-normal break-words align-top">Time</TableHead>
+                                        <TableHead className="w-56 whitespace-normal break-words align-top">Subject</TableHead>
+                                        <TableHead className="w-32 whitespace-normal break-words align-top">Section</TableHead>
+                                        <TableHead className="w-56 whitespace-normal break-words align-top">Faculty</TableHead>
+                                        <TableHead className="w-40 whitespace-normal break-words align-top">Room</TableHead>
+                                        <TableHead className="w-24 whitespace-normal break-words align-top">Type</TableHead>
+                                        <TableHead className="w-44 whitespace-normal break-words align-top">Conflicts</TableHead>
+                                        <TableHead className="w-20 text-right whitespace-normal break-words align-top">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -865,35 +928,60 @@ export function PlannerManagementSection({
 
                                         return (
                                             <TableRow key={row.meetingId}>
-                                                <TableCell className="font-medium">{row.dayOfWeek || "—"}</TableCell>
-                                                <TableCell className="text-sm">{formatTimeRange(row.startTime, row.endTime)}</TableCell>
-                                                <TableCell className="text-sm">
-                                                    <div className="font-medium">{row.subjectLabel}</div>
-                                                    <div className="text-xs text-muted-foreground">Units: {row.subjectUnits ?? "—"}</div>
+                                                <TableCell className="font-medium whitespace-normal break-words align-top leading-relaxed">
+                                                    {row.dayOfWeek || "—"}
                                                 </TableCell>
-                                                <TableCell className="text-sm">{row.sectionLabel}</TableCell>
-                                                <TableCell className="text-sm">
-                                                    <div className="flex items-center gap-2">
-                                                        <UserCircle2 className="size-4 text-muted-foreground" />
-                                                        <span>{row.facultyName}</span>
-                                                        {row.isManualFaculty ? (
-                                                            <Badge variant="secondary" className="rounded-lg">
-                                                                Manual
-                                                            </Badge>
-                                                        ) : null}
+
+                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                    <div className="space-y-1 leading-snug">
+                                                        <div className="font-medium">{formatTimeLabel(row.startTime)}</div>
+                                                        <div className="text-xs text-muted-foreground">to {formatTimeLabel(row.endTime)}</div>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="text-sm">
-                                                    <div className="font-medium">{row.roomLabel}</div>
-                                                    <div className="text-xs text-muted-foreground">{roomTypeLabel(row.roomType)}</div>
+
+                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                    <div className="space-y-1 leading-relaxed">
+                                                        <div className="font-medium">{row.subjectLabel}</div>
+                                                        <div className="text-xs text-muted-foreground">Units: {row.subjectUnits ?? "—"}</div>
+                                                    </div>
                                                 </TableCell>
-                                                <TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top text-sm leading-relaxed">
+                                                    {row.sectionLabel}
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                    <div className="flex items-start gap-2">
+                                                        <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                                                        <div className="min-w-0 space-y-1 leading-relaxed">
+                                                            <span className="block break-words">{row.facultyName}</span>
+                                                            {row.isManualFaculty ? (
+                                                                <Badge variant="secondary" className="rounded-lg">
+                                                                    Manual
+                                                                </Badge>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                    <div className="space-y-1 leading-relaxed">
+                                                        <div className="font-medium">{row.roomLabel}</div>
+                                                        <div className="text-xs text-muted-foreground">{roomTypeLabel(row.roomType)}</div>
+                                                    </div>
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top">
                                                     <Badge variant="outline" className="rounded-lg">
                                                         {meetingTypeLabel(row.meetingType)}
                                                     </Badge>
                                                 </TableCell>
-                                                <TableCell>{renderConflictBadges(flags)}</TableCell>
-                                                <TableCell className="text-right">
+
+                                                <TableCell className="whitespace-normal break-words align-top">
+                                                    {renderConflictBadges(flags)}
+                                                </TableCell>
+
+                                                <TableCell className="align-top text-right">
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
                                                             <Button variant="ghost" size="icon" className="rounded-xl">
@@ -952,40 +1040,68 @@ export function PlannerManagementSection({
                         </div>
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
-                            <Table>
+                            <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                Drag left or right anywhere in the table to scroll horizontally.
+                            </div>
+
+                            <Table dragScroll className="min-w-max table-fixed">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Laboratory Room</TableHead>
-                                        <TableHead>Day</TableHead>
-                                        <TableHead>Time</TableHead>
-                                        <TableHead>Assigned Faculty</TableHead>
-                                        <TableHead>Subject</TableHead>
-                                        <TableHead>Section</TableHead>
-                                        <TableHead>Conflicts</TableHead>
+                                        <TableHead className="w-40 whitespace-normal break-words align-top">Laboratory Room</TableHead>
+                                        <TableHead className="w-24 whitespace-normal break-words align-top">Day</TableHead>
+                                        <TableHead className="w-32 whitespace-normal break-words align-top">Time</TableHead>
+                                        <TableHead className="w-56 whitespace-normal break-words align-top">Assigned Faculty</TableHead>
+                                        <TableHead className="w-52 whitespace-normal break-words align-top">Subject</TableHead>
+                                        <TableHead className="w-32 whitespace-normal break-words align-top">Section</TableHead>
+                                        <TableHead className="w-40 whitespace-normal break-words align-top">Conflicts</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {laboratoryRows.map((row) => {
                                         const flags = conflictFlagsByMeetingId.get(row.meetingId)
+
                                         return (
                                             <TableRow key={`lab-${row.meetingId}`}>
-                                                <TableCell className="font-medium">{row.roomLabel}</TableCell>
-                                                <TableCell>{row.dayOfWeek}</TableCell>
-                                                <TableCell>{formatTimeRange(row.startTime, row.endTime)}</TableCell>
-                                                <TableCell>
-                                                    <div className="flex items-center gap-2">
-                                                        <UserCircle2 className="size-4 text-muted-foreground" />
-                                                        <span>{row.facultyName}</span>
-                                                        {row.isManualFaculty ? (
-                                                            <Badge variant="secondary" className="rounded-lg">
-                                                                Manual
-                                                            </Badge>
-                                                        ) : null}
+                                                <TableCell className="font-medium whitespace-normal break-words align-top leading-relaxed">
+                                                    {row.roomLabel}
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top leading-relaxed">
+                                                    {row.dayOfWeek}
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top text-sm">
+                                                    <div className="space-y-1 leading-snug">
+                                                        <div className="font-medium">{formatTimeLabel(row.startTime)}</div>
+                                                        <div className="text-xs text-muted-foreground">to {formatTimeLabel(row.endTime)}</div>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell>{row.subjectLabel}</TableCell>
-                                                <TableCell>{row.sectionLabel}</TableCell>
-                                                <TableCell>{renderConflictBadges(flags)}</TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top">
+                                                    <div className="flex items-start gap-2">
+                                                        <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                                                        <div className="min-w-0 space-y-1 leading-relaxed">
+                                                            <span className="block break-words">{row.facultyName}</span>
+                                                            {row.isManualFaculty ? (
+                                                                <Badge variant="secondary" className="rounded-lg">
+                                                                    Manual
+                                                                </Badge>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top leading-relaxed">
+                                                    {row.subjectLabel}
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top leading-relaxed">
+                                                    {row.sectionLabel}
+                                                </TableCell>
+
+                                                <TableCell className="whitespace-normal break-words align-top">
+                                                    {renderConflictBadges(flags)}
+                                                </TableCell>
                                             </TableRow>
                                         )
                                     })}
