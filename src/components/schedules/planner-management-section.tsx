@@ -188,31 +188,92 @@ function formatPdfTimeText(startTime?: string, endTime?: string) {
     return `${start} to ${end}`
 }
 
+function inferSectionProgramPrefix(...values: Array<string | number | null | undefined>) {
+    const normalizedValues = values
+        .map((value) => String(value ?? "").trim().toUpperCase())
+        .filter(Boolean)
+
+    for (const value of normalizedValues) {
+        if (/\bBSIS\b|\bIS\b|\bINFORMATION\s+SYSTEMS?\b/.test(value)) return "IS"
+        if (/\bBSCS\b|\bCS\b|\bCOMPUTER\s+SCIENCE\b/.test(value)) return "CS"
+    }
+
+    return null
+}
+
+function stripSectionProgramTokens(value: string) {
+    return value
+        .replace(/\bBSIS\b/gi, "")
+        .replace(/\bBSCS\b/gi, "")
+        .replace(/\bIS\b/gi, "")
+        .replace(/\bCS\b/gi, "")
+        .replace(/\s+/g, " ")
+        .replace(/^\-\s*/, "")
+        .trim()
+}
+
+function getSectionProgramHint(section: SectionDoc) {
+    const raw = section as any
+
+    return [
+        raw.program,
+        raw.programCode,
+        raw.course,
+        raw.courseCode,
+        raw.degree,
+        raw.degreeCode,
+        raw.curriculum,
+        raw.curriculumCode,
+        raw.label,
+        raw.sectionLabel,
+        raw.name,
+    ]
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+        .join(" ")
+}
+
 function formatSectionDisplayLabel({
     label,
     yearLevel,
     name,
+    program,
 }: {
     label?: string | null
     yearLevel?: string | number | null
     name?: string | null
+    program?: string | null
 }) {
     const rawLabel = String(label || "").trim()
-    if (rawLabel) {
-        const match = rawLabel.match(/^Y\s*([1-9]\d*)\s*-\s*(.+)$/i)
-        if (match) {
-            return `CS ${match[1]} - ${match[2].trim()}`
-        }
-        return rawLabel
-    }
-
     const rawName = String(name || "").trim()
     const parsedYear = Number(yearLevel || 0)
-    if (rawName && Number.isFinite(parsedYear) && parsedYear > 0) {
-        return `CS ${parsedYear} - ${rawName}`
+    const inferredPrefix = inferSectionProgramPrefix(rawLabel, rawName, program) || "CS"
+
+    if (rawLabel) {
+        const normalizedLabel = rawLabel
+            .replace(/\bBSIS\b/gi, "IS")
+            .replace(/\bBSCS\b/gi, "CS")
+            .replace(/\s+/g, " ")
+            .trim()
+
+        const explicitPrefix = inferSectionProgramPrefix(normalizedLabel)
+        const match = normalizedLabel.match(/^(?:(CS|IS)\s*)?Y?\s*([1-9]\d*)\s*-\s*(.+)$/i)
+
+        if (match) {
+            const prefix = String(match[1] || explicitPrefix || inferredPrefix).toUpperCase()
+            const suffix = stripSectionProgramTokens(match[3]) || match[3].trim()
+            return `${prefix} ${match[2]} - ${suffix}`
+        }
+
+        return normalizedLabel
     }
-    if (rawName) return rawName
-    if (Number.isFinite(parsedYear) && parsedYear > 0) return `CS ${parsedYear}`
+
+    if (rawName && Number.isFinite(parsedYear) && parsedYear > 0) {
+        const suffix = stripSectionProgramTokens(rawName) || rawName
+        return `${inferredPrefix} ${parsedYear} - ${suffix}`
+    }
+    if (rawName) return stripSectionProgramTokens(rawName) || rawName
+    if (Number.isFinite(parsedYear) && parsedYear > 0) return `${inferredPrefix} ${parsedYear}`
 
     return "—"
 }
@@ -1258,6 +1319,7 @@ export function PlannerManagementSection({
                                             const sectionLabel = formatSectionDisplayLabel({
                                                 yearLevel: y,
                                                 name,
+                                                program: getSectionProgramHint(s),
                                             })
 
                                             return (
