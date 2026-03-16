@@ -5,8 +5,11 @@ import * as React from "react"
 import { toast } from "sonner"
 import { Plus, RefreshCcw, Pencil, Trash2, DoorOpen } from "lucide-react"
 
+import { adminApi } from "@/api/admin"
 import DashboardLayout from "@/components/dashboard-layout"
+import  RoomPdfActions  from "@/components/room-pdf/room-schedule-print-sheet"
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
+import type { AcademicTermLite } from "@/lib/admin-sections"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -71,7 +74,6 @@ type RoomDoc = {
 
 type RoomTypeFilter = "ALL" | "LECTURE" | "LAB" | "OTHER"
 
-// ✅ Shorter dialog + vertical scroll
 const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
 
 function str(v: any) {
@@ -109,8 +111,12 @@ async function listDocs(collectionId: string, queries: any[] = []) {
 
 export default function AdminRoomsAndFacilitiesPage() {
     const [loading, setLoading] = React.useState(true)
+    const [termsLoading, setTermsLoading] = React.useState(false)
 
     const [rooms, setRooms] = React.useState<RoomDoc[]>([])
+    const [academicTerms, setAcademicTerms] = React.useState<AcademicTermLite[]>([])
+    const [selectedTermId, setSelectedTermId] = React.useState("")
+
     const [search, setSearch] = React.useState("")
     const [typeFilter, setTypeFilter] = React.useState<RoomTypeFilter>("ALL")
     const [onlyAvailable, setOnlyAvailable] = React.useState(false)
@@ -127,6 +133,11 @@ export default function AdminRoomsAndFacilitiesPage() {
     const [roomAvailable, setRoomAvailable] = React.useState(true)
 
     const [deleteRoom, setDeleteRoom] = React.useState<RoomDoc | null>(null)
+
+    const selectedTerm = React.useMemo(
+        () => academicTerms.find((term) => term.$id === selectedTermId) ?? null,
+        [academicTerms, selectedTermId]
+    )
 
     const refreshRooms = React.useCallback(async () => {
         setLoading(true)
@@ -155,9 +166,34 @@ export default function AdminRoomsAndFacilitiesPage() {
         }
     }, [])
 
+    const refreshAcademicTerms = React.useCallback(async () => {
+        setTermsLoading(true)
+        try {
+            const terms = await adminApi.academicTerms.listLite()
+            setAcademicTerms(terms)
+
+            setSelectedTermId((current) => {
+                if (current && terms.some((term) => term.$id === current)) {
+                    return current
+                }
+
+                const activeTerm = terms.find((term) => term.isActive)
+                return activeTerm?.$id ?? terms[0]?.$id ?? ""
+            })
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to load academic terms.")
+        } finally {
+            setTermsLoading(false)
+        }
+    }, [])
+
     React.useEffect(() => {
         void refreshRooms()
     }, [refreshRooms])
+
+    React.useEffect(() => {
+        void refreshAcademicTerms()
+    }, [refreshAcademicTerms])
 
     React.useEffect(() => {
         if (!dialogOpen) return
@@ -264,7 +300,14 @@ export default function AdminRoomsAndFacilitiesPage() {
             subtitle="Add/edit rooms, capacity, type, and availability."
             actions={
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => void refreshRooms()}>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                            void refreshRooms()
+                            void refreshAcademicTerms()
+                        }}
+                    >
                         <RefreshCcw className="h-4 w-4 mr-2" />
                         Refresh
                     </Button>
@@ -295,7 +338,6 @@ export default function AdminRoomsAndFacilitiesPage() {
                     </AlertDescription>
                 </Alert>
 
-                {/* Stats */}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <Card>
                         <CardHeader className="pb-2">
@@ -340,23 +382,70 @@ export default function AdminRoomsAndFacilitiesPage() {
 
                 <Card>
                     <CardHeader className="space-y-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
                             <div>
                                 <CardTitle>Manage Rooms</CardTitle>
                                 <CardDescription>
                                     Add or update room details used by scheduling and workload rules.
+                                    The room PDF preview/export uses the selected academic term.
                                 </CardDescription>
                             </div>
 
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                                <Input
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Search code / name / building..."
-                                    className="sm:w-80"
-                                />
+                            <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:justify-end">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="room-term-filter" className="text-sm">
+                                        Schedule Term
+                                    </Label>
 
-                                <div className="flex items-center gap-2">
+                                    <Select
+                                        value={selectedTermId || "__placeholder__"}
+                                        onValueChange={(value) =>
+                                            setSelectedTermId(value === "__placeholder__" ? "" : value)
+                                        }
+                                        disabled={termsLoading || academicTerms.length === 0}
+                                    >
+                                        <SelectTrigger id="room-term-filter" className="sm:w-80">
+                                            <SelectValue
+                                                placeholder={
+                                                    termsLoading
+                                                        ? "Loading academic terms..."
+                                                        : "Select academic term"
+                                                }
+                                            />
+                                        </SelectTrigger>
+
+                                        <SelectContent>
+                                            {!selectedTermId ? (
+                                                <SelectItem value="__placeholder__" disabled>
+                                                    Select academic term
+                                                </SelectItem>
+                                            ) : null}
+
+                                            {academicTerms.map((term) => (
+                                                <SelectItem key={term.$id} value={term.$id}>
+                                                    {`${term.semester} • ${term.schoolYear}${
+                                                        term.isActive ? " • Active" : ""
+                                                    }`}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="room-search" className="text-sm">
+                                        Search
+                                    </Label>
+                                    <Input
+                                        id="room-search"
+                                        value={search}
+                                        onChange={(e) => setSearch(e.target.value)}
+                                        placeholder="Search code / name / building..."
+                                        className="sm:w-80"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-2 pb-2">
                                     <Checkbox
                                         checked={onlyAvailable}
                                         onCheckedChange={(v) => setOnlyAvailable(Boolean(v))}
@@ -380,7 +469,6 @@ export default function AdminRoomsAndFacilitiesPage() {
                             </TabsList>
 
                             <TabsContent value={typeFilter}>
-                                {/* Table */}
                                 {loading ? (
                                     <div className="space-y-3 pt-4">
                                         <Skeleton className="h-10 w-full" />
@@ -402,7 +490,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                     <TableHead className="w-28">Capacity</TableHead>
                                                     <TableHead className="w-32">Type</TableHead>
                                                     <TableHead className="w-28">Available</TableHead>
-                                                    <TableHead className="w-36 text-right">Actions</TableHead>
+                                                    <TableHead className="w-72 text-right">Actions</TableHead>
                                                 </TableRow>
                                             </TableHeader>
 
@@ -414,9 +502,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                             {r.name || "—"}
                                                         </TableCell>
                                                         <TableCell className="text-muted-foreground">
-                                                            <div className="text-sm">
-                                                                {r.building || "—"}
-                                                            </div>
+                                                            <div className="text-sm">{r.building || "—"}</div>
                                                             <div className="text-xs text-muted-foreground">
                                                                 {r.floor ? `Floor ${r.floor}` : ""}
                                                             </div>
@@ -433,7 +519,13 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                             </Badge>
                                                         </TableCell>
                                                         <TableCell className="text-right">
-                                                            <div className="flex justify-end gap-2">
+                                                            <div className="flex flex-wrap justify-end gap-2">
+                                                                <RoomPdfActions
+                                                                    room={r}
+                                                                    term={selectedTerm}
+                                                                    disabled={termsLoading || academicTerms.length === 0}
+                                                                />
+
                                                                 <Button
                                                                     variant="outline"
                                                                     size="sm"
@@ -467,7 +559,6 @@ export default function AdminRoomsAndFacilitiesPage() {
                     </CardHeader>
                 </Card>
 
-                {/* Room Dialog */}
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                     <DialogContent className={DIALOG_CONTENT_CLASS}>
                         <DialogHeader>
@@ -561,14 +652,17 @@ export default function AdminRoomsAndFacilitiesPage() {
                     </DialogContent>
                 </Dialog>
 
-                {/* Delete Confirmation */}
-                <AlertDialog open={Boolean(deleteRoom)} onOpenChange={(open) => (!open ? setDeleteRoom(null) : null)}>
+                <AlertDialog
+                    open={Boolean(deleteRoom)}
+                    onOpenChange={(open) => (!open ? setDeleteRoom(null) : null)}
+                >
                     <AlertDialogContent>
                         <AlertDialogHeader>
                             <AlertDialogTitle>Delete Room</AlertDialogTitle>
                             <AlertDialogDescription>
                                 This will permanently delete room{" "}
-                                <span className="font-medium">{deleteRoom?.code}</span>. This action cannot be undone.
+                                <span className="font-medium">{deleteRoom?.code}</span>. This action
+                                cannot be undone.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
