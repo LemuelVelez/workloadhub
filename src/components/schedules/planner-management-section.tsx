@@ -188,6 +188,35 @@ function formatPdfTimeText(startTime?: string, endTime?: string) {
     return `${start} to ${end}`
 }
 
+function formatSectionDisplayLabel({
+    label,
+    yearLevel,
+    name,
+}: {
+    label?: string | null
+    yearLevel?: string | number | null
+    name?: string | null
+}) {
+    const rawLabel = String(label || "").trim()
+    if (rawLabel) {
+        const match = rawLabel.match(/^Y\s*([1-9]\d*)\s*-\s*(.+)$/i)
+        if (match) {
+            return `CS ${match[1]} - ${match[2].trim()}`
+        }
+        return rawLabel
+    }
+
+    const rawName = String(name || "").trim()
+    const parsedYear = Number(yearLevel || 0)
+    if (rawName && Number.isFinite(parsedYear) && parsedYear > 0) {
+        return `CS ${parsedYear} - ${rawName}`
+    }
+    if (rawName) return rawName
+    if (Number.isFinite(parsedYear) && parsedYear > 0) return `CS ${parsedYear}`
+
+    return "—"
+}
+
 const styles = StyleSheet.create({
     page: {
         padding: 18,
@@ -635,7 +664,9 @@ function SchedulePdfDocument({
                                             </View>
 
                                             <View style={[styles.tableCell, styles.colSection]}>
-                                                <Text style={styles.cellText}>{r.sectionLabel || "—"}</Text>
+                                                <Text style={styles.cellText}>
+                                                    {formatSectionDisplayLabel({ label: r.sectionLabel })}
+                                                </Text>
                                             </View>
 
                                             <View style={[styles.tableCell, styles.colFaculty]}>
@@ -996,7 +1027,7 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm leading-relaxed">
-                                                    {row.sectionLabel}
+                                                    {formatSectionDisplayLabel({ label: row.sectionLabel })}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
@@ -1144,7 +1175,7 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {row.sectionLabel}
+                                                    {formatSectionDisplayLabel({ label: row.sectionLabel })}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
@@ -1224,9 +1255,14 @@ export function PlannerManagementSection({
                                         {sections.map((s) => {
                                             const name = String(s.name || "").trim() || s.$id
                                             const y = Number(s.yearLevel || 0)
+                                            const sectionLabel = formatSectionDisplayLabel({
+                                                yearLevel: y,
+                                                name,
+                                            })
+
                                             return (
                                                 <SelectItem key={s.$id} value={s.$id}>
-                                                    Y{y || "?"} - {name}
+                                                    {sectionLabel}
                                                 </SelectItem>
                                             )
                                         })}
@@ -1452,7 +1488,7 @@ export function PlannerManagementSection({
                                         {candidateConflicts.slice(0, 6).map((c, idx) => (
                                             <li key={`${c.type}-${c.row.meetingId}-${idx}`}>
                                                 [{c.type.toUpperCase()}] {c.row.dayOfWeek} {formatTimeRange(c.row.startTime, c.row.endTime)} •{" "}
-                                                {c.row.subjectLabel} • {c.row.sectionLabel} • {c.row.roomLabel}
+                                                {c.row.subjectLabel} • {formatSectionDisplayLabel({ label: c.row.sectionLabel })} • {c.row.roomLabel}
                                             </li>
                                         ))}
                                     </ul>
