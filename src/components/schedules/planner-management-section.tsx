@@ -178,7 +178,14 @@ function formatTimeLabel(value?: string) {
 }
 
 function formatPdfTimeText(startTime?: string, endTime?: string) {
-    return `${formatTimeLabel(startTime)}\n${formatTimeLabel(endTime)}`
+    const start = formatTimeLabel(startTime)
+    const end = formatTimeLabel(endTime)
+
+    if (start === "—" && end === "—") return "—"
+    if (start === "—") return end
+    if (end === "—") return start
+
+    return `${start} to ${end}`
 }
 
 const styles = StyleSheet.create({
@@ -593,6 +600,7 @@ function SchedulePdfDocument({
                             ) : (
                                 rows.map((r, idx) => {
                                     const type = meetingTypeLabel(r.meetingType)
+                                    const displayType = type === "LECTURE" ? "LEC" : type
                                     const typeStyle =
                                         type === "LAB"
                                             ? styles.typePillLab
@@ -646,7 +654,7 @@ function SchedulePdfDocument({
 
                                             <View style={[styles.tableCell, styles.colType, styles.tableCellLast]}>
                                                 <View style={[styles.typePill, typeStyle]}>
-                                                    <Text style={styles.typePillText}>{type}</Text>
+                                                    <Text style={styles.typePillText}>{displayType}</Text>
                                                 </View>
                                             </View>
                                         </View>
