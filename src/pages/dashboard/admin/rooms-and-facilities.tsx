@@ -3,13 +3,20 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { Plus, RefreshCcw, Pencil, Trash2, DoorOpen } from "lucide-react"
+import {
+    Plus,
+    RefreshCcw,
+    Pencil,
+    Trash2,
+    DoorOpen,
+    Printer,
+} from "lucide-react"
 
-import { adminApi } from "@/api/admin"
 import DashboardLayout from "@/components/dashboard-layout"
-import  RoomPdfActions  from "@/components/room-pdf/room-schedule-print-sheet"
+import RoomSchedulePrintSheet, {
+    type RoomSchedulePrintItem,
+} from "@/components/room/room-schedule-print-sheet"
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
-import type { AcademicTermLite } from "@/lib/admin-sections"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -72,9 +79,87 @@ type RoomDoc = {
     isActive: boolean
 }
 
+type AcademicTermDocLite = {
+    $id: string
+    schoolYear: string
+    semester: string
+    startDate: string
+    endDate: string
+    isActive: boolean
+    isLocked: boolean
+}
+
+type ScheduleVersionLite = {
+    $id: string
+    termId: string
+    departmentId: string
+    version: number
+    label?: string | null
+    status: string
+}
+
+type ClassMeetingLite = {
+    $id: string
+    versionId: string
+    classId: string
+    dayOfWeek: string
+    startTime: string
+    endTime: string
+    roomId?: string | null
+    meetingType?: string | null
+    notes?: string | null
+}
+
+type ClassLite = {
+    $id: string
+    sectionId: string
+    subjectId: string
+    facultyUserId?: string | null
+    classCode?: string | null
+    deliveryMode?: string | null
+    status?: string | null
+    remarks?: string | null
+}
+
+type SubjectLite = {
+    $id: string
+    code: string
+    title: string
+}
+
+type SectionLite = {
+    $id: string
+    yearLevel: number
+    name: string
+}
+
+type UserProfileLite = {
+    $id: string
+    userId: string
+    name?: string | null
+    email?: string | null
+}
+
 type RoomTypeFilter = "ALL" | "LECTURE" | "LAB" | "OTHER"
 
 const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
+
+const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
+const DEFAULT_PRINT_TIME_SLOTS = [
+    "8:00-9:00",
+    "9:01-10:00",
+    "10:01-11:00",
+    "11:01-12:00",
+    "12:01-1:00",
+    "1:01-2:00",
+    "2:01-3:00",
+    "3:01-4:00",
+    "4:01-5:00",
+    "5:01-6:00",
+    "6:01-7:00",
+    "7:01-8:00",
+    "8:01-9:00",
+] as const
 
 function str(v: any) {
     return String(v ?? "").trim()
@@ -104,18 +189,318 @@ function displayType(t: string) {
     return v || "Other"
 }
 
+function displayRoomLabel(room?: RoomDoc | null) {
+    if (!room) return "Room"
+    return str(room.name) || str(room.code) || "Room"
+}
+
+function displayRoomSubLabel(room?: RoomDoc | null) {
+    if (!room) return ""
+    const primary = str(room.code)
+    const secondary = str(room.name)
+    if (primary && secondary && primary !== secondary) {
+        return `${secondary} (${primary})`
+    }
+    return secondary || primary
+}
+
+function normalizeDayLabel(value: any) {
+    const raw = str(value).toLowerCase()
+    if (raw.startsWith("mon")) return "Monday"
+    if (raw.startsWith("tue")) return "Tuesday"
+    if (raw.startsWith("wed")) return "Wednesday"
+    if (raw.startsWith("thu")) return "Thursday"
+    if (raw.startsWith("fri")) return "Friday"
+    return str(value)
+}
+
+function parseClockMinutes(value: any) {
+    const raw = str(value)
+    if (!raw) return Number.POSITIVE_INFINITY
+
+    const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+    if (ampm) {
+        let hh = Number(ampm[1])
+        const mm = Number(ampm[2])
+        const suffix = ampm[3].toUpperCase()
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return Number.POSITIVE_INFINITY
+        if (suffix === "AM" && hh === 12) hh = 0
+        if (suffix === "PM" && hh !== 12) hh += 12
+        return hh * 60 + mm
+    }
+
+    const hhmm = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
+    if (!hhmm) return Number.POSITIVE_INFINITY
+
+    const hh = Number(hhmm[1])
+    const mm = Number(hhmm[2])
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return Number.POSITIVE_INFINITY
+    return hh * 60 + mm
+}
+
+function academicTermLabel(term?: AcademicTermDocLite | null) {
+    if (!term) return "Select academic term"
+    return `${term.semester} • SY ${term.schoolYear}`
+}
+
+function sortTermsDesc(a: AcademicTermDocLite, b: AcademicTermDocLite) {
+    const aKey = `${a.startDate}|${a.schoolYear}|${a.semester}`
+    const bKey = `${b.startDate}|${b.schoolYear}|${b.semester}`
+    return bKey.localeCompare(aKey)
+}
+
+function buildSectionLabel(section?: SectionLite | null) {
+    if (!section) return ""
+    const yr = num(section.yearLevel, 0)
+    const name = str(section.name)
+    if (yr > 0 && name) return `${yr}${name}`
+    if (yr > 0) return `${yr}`
+    return name
+}
+
+function choosePreferredVersions(versions: ScheduleVersionLite[]) {
+    const byDepartment = new Map<string, ScheduleVersionLite[]>()
+
+    for (const version of versions) {
+        const departmentId = str(version.departmentId) || "__unknown__"
+        if (!byDepartment.has(departmentId)) {
+            byDepartment.set(departmentId, [])
+        }
+        byDepartment.get(departmentId)?.push(version)
+    }
+
+    const statusRank = (status: string) => {
+        const value = str(status).toLowerCase()
+        if (value === "active") return 0
+        if (value === "locked") return 1
+        if (value === "draft") return 2
+        if (value === "archived") return 3
+        return 9
+    }
+
+    const selected: ScheduleVersionLite[] = []
+
+    for (const entry of byDepartment.values()) {
+        entry.sort((a, b) => {
+            const statusDiff = statusRank(a.status) - statusRank(b.status)
+            if (statusDiff !== 0) return statusDiff
+            return num(b.version, 0) - num(a.version, 0)
+        })
+
+        if (entry[0]) {
+            selected.push(entry[0])
+        }
+    }
+
+    return selected
+}
+
+function chunkValues<T>(values: T[], size = 100) {
+    const chunks: T[][] = []
+    for (let i = 0; i < values.length; i += size) {
+        chunks.push(values.slice(i, i + size))
+    }
+    return chunks
+}
+
 async function listDocs(collectionId: string, queries: any[] = []) {
     const res = await databases.listDocuments(DATABASE_ID, collectionId, queries)
     return (res?.documents ?? []) as any[]
 }
 
+async function listDocsByField(
+    collectionId: string,
+    field: string,
+    values: string[],
+    extraQueries: any[] = []
+) {
+    const ids = Array.from(new Set(values.map((value) => str(value)).filter(Boolean)))
+    if (ids.length === 0) return [] as any[]
+
+    const parts = chunkValues(ids, 100)
+    const results: any[] = []
+
+    for (const part of parts) {
+        const docs = await listDocs(collectionId, [
+            Query.equal(field, part),
+            Query.limit(100),
+            ...extraQueries,
+        ])
+        results.push(...docs)
+    }
+
+    return results
+}
+
+async function fetchRoomPrintableSchedule(params: {
+    roomId: string
+    termId: string
+}) {
+    const roomId = str(params.roomId)
+    const termId = str(params.termId)
+
+    if (!roomId || !termId) return [] as RoomSchedulePrintItem[]
+
+    const versionDocs = (await listDocs(COLLECTIONS.SCHEDULE_VERSIONS, [
+        Query.equal("termId", termId),
+        Query.limit(5000),
+    ])) as any[]
+
+    const preferredVersions = choosePreferredVersions(
+        versionDocs.map(
+            (version: any) =>
+                ({
+                    $id: version.$id,
+                    termId: str(version.termId),
+                    departmentId: str(version.departmentId),
+                    version: num(version.version, 0),
+                    label: version.label ?? null,
+                    status: str(version.status),
+                }) as ScheduleVersionLite
+        )
+    )
+
+    const versionIds = preferredVersions.map((version) => version.$id).filter(Boolean)
+    if (versionIds.length === 0) {
+        return [] as RoomSchedulePrintItem[]
+    }
+
+    const meetingDocs = (await listDocsByField(
+        COLLECTIONS.CLASS_MEETINGS,
+        "versionId",
+        versionIds,
+        [Query.equal("roomId", roomId)]
+    )) as any[]
+
+    const meetings = meetingDocs.map(
+        (meeting: any) =>
+            ({
+                $id: meeting.$id,
+                versionId: str(meeting.versionId),
+                classId: str(meeting.classId),
+                dayOfWeek: normalizeDayLabel(meeting.dayOfWeek),
+                startTime: str(meeting.startTime),
+                endTime: str(meeting.endTime),
+                roomId: meeting.roomId ? str(meeting.roomId) : null,
+                meetingType: meeting.meetingType ? str(meeting.meetingType) : null,
+                notes: meeting.notes ? str(meeting.notes) : null,
+            }) as ClassMeetingLite
+    )
+
+    const classIds = meetings.map((meeting) => meeting.classId).filter(Boolean)
+    const classDocs = (await listDocsByField(COLLECTIONS.CLASSES, "$id", classIds)) as any[]
+    const classes = classDocs.map(
+        (klass: any) =>
+            ({
+                $id: klass.$id,
+                sectionId: str(klass.sectionId),
+                subjectId: str(klass.subjectId),
+                facultyUserId: klass.facultyUserId ? str(klass.facultyUserId) : null,
+                classCode: klass.classCode ? str(klass.classCode) : null,
+                deliveryMode: klass.deliveryMode ? str(klass.deliveryMode) : null,
+                status: klass.status ? str(klass.status) : null,
+                remarks: klass.remarks ? str(klass.remarks) : null,
+            }) as ClassLite
+    )
+
+    const classById = new Map(classes.map((klass) => [klass.$id, klass]))
+
+    const subjectIds = classes.map((klass) => klass.subjectId).filter(Boolean)
+    const sectionIds = classes.map((klass) => klass.sectionId).filter(Boolean)
+    const facultyUserIds = classes.map((klass) => str(klass.facultyUserId)).filter(Boolean)
+
+    const [subjectDocs, sectionDocs, userDocs] = await Promise.all([
+        listDocsByField(COLLECTIONS.SUBJECTS, "$id", subjectIds),
+        listDocsByField(COLLECTIONS.SECTIONS, "$id", sectionIds),
+        listDocsByField(COLLECTIONS.USER_PROFILES, "userId", facultyUserIds),
+    ])
+
+    const subjectById = new Map<string, SubjectLite>(
+        subjectDocs.map((subject: any) => [
+            subject.$id,
+            {
+                $id: subject.$id,
+                code: str(subject.code),
+                title: str(subject.title),
+            } as SubjectLite,
+        ])
+    )
+
+    const sectionById = new Map<string, SectionLite>(
+        sectionDocs.map((section: any) => [
+            section.$id,
+            {
+                $id: section.$id,
+                yearLevel: num(section.yearLevel, 0),
+                name: str(section.name),
+            } as SectionLite,
+        ])
+    )
+
+    const facultyByUserId = new Map<string, UserProfileLite>(
+        userDocs.map((user: any) => [
+            str(user.userId),
+            {
+                $id: user.$id,
+                userId: str(user.userId),
+                name: user.name ? str(user.name) : null,
+                email: user.email ? str(user.email) : null,
+            } as UserProfileLite,
+        ])
+    )
+
+    const printableItems = meetings.map((meeting) => {
+        const klass = classById.get(meeting.classId)
+        const subject = klass ? subjectById.get(klass.subjectId) : null
+        const section = klass ? sectionById.get(klass.sectionId) : null
+        const faculty =
+            klass && klass.facultyUserId ? facultyByUserId.get(klass.facultyUserId) : null
+
+        const facultyName = str(faculty?.name) || "TBA"
+        const subjectCode = str(subject?.code)
+        const subjectTitle = str(subject?.title)
+        const sectionLabel = buildSectionLabel(section)
+
+        const lineTwoParts = [subjectCode, sectionLabel].filter(Boolean)
+        const lineThree = subjectTitle || str(klass?.classCode)
+
+        const contentLines = [
+            facultyName,
+            lineTwoParts.join(" - "),
+            lineThree,
+        ].filter(Boolean)
+
+        return {
+            id: meeting.$id,
+            dayOfWeek: meeting.dayOfWeek,
+            startTime: meeting.startTime,
+            endTime: meeting.endTime,
+            facultyName,
+            subjectCode: subjectCode || null,
+            subjectTitle: subjectTitle || null,
+            sectionLabel: sectionLabel || null,
+            notes: meeting.notes || null,
+            contentLines,
+        } as RoomSchedulePrintItem
+    })
+
+    printableItems.sort((a, b) => {
+        const dayDiff =
+            DAY_ORDER.indexOf(normalizeDayLabel(a.dayOfWeek) as (typeof DAY_ORDER)[number]) -
+            DAY_ORDER.indexOf(normalizeDayLabel(b.dayOfWeek) as (typeof DAY_ORDER)[number])
+
+        if (dayDiff !== 0) return dayDiff
+        return parseClockMinutes(a.startTime) - parseClockMinutes(b.startTime)
+    })
+
+    return printableItems
+}
+
 export default function AdminRoomsAndFacilitiesPage() {
     const [loading, setLoading] = React.useState(true)
-    const [termsLoading, setTermsLoading] = React.useState(false)
 
     const [rooms, setRooms] = React.useState<RoomDoc[]>([])
-    const [academicTerms, setAcademicTerms] = React.useState<AcademicTermLite[]>([])
-    const [selectedTermId, setSelectedTermId] = React.useState("")
+    const [terms, setTerms] = React.useState<AcademicTermDocLite[]>([])
 
     const [search, setSearch] = React.useState("")
     const [typeFilter, setTypeFilter] = React.useState<RoomTypeFilter>("ALL")
@@ -134,31 +519,63 @@ export default function AdminRoomsAndFacilitiesPage() {
 
     const [deleteRoom, setDeleteRoom] = React.useState<RoomDoc | null>(null)
 
-    const selectedTerm = React.useMemo(
-        () => academicTerms.find((term) => term.$id === selectedTermId) ?? null,
-        [academicTerms, selectedTermId]
-    )
+    const [printRoomId, setPrintRoomId] = React.useState("")
+    const [printTermId, setPrintTermId] = React.useState("")
+    const [scheduleBusy, setScheduleBusy] = React.useState(false)
+    const [printItems, setPrintItems] = React.useState<RoomSchedulePrintItem[]>([])
 
     const refreshRooms = React.useCallback(async () => {
         setLoading(true)
         try {
-            const docs = await listDocs(COLLECTIONS.ROOMS, [
-                Query.orderAsc("code"),
-                Query.limit(2000),
+            const [roomDocs, termDocs] = await Promise.all([
+                listDocs(COLLECTIONS.ROOMS, [Query.orderAsc("code"), Query.limit(2000)]),
+                listDocs(COLLECTIONS.ACADEMIC_TERMS, [
+                    Query.orderDesc("startDate"),
+                    Query.limit(200),
+                ]),
             ])
 
-            setRooms(
-                docs.map((r: any) => ({
-                    $id: r.$id,
-                    code: str(r.code),
-                    name: r.name ?? null,
-                    building: r.building ?? null,
-                    floor: r.floor ?? null,
-                    capacity: num(r.capacity, 0),
-                    type: str(r.type) || "OTHER",
-                    isActive: toBool(r.isActive),
-                }))
+            const nextRooms = roomDocs.map(
+                (r: any) =>
+                    ({
+                        $id: r.$id,
+                        code: str(r.code),
+                        name: r.name ?? null,
+                        building: r.building ?? null,
+                        floor: r.floor ?? null,
+                        capacity: num(r.capacity, 0),
+                        type: str(r.type) || "OTHER",
+                        isActive: toBool(r.isActive),
+                    }) as RoomDoc
             )
+
+            const nextTerms = termDocs
+                .map(
+                    (t: any) =>
+                        ({
+                            $id: t.$id,
+                            schoolYear: str(t.schoolYear),
+                            semester: str(t.semester),
+                            startDate: str(t.startDate),
+                            endDate: str(t.endDate),
+                            isActive: toBool(t.isActive),
+                            isLocked: toBool(t.isLocked),
+                        }) as AcademicTermDocLite
+                )
+                .sort(sortTermsDesc)
+
+            setRooms(nextRooms)
+            setTerms(nextTerms)
+
+            setPrintRoomId((current) => {
+                if (current && nextRooms.some((room) => room.$id === current)) return current
+                return nextRooms[0]?.$id ?? ""
+            })
+
+            setPrintTermId((current) => {
+                if (current && nextTerms.some((term) => term.$id === current)) return current
+                return nextTerms.find((term) => term.isActive)?.$id ?? nextTerms[0]?.$id ?? ""
+            })
         } catch (e: any) {
             toast.error(e?.message || "Failed to load rooms.")
         } finally {
@@ -166,34 +583,9 @@ export default function AdminRoomsAndFacilitiesPage() {
         }
     }, [])
 
-    const refreshAcademicTerms = React.useCallback(async () => {
-        setTermsLoading(true)
-        try {
-            const terms = await adminApi.academicTerms.listLite()
-            setAcademicTerms(terms)
-
-            setSelectedTermId((current) => {
-                if (current && terms.some((term) => term.$id === current)) {
-                    return current
-                }
-
-                const activeTerm = terms.find((term) => term.isActive)
-                return activeTerm?.$id ?? terms[0]?.$id ?? ""
-            })
-        } catch (e: any) {
-            toast.error(e?.message || "Failed to load academic terms.")
-        } finally {
-            setTermsLoading(false)
-        }
-    }, [])
-
     React.useEffect(() => {
         void refreshRooms()
     }, [refreshRooms])
-
-    React.useEffect(() => {
-        void refreshAcademicTerms()
-    }, [refreshAcademicTerms])
 
     React.useEffect(() => {
         if (!dialogOpen) return
@@ -217,6 +609,31 @@ export default function AdminRoomsAndFacilitiesPage() {
         setRoomType(String(editing.type ?? "OTHER"))
         setRoomAvailable(Boolean(editing.isActive))
     }, [dialogOpen, editing])
+
+    const loadPrintableSchedule = React.useCallback(async () => {
+        const roomId = str(printRoomId)
+        const termId = str(printTermId)
+
+        if (!roomId || !termId) {
+            setPrintItems([])
+            return
+        }
+
+        setScheduleBusy(true)
+        try {
+            const nextItems = await fetchRoomPrintableSchedule({ roomId, termId })
+            setPrintItems(nextItems)
+        } catch (e: any) {
+            setPrintItems([])
+            toast.error(e?.message || "Failed to load room schedule print data.")
+        } finally {
+            setScheduleBusy(false)
+        }
+    }, [printRoomId, printTermId])
+
+    React.useEffect(() => {
+        void loadPrintableSchedule()
+    }, [loadPrintableSchedule])
 
     async function saveRoom() {
         const payload: any = {
@@ -268,6 +685,16 @@ export default function AdminRoomsAndFacilitiesPage() {
         }
     }
 
+    const selectedPrintRoom = React.useMemo(
+        () => rooms.find((room) => room.$id === printRoomId) ?? null,
+        [rooms, printRoomId]
+    )
+
+    const selectedPrintTerm = React.useMemo(
+        () => terms.find((term) => term.$id === printTermId) ?? null,
+        [terms, printTermId]
+    )
+
     const q = search.trim().toLowerCase()
 
     const filteredRooms = React.useMemo(() => {
@@ -297,18 +724,11 @@ export default function AdminRoomsAndFacilitiesPage() {
     return (
         <DashboardLayout
             title="Rooms & Facilities"
-            subtitle="Add/edit rooms, capacity, type, and availability."
+            subtitle="Add or update rooms, manage availability, and export the official room monitoring sheet."
             actions={
                 <div className="flex items-center gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            void refreshRooms()
-                            void refreshAcademicTerms()
-                        }}
-                    >
-                        <RefreshCcw className="h-4 w-4 mr-2" />
+                    <Button variant="outline" size="sm" onClick={() => void refreshRooms()}>
+                        <RefreshCcw className="mr-2 h-4 w-4" />
                         Refresh
                     </Button>
 
@@ -319,13 +739,13 @@ export default function AdminRoomsAndFacilitiesPage() {
                             setDialogOpen(true)
                         }}
                     >
-                        <Plus className="h-4 w-4 mr-2" />
+                        <Plus className="mr-2 h-4 w-4" />
                         Add Room
                     </Button>
                 </div>
             }
         >
-            <div className="p-6 space-y-6">
+            <div className="space-y-6 p-6">
                 <Alert>
                     <AlertTitle className="flex items-center gap-2">
                         <DoorOpen className="h-4 w-4" />
@@ -333,8 +753,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                     </AlertTitle>
                     <AlertDescription>
                         Rooms are used in schedules and validations. Mark rooms as{" "}
-                        <span className="font-medium">Available</span>{" "}
-                        to include them in assignments.
+                        <span className="font-medium">Available</span> to include them in assignments.
                     </AlertDescription>
                 </Alert>
 
@@ -382,70 +801,165 @@ export default function AdminRoomsAndFacilitiesPage() {
 
                 <Card>
                     <CardHeader className="space-y-3">
-                        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Printer className="h-4 w-4" />
+                                    Room Schedule Print Sheet
+                                </CardTitle>
+                                <CardDescription>
+                                    Preview and export a room monitoring sheet matched to the official printed layout.
+                                </CardDescription>
+                            </div>
+
+                            <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-96">
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="print-room">Room</Label>
+                                        <Select value={printRoomId} onValueChange={setPrintRoomId}>
+                                            <SelectTrigger id="print-room">
+                                                <SelectValue placeholder="Select room" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {rooms.map((room) => (
+                                                    <SelectItem key={room.$id} value={room.$id}>
+                                                        {displayRoomSubLabel(room)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="print-term">Academic Term</Label>
+                                        <Select value={printTermId} onValueChange={setPrintTermId}>
+                                            <SelectTrigger id="print-term">
+                                                <SelectValue placeholder="Select academic term" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {terms.map((term) => (
+                                                    <SelectItem key={term.$id} value={term.$id}>
+                                                        {academicTermLabel(term)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="secondary">
+                                        {selectedPrintRoom
+                                            ? displayRoomSubLabel(selectedPrintRoom)
+                                            : "No room selected"}
+                                    </Badge>
+                                    <Badge variant="secondary">
+                                        {selectedPrintTerm
+                                            ? academicTermLabel(selectedPrintTerm)
+                                            : "No term selected"}
+                                    </Badge>
+                                    <Badge variant="outline">
+                                        {printItems.length} schedule block{printItems.length === 1 ? "" : "s"}
+                                    </Badge>
+                                </div>
+                            </div>
+                        </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <p className="text-sm text-muted-foreground">
+                                The generated PDF follows the official room monitoring layout with aligned top logos,
+                                a corrected table header, sign columns, a noon break row, and color-coded schedule
+                                blocks.
+                            </p>
+
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void loadPrintableSchedule()}
+                                    disabled={scheduleBusy || !printRoomId || !printTermId}
+                                >
+                                    <RefreshCcw className="mr-2 h-4 w-4" />
+                                    Refresh Schedule Data
+                                </Button>
+
+                                <RoomSchedulePrintSheet
+                                    roomLabel={displayRoomLabel(selectedPrintRoom)}
+                                    items={printItems}
+                                    schoolYear={selectedPrintTerm?.schoolYear ?? ""}
+                                    semester={selectedPrintTerm?.semester ?? ""}
+                                    timeSlots={[...DEFAULT_PRINT_TIME_SLOTS]}
+                                    disabled={scheduleBusy || !printRoomId || !printTermId}
+                                />
+                            </div>
+                        </div>
+
+                        {scheduleBusy ? (
+                            <div className="space-y-3">
+                                <Skeleton className="h-10 w-full" />
+                                <Skeleton className="h-24 w-full" />
+                            </div>
+                        ) : (
+                            <div className="rounded-md border bg-muted/20 p-4">
+                                {printItems.length > 0 ? (
+                                    <div className="space-y-2">
+                                        <div className="text-sm font-medium">Loaded printable schedule data</div>
+                                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                                            {printItems.slice(0, 6).map((item) => (
+                                                <div
+                                                    key={item.id || `${item.dayOfWeek}-${item.startTime}-${item.endTime}`}
+                                                    className="rounded-md border bg-background p-3 text-sm"
+                                                >
+                                                    <div className="font-medium">
+                                                        {normalizeDayLabel(item.dayOfWeek)} • {item.startTime} -{" "}
+                                                        {item.endTime}
+                                                    </div>
+                                                    <div className="text-muted-foreground">
+                                                        {(item.contentLines ?? []).join(" • ")}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {printItems.length > 6 ? (
+                                            <div className="text-xs text-muted-foreground">
+                                                Showing 6 of {printItems.length} schedule blocks. Full data is included
+                                                in the PDF preview and export.
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground">
+                                        No scheduled classes were found for the selected room and academic term. You
+                                        can still keep the selected room and term, then refresh again after schedules
+                                        are finalized.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="space-y-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <CardTitle>Manage Rooms</CardTitle>
                                 <CardDescription>
                                     Add or update room details used by scheduling and workload rules.
-                                    The room PDF preview/export uses the selected academic term.
                                 </CardDescription>
                             </div>
 
-                            <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:justify-end">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="room-term-filter" className="text-sm">
-                                        Schedule Term
-                                    </Label>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                                <Input
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder="Search code / name / building..."
+                                    className="sm:w-80"
+                                />
 
-                                    <Select
-                                        value={selectedTermId || "__placeholder__"}
-                                        onValueChange={(value) =>
-                                            setSelectedTermId(value === "__placeholder__" ? "" : value)
-                                        }
-                                        disabled={termsLoading || academicTerms.length === 0}
-                                    >
-                                        <SelectTrigger id="room-term-filter" className="sm:w-80">
-                                            <SelectValue
-                                                placeholder={
-                                                    termsLoading
-                                                        ? "Loading academic terms..."
-                                                        : "Select academic term"
-                                                }
-                                            />
-                                        </SelectTrigger>
-
-                                        <SelectContent>
-                                            {!selectedTermId ? (
-                                                <SelectItem value="__placeholder__" disabled>
-                                                    Select academic term
-                                                </SelectItem>
-                                            ) : null}
-
-                                            {academicTerms.map((term) => (
-                                                <SelectItem key={term.$id} value={term.$id}>
-                                                    {`${term.semester} • ${term.schoolYear}${
-                                                        term.isActive ? " • Active" : ""
-                                                    }`}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label htmlFor="room-search" className="text-sm">
-                                        Search
-                                    </Label>
-                                    <Input
-                                        id="room-search"
-                                        value={search}
-                                        onChange={(e) => setSearch(e.target.value)}
-                                        placeholder="Search code / name / building..."
-                                        className="sm:w-80"
-                                    />
-                                </div>
-
-                                <div className="flex items-center gap-2 pb-2">
+                                <div className="flex items-center gap-2">
                                     <Checkbox
                                         checked={onlyAvailable}
                                         onCheckedChange={(v) => setOnlyAvailable(Boolean(v))}
@@ -476,11 +990,11 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         <Skeleton className="h-10 w-full" />
                                     </div>
                                 ) : filteredRooms.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground pt-4">
+                                    <div className="pt-4 text-sm text-muted-foreground">
                                         No rooms found.
                                     </div>
                                 ) : (
-                                    <div className="rounded-md border overflow-hidden mt-4">
+                                    <div className="mt-4 overflow-hidden rounded-md border">
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
@@ -490,7 +1004,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                     <TableHead className="w-28">Capacity</TableHead>
                                                     <TableHead className="w-32">Type</TableHead>
                                                     <TableHead className="w-28">Available</TableHead>
-                                                    <TableHead className="w-72 text-right">Actions</TableHead>
+                                                    <TableHead className="w-32 text-right">Actions</TableHead>
                                                 </TableRow>
                                             </TableHeader>
 
@@ -519,13 +1033,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                             </Badge>
                                                         </TableCell>
                                                         <TableCell className="text-right">
-                                                            <div className="flex flex-wrap justify-end gap-2">
-                                                                <RoomPdfActions
-                                                                    room={r}
-                                                                    term={selectedTerm}
-                                                                    disabled={termsLoading || academicTerms.length === 0}
-                                                                />
-
+                                                            <div className="flex justify-end gap-2">
                                                                 <Button
                                                                     variant="outline"
                                                                     size="sm"
@@ -534,7 +1042,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                         setDialogOpen(true)
                                                                     }}
                                                                 >
-                                                                    <Pencil className="h-4 w-4 mr-2" />
+                                                                    <Pencil className="mr-2 h-4 w-4" />
                                                                     Edit
                                                                 </Button>
 
@@ -543,7 +1051,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                     size="sm"
                                                                     onClick={() => setDeleteRoom(r)}
                                                                 >
-                                                                    <Trash2 className="h-4 w-4 mr-2" />
+                                                                    <Trash2 className="mr-2 h-4 w-4" />
                                                                     Delete
                                                                 </Button>
                                                             </div>
@@ -583,7 +1091,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 <Input
                                     value={roomName}
                                     onChange={(e) => setRoomName(e.target.value)}
-                                    placeholder="e.g. Computer Laboratory 1"
+                                    placeholder="e.g. Computer Laboratory 2"
                                 />
                             </div>
 
@@ -654,7 +1162,9 @@ export default function AdminRoomsAndFacilitiesPage() {
 
                 <AlertDialog
                     open={Boolean(deleteRoom)}
-                    onOpenChange={(open) => (!open ? setDeleteRoom(null) : null)}
+                    onOpenChange={(open) => {
+                        if (!open) setDeleteRoom(null)
+                    }}
                 >
                     <AlertDialogContent>
                         <AlertDialogHeader>
