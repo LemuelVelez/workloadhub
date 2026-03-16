@@ -178,7 +178,7 @@ function formatTimeLabel(value?: string) {
 }
 
 function formatPdfTimeText(startTime?: string, endTime?: string) {
-    return `Start: ${formatTimeLabel(startTime)}\nEnd: ${formatTimeLabel(endTime)}`
+    return `${formatTimeLabel(startTime)}\n${formatTimeLabel(endTime)}`
 }
 
 const styles = StyleSheet.create({
@@ -347,80 +347,101 @@ const styles = StyleSheet.create({
         color: "#0f172a",
     },
 
-    entriesTitle: {
-        marginBottom: 8,
-        fontSize: 9.5,
-        fontWeight: "bold",
-        color: "#0f172a",
-    },
-    entryList: {
-        marginTop: 2,
-    },
-    entryCard: {
+    tableWrap: {
         borderWidth: 1,
-        borderColor: "#dbeafe",
-        borderRadius: 10,
-        padding: 10,
-        marginBottom: 8,
-    },
-    entryCardOdd: {
+        borderColor: "#cbd5e1",
+        borderRadius: 8,
+        overflow: "hidden",
         backgroundColor: "#ffffff",
     },
-    entryCardEven: {
+    tableHeader: {
+        flexDirection: "row",
+        backgroundColor: "#0f172a",
+        borderBottomWidth: 1,
+        borderBottomColor: "#0b1220",
+    },
+    tableHeaderCell: {
+        paddingVertical: 7,
+        paddingHorizontal: 5,
+        borderRightWidth: 1,
+        borderRightColor: "#1e293b",
+        justifyContent: "center",
+    },
+    tableHeaderCellLast: {
+        borderRightWidth: 0,
+    },
+    tableHeaderText: {
+        color: "#f8fafc",
+        fontWeight: "bold",
+        fontSize: 7.1,
+        textAlign: "center",
+    },
+    tableRow: {
+        flexDirection: "row",
+        borderBottomWidth: 1,
+        borderBottomColor: "#e2e8f0",
+    },
+    tableRowOdd: {
+        backgroundColor: "#ffffff",
+    },
+    tableRowEven: {
         backgroundColor: "#f8fafc",
     },
-    entryTopRow: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        justifyContent: "space-between",
+    tableCell: {
+        paddingVertical: 6,
+        paddingHorizontal: 5,
+        borderRightWidth: 1,
+        borderRightColor: "#e2e8f0",
+        justifyContent: "flex-start",
     },
-    entryTitleWrap: {
-        flex: 1,
-        paddingRight: 8,
+    tableCellLast: {
+        borderRightWidth: 0,
     },
-    entryIndex: {
-        fontSize: 7.2,
-        color: "#64748b",
-        marginBottom: 2,
-    },
-    entryTitle: {
-        fontSize: 10,
-        fontWeight: "bold",
+    cellText: {
+        fontSize: 7.1,
         color: "#0f172a",
-        lineHeight: 1.3,
+        lineHeight: 1.24,
     },
-    entrySubTitle: {
-        marginTop: 3,
-        fontSize: 7.8,
+    cellTextCenter: {
+        textAlign: "center",
+    },
+    cellSubtle: {
         color: "#64748b",
-        lineHeight: 1.35,
+        fontSize: 6.7,
     },
-    entryMetaStack: {
-        marginTop: 8,
-        borderTopWidth: 1,
-        borderTopColor: "#e2e8f0",
-        paddingTop: 8,
-    },
-    entryMetaRow: {
-        marginBottom: 6,
-    },
-    entryMetaLabel: {
+    timeText: {
         fontSize: 6.8,
-        color: "#64748b",
-        fontWeight: "bold",
+        lineHeight: 1.18,
+        textAlign: "center",
     },
-    entryMetaValue: {
-        marginTop: 2,
-        fontSize: 8.4,
-        color: "#0f172a",
-        lineHeight: 1.35,
+
+    colDay: {
+        width: "11%",
+    },
+    colTime: {
+        width: "16%",
+    },
+    colSubject: {
+        width: "23%",
+    },
+    colSection: {
+        width: "11%",
+    },
+    colFaculty: {
+        width: "17%",
+    },
+    colRoom: {
+        width: "12%",
+    },
+    colType: {
+        width: "10%",
     },
 
     typePill: {
         borderRadius: 999,
         paddingVertical: 2,
         paddingHorizontal: 6,
-        alignSelf: "flex-start",
+        alignSelf: "center",
     },
     typePillLecture: {
         backgroundColor: "#e0f2fe",
@@ -432,9 +453,10 @@ const styles = StyleSheet.create({
         backgroundColor: "#e2e8f0",
     },
     typePillText: {
-        fontSize: 7.6,
+        fontSize: 6.8,
         fontWeight: "bold",
         color: "#0f172a",
+        textAlign: "center",
     },
 
     emptyState: {
@@ -541,9 +563,31 @@ function SchedulePdfDocument({
                             </View>
                         </View>
 
-                        <Text style={styles.entriesTitle}>Schedule Entries</Text>
+                        <View style={styles.tableWrap}>
+                            <View style={styles.tableHeader}>
+                                <View style={[styles.tableHeaderCell, styles.colDay]}>
+                                    <Text style={styles.tableHeaderText}>Day</Text>
+                                </View>
+                                <View style={[styles.tableHeaderCell, styles.colTime]}>
+                                    <Text style={styles.tableHeaderText}>Time</Text>
+                                </View>
+                                <View style={[styles.tableHeaderCell, styles.colSubject]}>
+                                    <Text style={styles.tableHeaderText}>Subject</Text>
+                                </View>
+                                <View style={[styles.tableHeaderCell, styles.colSection]}>
+                                    <Text style={styles.tableHeaderText}>Section</Text>
+                                </View>
+                                <View style={[styles.tableHeaderCell, styles.colFaculty]}>
+                                    <Text style={styles.tableHeaderText}>Faculty</Text>
+                                </View>
+                                <View style={[styles.tableHeaderCell, styles.colRoom]}>
+                                    <Text style={styles.tableHeaderText}>Room</Text>
+                                </View>
+                                <View style={[styles.tableHeaderCell, styles.colType, styles.tableHeaderCellLast]}>
+                                    <Text style={styles.tableHeaderText}>Type</Text>
+                                </View>
+                            </View>
 
-                        <View style={styles.entryList}>
                             {rows.length === 0 ? (
                                 <Text style={styles.emptyState}>No schedule entries available for this export.</Text>
                             ) : (
@@ -560,52 +604,49 @@ function SchedulePdfDocument({
                                         <View
                                             key={`pdf-row-${r.meetingId}`}
                                             style={[
-                                                styles.entryCard,
-                                                idx % 2 === 0 ? styles.entryCardOdd : styles.entryCardEven,
+                                                styles.tableRow,
+                                                idx % 2 === 0 ? styles.tableRowOdd : styles.tableRowEven,
                                             ]}
                                             wrap={false}
                                         >
-                                            <View style={styles.entryTopRow}>
-                                                <View style={styles.entryTitleWrap}>
-                                                    <Text style={styles.entryIndex}>Entry {idx + 1}</Text>
-                                                    <Text style={styles.entryTitle}>{r.subjectLabel || "—"}</Text>
-                                                    <Text style={styles.entrySubTitle}>Units: {r.subjectUnits ?? "—"}</Text>
-                                                </View>
-
-                                                <View style={[styles.typePill, typeStyle]}>
-                                                    <Text style={styles.typePillText}>{type}</Text>
-                                                </View>
+                                            <View style={[styles.tableCell, styles.colDay]}>
+                                                <Text style={styles.cellText}>{r.dayOfWeek || "—"}</Text>
                                             </View>
 
-                                            <View style={styles.entryMetaStack}>
-                                                <View style={styles.entryMetaRow}>
-                                                    <Text style={styles.entryMetaLabel}>Day</Text>
-                                                    <Text style={styles.entryMetaValue}>{r.dayOfWeek || "—"}</Text>
-                                                </View>
+                                            <View style={[styles.tableCell, styles.colTime]}>
+                                                <Text style={[styles.cellText, styles.timeText]}>
+                                                    {formatPdfTimeText(r.startTime, r.endTime)}
+                                                </Text>
+                                            </View>
 
-                                                <View style={styles.entryMetaRow}>
-                                                    <Text style={styles.entryMetaLabel}>Time</Text>
-                                                    <Text style={styles.entryMetaValue}>{formatPdfTimeText(r.startTime, r.endTime)}</Text>
-                                                </View>
+                                            <View style={[styles.tableCell, styles.colSubject]}>
+                                                <Text style={styles.cellText}>{r.subjectLabel || "—"}</Text>
+                                                <Text style={[styles.cellText, styles.cellSubtle]}>
+                                                    Units: {r.subjectUnits ?? "—"}
+                                                </Text>
+                                            </View>
 
-                                                <View style={styles.entryMetaRow}>
-                                                    <Text style={styles.entryMetaLabel}>Section</Text>
-                                                    <Text style={styles.entryMetaValue}>{r.sectionLabel || "—"}</Text>
-                                                </View>
+                                            <View style={[styles.tableCell, styles.colSection]}>
+                                                <Text style={styles.cellText}>{r.sectionLabel || "—"}</Text>
+                                            </View>
 
-                                                <View style={styles.entryMetaRow}>
-                                                    <Text style={styles.entryMetaLabel}>Faculty</Text>
-                                                    <Text style={styles.entryMetaValue}>
-                                                        {r.isManualFaculty ? `${r.facultyName || "—"} • Manual entry` : r.facultyName || "—"}
-                                                    </Text>
-                                                </View>
+                                            <View style={[styles.tableCell, styles.colFaculty]}>
+                                                <Text style={styles.cellText}>{r.facultyName || "—"}</Text>
+                                                {r.isManualFaculty ? (
+                                                    <Text style={[styles.cellText, styles.cellSubtle]}>Manual entry</Text>
+                                                ) : null}
+                                            </View>
 
-                                                <View style={styles.entryMetaRow}>
-                                                    <Text style={styles.entryMetaLabel}>Room</Text>
-                                                    <Text style={styles.entryMetaValue}>
-                                                        {r.roomLabel || "—"}
-                                                        {r.roomType ? ` • ${roomTypeLabel(r.roomType)}` : ""}
-                                                    </Text>
+                                            <View style={[styles.tableCell, styles.colRoom]}>
+                                                <Text style={styles.cellText}>{r.roomLabel || "—"}</Text>
+                                                <Text style={[styles.cellText, styles.cellSubtle]}>
+                                                    {r.roomType ? roomTypeLabel(r.roomType) : "—"}
+                                                </Text>
+                                            </View>
+
+                                            <View style={[styles.tableCell, styles.colType, styles.tableCellLast]}>
+                                                <View style={[styles.typePill, typeStyle]}>
+                                                    <Text style={styles.typePillText}>{type}</Text>
                                                 </View>
                                             </View>
                                         </View>
@@ -1059,7 +1100,6 @@ export function PlannerManagementSection({
                                 <TableBody>
                                     {laboratoryRows.map((row) => {
                                         const flags = conflictFlagsByMeetingId.get(row.meetingId)
-
                                         return (
                                             <TableRow key={`lab-${row.meetingId}`}>
                                                 <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">
@@ -1112,7 +1152,6 @@ export function PlannerManagementSection({
                 </CardContent>
             </Card>
 
-            {/* PDF Preview Dialog */}
             <Dialog open={pdfPreviewOpen} onOpenChange={setPdfPreviewOpen}>
                 <DialogContent className="h-[82vh] max-h-[82vh] overflow-y-auto p-4 sm:max-w-6xl">
                     <DialogHeader>
@@ -1147,7 +1186,6 @@ export function PlannerManagementSection({
                 </DialogContent>
             </Dialog>
 
-            {/* Entry create/edit dialog */}
             <Dialog
                 open={entryDialogOpen}
                 onOpenChange={(v) => {
@@ -1465,7 +1503,6 @@ export function PlannerManagementSection({
                 </DialogContent>
             </Dialog>
 
-            {/* Delete entry confirm dialog */}
             <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(v) => !v && setDeleteTarget(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
