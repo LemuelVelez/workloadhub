@@ -71,6 +71,7 @@ const DEFAULT_TIME_SLOTS = [
 ] as const
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
+const NOON_BREAK_SLOT = "12:01-1:00"
 
 const TIME_COL_WIDTH = 82
 const DAY_COL_WIDTH = 95
@@ -136,7 +137,10 @@ function toSemesterSchoolYearLine(semester: string, schoolYear: string) {
 function inferYearBadge(schoolYear: string) {
     const raw = normalizeText(schoolYear)
     if (!raw) return ""
-    const parts = raw.split("-").map((part) => part.trim()).filter(Boolean)
+    const parts = raw
+        .split("-")
+        .map((part) => part.trim())
+        .filter(Boolean)
     return parts[parts.length - 1] || raw
 }
 
@@ -182,8 +186,14 @@ function parseSlotRange(slotLabel: string) {
     return { start, end }
 }
 
+function isNoonBreakSlot(slotLabel: string) {
+    return normalizeText(slotLabel) === NOON_BREAK_SLOT
+}
+
 function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
-    return aStart <= bEnd && bStart <= aEnd
+    const normalizedAEnd = aEnd <= aStart ? aStart + 1 : aEnd
+    const normalizedBEnd = bEnd <= bStart ? bStart + 1 : bEnd
+    return aStart < normalizedBEnd && bStart < normalizedAEnd
 }
 
 function buildSlotMeta(timeSlots: string[]) {
@@ -193,6 +203,7 @@ function buildSlotMeta(timeSlots: string[]) {
             label: slot,
             start: parsed?.start ?? 0,
             end: parsed?.end ?? 0,
+            isNoonBreak: isNoonBreakSlot(slot),
         }
     })
 }
@@ -217,7 +228,10 @@ function resolveBlockTextColor(item: RoomSchedulePrintItem) {
 }
 
 function resolveContentLines(item: RoomSchedulePrintItem) {
-    const explicit = (item.contentLines ?? []).map((line) => normalizeText(line)).filter(Boolean)
+    const explicit = (item.contentLines ?? [])
+        .map((line) => normalizeText(line))
+        .filter(Boolean)
+
     if (explicit.length > 0) return explicit.slice(0, 4)
 
     const oneLine = normalizeText(item.displayLabel)
@@ -259,11 +273,13 @@ function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[])
 
         const startMinutes = parseClockMinutes(item.startTime)
         const endMinutes = parseClockMinutes(item.endTime)
-        if (startMinutes == null || endMinutes == null) continue
+        if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) continue
 
         const matchedRows: number[] = []
         for (let rowIndex = 0; rowIndex < slotMeta.length; rowIndex += 1) {
             const slot = slotMeta[rowIndex]
+            if (slot.isNoonBreak) continue
+
             if (rangesOverlap(startMinutes, endMinutes, slot.start, slot.end)) {
                 matchedRows.push(rowIndex)
             }
@@ -277,7 +293,7 @@ function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[])
         const top = rowIndex * ROW_HEIGHT
         const width = DAY_COL_WIDTH
         const height = Math.max(rowSpan * ROW_HEIGHT - 1, ROW_HEIGHT)
-        const fontSize = rowSpan >= 3 ? 6.8 : 6.2
+        const fontSize = rowSpan >= 4 ? 7 : rowSpan >= 3 ? 6.8 : 6.2
 
         blocks.push({
             id: normalizeText(item.id) || `${day}-${item.startTime}-${item.endTime}-${index}`,
@@ -299,7 +315,11 @@ function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[])
         })
     }
 
-    return blocks
+    return blocks.sort((a, b) => {
+        if (a.dayIndex !== b.dayIndex) return a.dayIndex - b.dayIndex
+        if (a.rowIndex !== b.rowIndex) return a.rowIndex - b.rowIndex
+        return a.id.localeCompare(b.id)
+    })
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -322,17 +342,22 @@ async function blobToDataUrl(blob: Blob) {
 
 function getAssetAsDataUrl(path: string) {
     if (!assetUrlCache.has(path)) {
-        assetUrlCache.set(
-            path,
-            (async () => {
+        const promise = (async () => {
+            try {
                 const response = await fetch(path)
                 if (!response.ok) {
                     throw new Error(`Failed to load asset: ${path}`)
                 }
+
                 const blob = await response.blob()
                 return await blobToDataUrl(blob)
-            })()
-        )
+            } catch (error) {
+                assetUrlCache.delete(path)
+                throw error
+            }
+        })()
+
+        assetUrlCache.set(path, promise)
     }
 
     return assetUrlCache.get(path)!
@@ -373,7 +398,10 @@ export function RoomSchedulePrintSheet({
         [semester, schoolYear]
     )
     const yearBadge = React.useMemo(() => inferYearBadge(schoolYear), [schoolYear])
-    const meetingBlocks = React.useMemo(() => buildMeetingBlocks(items, timeSlots), [items, timeSlots])
+    const meetingBlocks = React.useMemo(
+        () => buildMeetingBlocks(items, timeSlots),
+        [items, timeSlots]
+    )
 
     const cleanupPreviewUrl = React.useCallback(() => {
         if (pdfUrlRef.current) {
@@ -460,7 +488,7 @@ export function RoomSchedulePrintSheet({
             },
             school: {
                 fontSize: 10.5,
-                fontWeight: 700,
+                fontWeight: "bold",
                 textAlign: "center",
                 marginBottom: 1,
             },
@@ -472,7 +500,7 @@ export function RoomSchedulePrintSheet({
             },
             college: {
                 fontSize: 9.25,
-                fontWeight: 700,
+                fontWeight: "bold",
                 textAlign: "center",
                 marginBottom: 1,
             },
@@ -626,7 +654,7 @@ export function RoomSchedulePrintSheet({
             },
             signatoryName: {
                 fontSize: 10.6,
-                fontWeight: 700,
+                fontWeight: "bold",
                 textAlign: "center",
                 textTransform: "uppercase",
                 marginBottom: 2,
@@ -713,7 +741,7 @@ export function RoomSchedulePrintSheet({
 
                             <View style={styles.bodyGrid}>
                                 {timeSlots.map((slotLabel) => {
-                                    const isNoonBreak = slotLabel === "12:01-1:00"
+                                    const isNoonBreak = isNoonBreakSlot(slotLabel)
 
                                     return (
                                         <View key={slotLabel} style={styles.bodyRow}>
@@ -814,8 +842,7 @@ export function RoomSchedulePrintSheet({
     ])
 
     const ensurePdfPreview = React.useCallback(async () => {
-        if (disabled) return
-        if (pdfPreviewBusy) return
+        if (disabled || pdfPreviewBusy) return
 
         setPdfPreviewBusy(true)
         try {
@@ -829,11 +856,12 @@ export function RoomSchedulePrintSheet({
             pdfUrlRef.current = nextUrl
             setPdfUrl(nextUrl)
         } catch (e: any) {
+            cleanupPreviewUrl()
             toast.error(e?.message ?? "Failed to generate room schedule PDF preview.")
         } finally {
             setPdfPreviewBusy(false)
         }
-    }, [buildPdfBlob, disabled, pdfPreviewBusy])
+    }, [buildPdfBlob, cleanupPreviewUrl, disabled, pdfPreviewBusy])
 
     React.useEffect(() => {
         if (!previewOpen) {
@@ -845,7 +873,7 @@ export function RoomSchedulePrintSheet({
     }, [previewOpen, ensurePdfPreview, cleanupPreviewUrl])
 
     const onExportPdf = React.useCallback(async () => {
-        if (disabled) return
+        if (disabled || pdfBusy) return
 
         setPdfBusy(true)
         try {
@@ -857,7 +885,9 @@ export function RoomSchedulePrintSheet({
         } finally {
             setPdfBusy(false)
         }
-    }, [buildPdfBlob, disabled])
+    }, [buildPdfBlob, disabled, pdfBusy])
+
+    const controlsDisabled = disabled || pdfBusy || pdfPreviewBusy
 
     return (
         <>
@@ -866,13 +896,17 @@ export function RoomSchedulePrintSheet({
                     variant="outline"
                     size="sm"
                     onClick={() => setPreviewOpen(true)}
-                    disabled={disabled || pdfBusy}
+                    disabled={controlsDisabled}
                 >
-                    <Eye className="mr-2 h-4 w-4" />
-                    {previewLabel}
+                    {pdfPreviewBusy ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                        <Eye className="mr-2 h-4 w-4" />
+                    )}
+                    {pdfPreviewBusy ? "Preparing preview..." : previewLabel}
                 </Button>
 
-                <Button size="sm" onClick={() => void onExportPdf()} disabled={disabled || pdfBusy}>
+                <Button size="sm" onClick={() => void onExportPdf()} disabled={controlsDisabled}>
                     {pdfBusy ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -882,8 +916,14 @@ export function RoomSchedulePrintSheet({
                 </Button>
             </div>
 
-            <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="sm:max-w-7xl">
+            <Dialog
+                open={previewOpen}
+                onOpenChange={(open) => {
+                    setPreviewOpen(open)
+                    if (!open) cleanupPreviewUrl()
+                }}
+            >
+                <DialogContent className="h-[95svh] sm:max-w-7xl">
                     <DialogHeader>
                         <DialogTitle>PDF Preview — {roomLabel}</DialogTitle>
                         <DialogDescription>
@@ -933,7 +973,7 @@ export function RoomSchedulePrintSheet({
                                 Close
                             </Button>
 
-                            <Button onClick={() => void onExportPdf()} disabled={disabled || pdfBusy}>
+                            <Button onClick={() => void onExportPdf()} disabled={controlsDisabled}>
                                 {pdfBusy ? (
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 ) : (
