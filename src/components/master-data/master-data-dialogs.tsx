@@ -412,7 +412,7 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.facultyEditing ? "Edit Faculty" : "Add Faculty"}</DialogTitle>
                         <DialogDescription>
-                            Select a Faculty user from USER_PROFILES (role: FACULTY / CHAIR / DEAN). Subject units and hours are derived automatically from the assigned subject, so manual unit/hour setup is not needed here.
+                            Select a Faculty user from USER_PROFILES (role: FACULTY / CHAIR / DEAN). Faculty load units and hours are automatically derived from the assigned subjects, so they are no longer manually encoded here.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -498,8 +498,14 @@ export function MasterDataDialogs({ vm }: Props) {
                             />
                         </div>
 
-                        <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                            Faculty load is based on the assigned subject. Units, lecture hours, and lab hours will populate automatically when a subject is selected in the record or schedule entry.
+                        <div className="rounded-md border border-dashed p-3">
+                            <div className="text-xs text-muted-foreground">Faculty Load Source</div>
+                            <div className="mt-1 text-sm font-medium">
+                                Units and hours are auto-populated from the faculty member&apos;s assigned subjects.
+                            </div>
+                            <div className="mt-2 text-xs text-muted-foreground">
+                                You do not need to manually encode max units or max hours in the Faculty form anymore.
+                            </div>
                         </div>
 
                         <div className="grid gap-2">
@@ -507,7 +513,7 @@ export function MasterDataDialogs({ vm }: Props) {
                             <Textarea
                                 value={vm.facultyNotes}
                                 onChange={(e) => vm.setFacultyNotes(e.target.value)}
-                                placeholder="Extra rules, remarks, special notes..."
+                                placeholder="Extra remarks, faculty-specific notes, or scheduling considerations..."
                             />
                         </div>
                     </div>

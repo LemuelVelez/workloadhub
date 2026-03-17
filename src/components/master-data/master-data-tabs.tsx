@@ -808,7 +808,7 @@ export function MasterDataTabs({ vm }: Props) {
                                 <div>
                                     <div className="font-medium">Faculty</div>
                                     <div className="text-sm text-muted-foreground">
-                                        Faculty info, rank, and max load rules (if applicable).
+                                        Faculty profile details and notes. Units and hours are derived automatically from the assigned subject.
                                     </div>
                                 </div>
 
@@ -858,9 +858,7 @@ export function MasterDataTabs({ vm }: Props) {
                                                                     <span>•</span>
                                                                     <span>{f.employeeNo || "No employee no"}</span>
                                                                     <span>•</span>
-                                                                    <span>Units: {f.maxUnits ?? "—"}</span>
-                                                                    <span>•</span>
-                                                                    <span>Hours: {f.maxHours ?? "—"}</span>
+                                                                    <span>{f.rank || "No rank set"}</span>
                                                                 </div>
                                                             </div>
                                                         </AccordionTrigger>
@@ -923,26 +921,12 @@ export function MasterDataTabs({ vm }: Props) {
 
                                                                     <div className="rounded-md border p-4">
                                                                         <div className="mb-3 text-sm font-medium">
-                                                                            Load Rules
+                                                                            Workload Source
                                                                         </div>
 
                                                                         <div className="grid gap-3 text-sm">
-                                                                            <div className="grid gap-1">
-                                                                                <div className="text-xs font-medium text-muted-foreground">
-                                                                                    Max Units
-                                                                                </div>
-                                                                                <div className="text-muted-foreground">
-                                                                                    {f.maxUnits ?? "—"}
-                                                                                </div>
-                                                                            </div>
-
-                                                                            <div className="grid gap-1">
-                                                                                <div className="text-xs font-medium text-muted-foreground">
-                                                                                    Max Hours
-                                                                                </div>
-                                                                                <div className="text-muted-foreground">
-                                                                                    {f.maxHours ?? "—"}
-                                                                                </div>
+                                                                            <div className="rounded-md border border-dashed bg-muted/30 p-3 text-muted-foreground">
+                                                                                Subject units, lecture hours, and lab hours are pulled automatically from the selected subject in the record or schedule entry. No manual faculty unit or hour setup is needed here.
                                                                             </div>
 
                                                                             <div className="grid gap-1">
@@ -994,7 +978,7 @@ export function MasterDataTabs({ vm }: Props) {
                                     <CardTitle>Optional: Encode List of Faculties</CardTitle>
                                     <CardDescription>
                                         Useful when the same faculty roster repeats every semester.
-                                        Format per line: userId,employeeNo,rank,maxUnits,maxHours,notes
+                                        Subject units and hours will still be derived automatically from assigned subjects.
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-3">
