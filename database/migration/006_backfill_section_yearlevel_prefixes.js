@@ -82,6 +82,80 @@ async function waitForCollection(databases, databaseId, collectionId) {
     );
 }
 
+async function waitForAttributeAvailable(databases, databaseId, collectionId, key) {
+    return await waitUntil(
+        async () => {
+            const attr = await tryGet(() =>
+                callDb(databases, "getAttribute", { databaseId, collectionId, key }, [databaseId, collectionId, key])
+            );
+            if (!attr) return false;
+
+            const status = String(attr?.status || "").toLowerCase();
+            if (status === "available") return true;
+
+            if ((status === "failed" || status === "stuck") && attr?.error) {
+                throw new Error(`Attribute ${collectionId}.${key} status=${attr.status} error=${attr.error}`);
+            }
+
+            return false;
+        },
+        { label: `attribute ${collectionId}.${key}` }
+    );
+}
+
+async function waitForIndexAvailable(databases, databaseId, collectionId, key) {
+    return await waitUntil(
+        async () => {
+            const idx = await tryGet(() =>
+                callDb(databases, "getIndex", { databaseId, collectionId, key }, [databaseId, collectionId, key])
+            );
+            if (!idx) return false;
+
+            const status = String(idx?.status || "").toLowerCase();
+            if (status === "available") return true;
+
+            if ((status === "failed" || status === "stuck") && idx?.error) {
+                throw new Error(`Index ${collectionId}.${key} status=${idx.status} error=${idx.error}`);
+            }
+
+            return false;
+        },
+        { label: `index ${collectionId}.${key}` }
+    );
+}
+
+async function ensureUniqueIndex(databases, databaseId, collectionId, key, attributes) {
+    const existing = await tryGet(() =>
+        callDb(databases, "getIndex", { databaseId, collectionId, key }, [databaseId, collectionId, key])
+    );
+
+    if (existing) {
+        await waitForIndexAvailable(databases, databaseId, collectionId, key);
+        await delay(60);
+        return;
+    }
+
+    for (const attrKey of attributes) {
+        await waitForAttributeAvailable(databases, databaseId, collectionId, attrKey);
+    }
+
+    const orders = attributes.map(() => "ASC");
+
+    await safeCall(
+        () =>
+            callDb(
+                databases,
+                "createIndex",
+                { databaseId, collectionId, key, type: "unique", attributes, orders },
+                [databaseId, collectionId, key, "unique", attributes, orders]
+            ),
+        { label: `createIndex unique ${collectionId}.${key}` }
+    );
+
+    await waitForIndexAvailable(databases, databaseId, collectionId, key);
+    await delay(60);
+}
+
 async function listAllDocuments(databases, databaseId, collectionId) {
     const all = [];
     const limit = 100;
@@ -257,12 +331,14 @@ function resolvePrefixFromProgram(program) {
 }
 
 function resolvePrefixFromClassPrograms(programIds, programById) {
-    const prefixes = Array.from(new Set(
-        programIds
-            .map((programId) => programById.get(programId))
-            .map((program) => resolvePrefixFromProgram(program))
-            .filter(Boolean)
-    ));
+    const prefixes = Array.from(
+        new Set(
+            programIds
+                .map((programId) => programById.get(programId))
+                .map((program) => resolvePrefixFromProgram(program))
+                .filter(Boolean)
+        )
+    );
 
     if (prefixes.length === 1) return prefixes[0];
     return "";
@@ -405,6 +481,15 @@ export async function up({ databases, databaseId }) {
             `Unresolved section yearLevel prefixes for ${unresolved.length} section(s). Add CS/IS values to SECTION_TRACK_PREFIX_OVERRIDES in migration ${id} and rerun.`
         );
     }
+
+    const CURRENT_UNIQUE_KEY = "idx_sec_term_dept_yr_name_u";
+
+    await ensureUniqueIndex(databases, databaseId, COLLECTIONS.SECTIONS, CURRENT_UNIQUE_KEY, [
+        "termId",
+        "departmentId",
+        "yearLevel",
+        "name",
+    ]);
 
     console.log(`✅ Migration ${id} complete. Updated ${updatedCount} section(s).`);
 }

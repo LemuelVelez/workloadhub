@@ -203,10 +203,7 @@ async function listAllDocuments(databases, databaseId, collectionId) {
     let offset = 0;
 
     while (true) {
-        const queries = [
-            Query.limit(limit),
-            Query.offset(offset),
-        ];
+        const queries = [Query.limit(limit), Query.offset(offset)];
 
         const page = await safeCall(
             () =>
@@ -343,24 +340,64 @@ function extractSectionYearNumber(value) {
     return trailing?.[1] ?? "";
 }
 
-function buildSectionYearLevelValue({ currentYearLevel, programCode, programName }) {
-    const raw = String(currentYearLevel ?? "").trim();
-    if (!raw) return "";
+function isResolvedYearLevel(value) {
+    return /^(CS|IS)\s+[1-9]\d*$/.test(
+        String(value ?? "")
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, " ")
+    );
+}
 
-    const yearNumber = extractSectionYearNumber(raw);
-    if (!yearNumber) return raw;
+function buildPrefixedYearLevel({ rawYearLevel, preferredPrefix }) {
+    const yearNumber = extractSectionYearNumber(rawYearLevel);
+    if (!yearNumber) return "";
 
-    const inferredPrefixFromProgram = inferSectionTrackPrefix([programCode, programName]);
     const existingPrefix =
-        extractSectionTrackPrefixFromYearLevel(raw) || inferSectionTrackPrefix([raw]);
+        extractSectionTrackPrefixFromYearLevel(rawYearLevel) ||
+        inferSectionTrackPrefix([rawYearLevel]);
 
-    const prefix = inferredPrefixFromProgram || existingPrefix;
+    const prefix = preferredPrefix || existingPrefix;
     return prefix ? `${prefix} ${yearNumber}` : yearNumber;
+}
+
+/**
+ * Manual rescue map for truly ambiguous legacy sections.
+ * Only use this if the section has no usable programId and no linked class programId.
+ *
+ * Example:
+ * "69a8dfda00094a37f9ff": "CS",
+ */
+const SECTION_TRACK_PREFIX_OVERRIDES = {
+    // "69a8dfda00094a37f9ff": "CS",
+    // "69a8ed9e003b30c28fdc": "IS",
+    // "69ae986d0036806ce019": "CS",
+    // "69b1626a001b3a3254d6": "IS",
+};
+
+function resolvePrefixFromProgram(program) {
+    if (!program) return "";
+    return inferSectionTrackPrefix([program.code, program.name]);
+}
+
+function resolvePrefixFromClassPrograms(programIds, programById) {
+    const prefixes = Array.from(
+        new Set(
+            programIds
+                .map((programId) => programById.get(programId))
+                .map((program) => resolvePrefixFromProgram(program))
+                .filter(Boolean)
+        )
+    );
+
+    if (prefixes.length === 1) return prefixes[0];
+    return "";
 }
 
 export const COLLECTIONS = {
     SECTIONS: "sections",
     PROGRAMS: "programs",
+    CLASSES: "classes",
 };
 
 export const id = "005_sections_yearlevel_prefixed_string";
@@ -371,9 +408,13 @@ export const id = "005_sections_yearlevel_prefixed_string";
 export async function up({ databases, databaseId }) {
     await waitForCollection(databases, databaseId, COLLECTIONS.SECTIONS);
     await waitForCollection(databases, databaseId, COLLECTIONS.PROGRAMS);
+    await waitForCollection(databases, databaseId, COLLECTIONS.CLASSES);
 
-    const sectionDocs = await listAllDocuments(databases, databaseId, COLLECTIONS.SECTIONS);
-    const programDocs = await listAllDocuments(databases, databaseId, COLLECTIONS.PROGRAMS);
+    const [sectionDocs, programDocs, classDocs] = await Promise.all([
+        listAllDocuments(databases, databaseId, COLLECTIONS.SECTIONS),
+        listAllDocuments(databases, databaseId, COLLECTIONS.PROGRAMS),
+        listAllDocuments(databases, databaseId, COLLECTIONS.CLASSES),
+    ]);
 
     const programById = new Map(
         programDocs.map((program) => [
@@ -384,6 +425,21 @@ export async function up({ databases, databaseId }) {
             },
         ])
     );
+
+    const classProgramIdsBySection = new Map();
+
+    for (const cls of classDocs) {
+        const sectionId = String(cls?.sectionId || "").trim();
+        const programId = String(cls?.programId || "").trim();
+
+        if (!sectionId || !programId) continue;
+
+        if (!classProgramIdsBySection.has(sectionId)) {
+            classProgramIdsBySection.set(sectionId, new Set());
+        }
+
+        classProgramIdsBySection.get(sectionId).add(programId);
+    }
 
     const sectionBackups = sectionDocs.map((doc) => ({
         $id: String(doc?.$id || ""),
@@ -425,7 +481,8 @@ export async function up({ databases, databaseId }) {
         )
     );
 
-    const needsRecreate = !existingYearLevelAttr || String(existingYearLevelAttr?.type || "").toLowerCase() !== "string";
+    const needsRecreate =
+        !existingYearLevelAttr || String(existingYearLevelAttr?.type || "").toLowerCase() !== "string";
 
     if (needsRecreate && existingYearLevelAttr) {
         await safeCall(
@@ -451,21 +508,40 @@ export async function up({ databases, databaseId }) {
     for (const backup of sectionBackups) {
         if (!backup.$id) continue;
 
-        const program = programById.get(backup.programId) || null;
+        const classProgramIds = classProgramIdsBySection.get(backup.$id)
+            ? Array.from(classProgramIdsBySection.get(backup.$id))
+            : [];
+
+        const overridePrefix = normalizeSectionTrackPrefix(
+            SECTION_TRACK_PREFIX_OVERRIDES[backup.$id]
+        );
+
+        const sectionProgramPrefix = resolvePrefixFromProgram(
+            programById.get(backup.programId)
+        );
+
+        const classProgramPrefix = resolvePrefixFromClassPrograms(
+            classProgramIds,
+            programById
+        );
+
+        const preferredPrefix =
+            overridePrefix ||
+            sectionProgramPrefix ||
+            classProgramPrefix;
 
         const nextYearLevel =
-            buildSectionYearLevelValue({
-                currentYearLevel: backup.yearLevel,
-                programCode: program?.code,
-                programName: program?.name,
+            buildPrefixedYearLevel({
+                rawYearLevel: backup.yearLevel,
+                preferredPrefix,
             }) || String(backup.yearLevel ?? "").trim();
 
         if (!nextYearLevel) continue;
 
-        if (!/^(CS|IS)\s+[1-9]\d*$/.test(nextYearLevel)) {
+        if (!isResolvedYearLevel(nextYearLevel)) {
             unresolvedCount += 1;
             console.warn(
-                `⚠️ Could not fully resolve CS/IS prefix for section ${backup.$id}. Preserving value: ${nextYearLevel}`
+                `⚠️ Could not fully resolve CS/IS prefix for section ${backup.$id}. Preserving value: ${nextYearLevel} | section.programId=${backup.programId || "—"} | class.programIds=${classProgramIds.join(", ") || "—"}`
             );
         }
 
@@ -481,12 +557,18 @@ export async function up({ databases, databaseId }) {
         await delay(20);
     }
 
-    await ensureUniqueIndex(databases, databaseId, COLLECTIONS.SECTIONS, CURRENT_UNIQUE_KEY, [
-        "termId",
-        "departmentId",
-        "yearLevel",
-        "name",
-    ]);
+    if (unresolvedCount === 0) {
+        await ensureUniqueIndex(databases, databaseId, COLLECTIONS.SECTIONS, CURRENT_UNIQUE_KEY, [
+            "termId",
+            "departmentId",
+            "yearLevel",
+            "name",
+        ]);
+    } else {
+        console.warn(
+            `⚠️ Skipping unique index ${CURRENT_UNIQUE_KEY} in migration ${id} because ${unresolvedCount} section(s) still have unresolved CS/IS prefixes. Migration 006 will finish the backfill and create the unique index.`
+        );
+    }
 
     console.log(
         `✅ Migration 005_sections_yearlevel_prefixed_string complete. Updated ${updatedCount} section(s). Unresolved prefix count: ${unresolvedCount}.`
