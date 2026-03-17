@@ -331,10 +331,10 @@ export function MasterDataTabs({ vm }: Props) {
 
         const docId = String(
             recordEditingRow?.id ??
-                recordEditingRow?.$id ??
-                recordEditingRow?.recordId ??
-                recordEditingRow?.record_id ??
-                ""
+            recordEditingRow?.$id ??
+            recordEditingRow?.recordId ??
+            recordEditingRow?.record_id ??
+            ""
         ).trim()
 
         if (!docId) {
@@ -1114,7 +1114,9 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                                 })
                                                 .map((s) => (
                                                     <TableRow key={s.$id}>
-                                                        <TableCell className="font-medium">{`Y${s.yearLevel} ${s.name}`}</TableCell>
+                                                        <TableCell className="font-medium">
+                                                            {`${String(s.yearLevel ?? "").trim()}${s.name ? ` - ${s.name}` : ""}`.trim() || "—"}
+                                                        </TableCell>
                                                         <TableCell className="text-muted-foreground">
                                                             {vm.collegeLabel(vm.colleges, s.departmentId)}
                                                         </TableCell>

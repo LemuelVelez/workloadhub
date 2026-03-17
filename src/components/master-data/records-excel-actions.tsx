@@ -196,10 +196,13 @@ export function RecordsExcelActions({
     const [facultyExcelBusy, setFacultyExcelBusy] = React.useState(false)
     const warnedStylesRef = React.useRef(false)
 
-    const hasRows = rows && rows.length > 0
+    const hasRows = rows.length > 0
 
     const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
     const singleFacultyLabel = React.useMemo(() => inferSingleFacultyLabel(rows), [rows])
+    const canExportFacultyIndividually =
+        showBatchFacultyExport && facultyGroups.length > 1 && !singleFacultyLabel
+    const controlsDisabled = !hasRows || excelBusy || facultyExcelBusy
 
     const previewColumns = React.useMemo(() => {
         const isIndividualFaculty = Boolean(singleFacultyLabel?.trim())
@@ -549,34 +552,29 @@ export function RecordsExcelActions({
                     variant="outline"
                     size="sm"
                     onClick={() => setPreviewOpen(true)}
-                    disabled={!hasRows}
+                    disabled={controlsDisabled}
                 >
                     <Eye className="mr-2 h-4 w-4" />
                     Preview Excel
                 </Button>
 
-                {showBatchFacultyExport ? (
+                {canExportFacultyIndividually ? (
                     <Button
                         variant="outline"
-                        size="icon"
+                        size="sm"
                         onClick={() => void onExportFacultyExcel()}
-                        disabled={!hasRows || excelBusy || facultyExcelBusy}
-                        aria-label="Export individual faculty Excel files"
-                        title="Export individual faculty Excel files"
+                        disabled={controlsDisabled}
                     >
                         {facultyExcelBusy ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
-                            <Download className="h-4 w-4" />
+                            <Download className="mr-2 h-4 w-4" />
                         )}
+                        {facultyExcelBusy ? "Exporting Faculty..." : "Faculty Excel"}
                     </Button>
                 ) : null}
 
-                <Button
-                    size="sm"
-                    onClick={() => void onExportExcel()}
-                    disabled={!hasRows || excelBusy || facultyExcelBusy}
-                >
+                <Button size="sm" onClick={() => void onExportExcel()} disabled={controlsDisabled}>
                     {excelBusy ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -587,7 +585,7 @@ export function RecordsExcelActions({
             </div>
 
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
+                <DialogContent className="h-[95svh] min-w-0 overflow-hidden sm:max-w-7xl">
                     <DialogHeader>
                         <DialogTitle>
                             Excel Preview — List of Records
@@ -602,13 +600,19 @@ export function RecordsExcelActions({
                         <Badge variant="secondary">{subjectFilterLabel}</Badge>
                         <Badge variant="secondary">{unitFilterLabel}</Badge>
                         {singleFacultyLabel ? <Badge variant="secondary">{singleFacultyLabel}</Badge> : null}
+                        {canExportFacultyIndividually ? (
+                            <Badge variant="secondary">
+                                {facultyGroups.length} faculty file
+                                {facultyGroups.length === 1 ? "" : "s"}
+                            </Badge>
+                        ) : null}
                         <Badge variant="outline">
                             {rows.length} record{rows.length === 1 ? "" : "s"}
                         </Badge>
                     </div>
 
-                    <div className="mt-3 rounded-md border min-w-0 max-w-full">
-                        <ScrollArea className="h-[60vh] w-full min-w-0">
+                    <div className="mt-3 min-w-0 max-w-full rounded-md border">
+                        <ScrollArea className="h-[72vh] w-full min-w-0">
                             <Table containerClassName="w-max overflow-visible" className="w-full">
                                 <TableHeader>
                                     <TableRow>
@@ -713,39 +717,34 @@ export function RecordsExcelActions({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            {showBatchFacultyExport
-                                ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight. Individual faculty exports automatically remove the Faculty column."
+                            {canExportFacultyIndividually
+                                ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight. Faculty Excel creates one file per faculty and automatically removes the Faculty column."
                                 : singleFacultyLabel
                                   ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, conflict highlight, and removes the Faculty column for this individual faculty export."
                                   : "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight."}
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
                                 Close
                             </Button>
 
-                            {showBatchFacultyExport ? (
+                            {canExportFacultyIndividually ? (
                                 <Button
                                     variant="outline"
-                                    size="icon"
                                     onClick={() => void onExportFacultyExcel()}
-                                    disabled={facultyExcelBusy || excelBusy || !hasRows}
-                                    aria-label="Export individual faculty Excel files"
-                                    title="Export individual faculty Excel files"
+                                    disabled={controlsDisabled}
                                 >
                                     {facultyExcelBusy ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     ) : (
-                                        <Download className="h-4 w-4" />
+                                        <Download className="mr-2 h-4 w-4" />
                                     )}
+                                    {facultyExcelBusy ? "Exporting Faculty..." : "Faculty Excel"}
                                 </Button>
                             ) : null}
 
-                            <Button
-                                onClick={() => void onExportExcel()}
-                                disabled={excelBusy || facultyExcelBusy || !hasRows}
-                            >
+                            <Button onClick={() => void onExportExcel()} disabled={controlsDisabled}>
                                 <Download className="mr-2 h-4 w-4" />
                                 Download Excel
                             </Button>

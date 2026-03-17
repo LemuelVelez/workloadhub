@@ -173,12 +173,31 @@ export function RecordsPdfActions({
     const [facultyPdfBusy, setFacultyPdfBusy] = React.useState(false)
 
     const [pdfUrl, setPdfUrl] = React.useState<string | null>(null)
-    const pdfUrlRef = React.useRef<string | null>(null)
     const [pdfPreviewBusy, setPdfPreviewBusy] = React.useState(false)
 
-    const hasRows = rows && rows.length > 0
+    const pdfUrlRef = React.useRef<string | null>(null)
+    const pdfPreviewBusyRef = React.useRef(false)
+    const previewRequestIdRef = React.useRef(0)
+
+    const hasRows = rows.length > 0
     const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
     const singleFacultyLabel = React.useMemo(() => inferSingleFacultyLabel(rows), [rows])
+    const canExportFacultyIndividually =
+        showBatchFacultyExport && facultyGroups.length > 1 && !singleFacultyLabel
+    const controlsDisabled = !hasRows || pdfBusy || facultyPdfBusy
+
+    const cleanupPreviewUrl = React.useCallback(() => {
+        previewRequestIdRef.current += 1
+        pdfPreviewBusyRef.current = false
+
+        if (pdfUrlRef.current) {
+            URL.revokeObjectURL(pdfUrlRef.current)
+            pdfUrlRef.current = null
+        }
+
+        setPdfPreviewBusy(false)
+        setPdfUrl(null)
+    }, [])
 
     const buildPdfBlob = React.useCallback(
         async (targetRows: any[], facultyLabel?: string) => {
@@ -416,50 +435,54 @@ export function RecordsPdfActions({
     )
 
     const ensurePdfPreview = React.useCallback(async () => {
-        if (!hasRows) return
-        if (pdfUrl) return
-        if (pdfPreviewBusy) return
+        if (!hasRows || pdfPreviewBusyRef.current) return
 
+        const requestId = previewRequestIdRef.current + 1
+        previewRequestIdRef.current = requestId
+        pdfPreviewBusyRef.current = true
         setPdfPreviewBusy(true)
+
         try {
             const { blob } = await buildPdfBlob(rows, singleFacultyLabel ?? undefined)
-            const url = URL.createObjectURL(blob)
+            if (previewRequestIdRef.current !== requestId) return
+
+            const nextUrl = URL.createObjectURL(blob)
+            if (previewRequestIdRef.current !== requestId) {
+                URL.revokeObjectURL(nextUrl)
+                return
+            }
 
             if (pdfUrlRef.current) {
                 URL.revokeObjectURL(pdfUrlRef.current)
             }
-            pdfUrlRef.current = url
-            setPdfUrl(url)
+
+            pdfUrlRef.current = nextUrl
+            setPdfUrl(nextUrl)
         } catch (e: any) {
-            toast.error(e?.message ?? "Failed to generate PDF preview.")
+            if (previewRequestIdRef.current === requestId) {
+                cleanupPreviewUrl()
+                toast.error(e?.message ?? "Failed to generate PDF preview.")
+            }
         } finally {
-            setPdfPreviewBusy(false)
-        }
-    }, [hasRows, pdfUrl, pdfPreviewBusy, buildPdfBlob, rows, singleFacultyLabel])
-
-    React.useEffect(() => {
-        if (!previewOpen) return
-        void ensurePdfPreview()
-    }, [previewOpen, ensurePdfPreview])
-
-    React.useEffect(() => {
-        if (previewOpen) return
-        if (pdfUrlRef.current) {
-            URL.revokeObjectURL(pdfUrlRef.current)
-            pdfUrlRef.current = null
-        }
-        setPdfUrl(null)
-        setPdfPreviewBusy(false)
-    }, [previewOpen])
-
-    React.useEffect(() => {
-        return () => {
-            if (pdfUrlRef.current) {
-                URL.revokeObjectURL(pdfUrlRef.current)
-                pdfUrlRef.current = null
+            if (previewRequestIdRef.current === requestId) {
+                pdfPreviewBusyRef.current = false
+                setPdfPreviewBusy(false)
             }
         }
-    }, [])
+    }, [hasRows, buildPdfBlob, rows, singleFacultyLabel, cleanupPreviewUrl])
+
+    React.useEffect(() => {
+        if (!previewOpen) {
+            cleanupPreviewUrl()
+            return
+        }
+
+        void ensurePdfPreview()
+    }, [previewOpen, ensurePdfPreview, cleanupPreviewUrl])
+
+    React.useEffect(() => {
+        return () => cleanupPreviewUrl()
+    }, [cleanupPreviewUrl])
 
     const onExportPdf = React.useCallback(async () => {
         if (!hasRows) {
@@ -518,34 +541,33 @@ export function RecordsPdfActions({
                     variant="outline"
                     size="sm"
                     onClick={() => setPreviewOpen(true)}
-                    disabled={!hasRows}
+                    disabled={controlsDisabled}
                 >
-                    <Eye className="mr-2 h-4 w-4" />
-                    Preview PDF
+                    {pdfPreviewBusy && !pdfUrl ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                        <Eye className="mr-2 h-4 w-4" />
+                    )}
+                    {pdfPreviewBusy && !pdfUrl ? "Preparing preview..." : "Preview PDF"}
                 </Button>
 
-                {showBatchFacultyExport ? (
+                {canExportFacultyIndividually ? (
                     <Button
                         variant="outline"
-                        size="icon"
+                        size="sm"
                         onClick={() => void onExportFacultyPdf()}
-                        disabled={!hasRows || pdfBusy || facultyPdfBusy}
-                        aria-label="Export individual faculty PDF files"
-                        title="Export individual faculty PDF files"
+                        disabled={controlsDisabled}
                     >
                         {facultyPdfBusy ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
-                            <Download className="h-4 w-4" />
+                            <Download className="mr-2 h-4 w-4" />
                         )}
+                        {facultyPdfBusy ? "Exporting Faculty..." : "Faculty PDF"}
                     </Button>
                 ) : null}
 
-                <Button
-                    size="sm"
-                    onClick={() => void onExportPdf()}
-                    disabled={!hasRows || pdfBusy || facultyPdfBusy}
-                >
+                <Button size="sm" onClick={() => void onExportPdf()} disabled={controlsDisabled}>
                     {pdfBusy ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -555,8 +577,14 @@ export function RecordsPdfActions({
                 </Button>
             </div>
 
-            <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
+            <Dialog
+                open={previewOpen}
+                onOpenChange={(open) => {
+                    setPreviewOpen(open)
+                    if (!open) cleanupPreviewUrl()
+                }}
+            >
+                <DialogContent className="h-[95svh] min-w-0 overflow-hidden sm:max-w-7xl">
                     <DialogHeader>
                         <DialogTitle>
                             PDF Preview — List of Records
@@ -571,65 +599,71 @@ export function RecordsPdfActions({
                         <Badge variant="secondary">{subjectFilterLabel}</Badge>
                         <Badge variant="secondary">{unitFilterLabel}</Badge>
                         {singleFacultyLabel ? <Badge variant="secondary">{singleFacultyLabel}</Badge> : null}
+                        {canExportFacultyIndividually ? (
+                            <Badge variant="secondary">
+                                {facultyGroups.length} faculty file
+                                {facultyGroups.length === 1 ? "" : "s"}
+                            </Badge>
+                        ) : null}
                         <Badge variant="outline">
                             {rows.length} record{rows.length === 1 ? "" : "s"}
                         </Badge>
                     </div>
 
-                    <div className="mt-3 rounded-md border min-w-0 max-w-full overflow-hidden">
-                        {pdfPreviewBusy ? (
-                            <div className="p-4 space-y-3">
+                    <div className="mt-3 min-w-0 max-w-full overflow-hidden rounded-md border bg-background">
+                        {pdfUrl ? (
+                            <iframe
+                                key={pdfUrl}
+                                title="PDF Preview"
+                                src={pdfUrl}
+                                className="block h-[75vh] w-full bg-background"
+                            />
+                        ) : pdfPreviewBusy ? (
+                            <div className="space-y-3 p-4">
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Generating PDF preview...
                                 </div>
                                 <Skeleton className="h-8 w-full" />
-                                <Skeleton className="h-[52vh] w-full" />
+                                <Skeleton className="h-[70vh] w-full" />
                             </div>
-                        ) : pdfUrl ? (
-                            <iframe title="PDF Preview" src={pdfUrl} className="h-[60vh] w-full" />
                         ) : (
                             <div className="p-4 text-sm text-muted-foreground">
-                                PDF preview is not ready. Click “Preview PDF” again or export PDF.
+                                PDF preview is not ready yet.
                             </div>
                         )}
                     </div>
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            {showBatchFacultyExport
-                                ? "PDF export uses A4 landscape layout with conflict highlighting. Individual faculty exports automatically remove the Faculty column."
+                            {canExportFacultyIndividually
+                                ? "PDF export uses A4 landscape layout with conflict highlighting. Faculty PDF creates one file per faculty and automatically removes the Faculty column."
                                 : singleFacultyLabel
                                   ? "PDF export uses A4 landscape layout with conflict highlighting and removes the Faculty column for this individual faculty export."
                                   : "PDF export uses A4 landscape layout with the same columns and conflict highlighting."}
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
                                 Close
                             </Button>
 
-                            {showBatchFacultyExport ? (
+                            {canExportFacultyIndividually ? (
                                 <Button
                                     variant="outline"
-                                    size="icon"
                                     onClick={() => void onExportFacultyPdf()}
-                                    disabled={facultyPdfBusy || pdfBusy || !hasRows}
-                                    aria-label="Export individual faculty PDF files"
-                                    title="Export individual faculty PDF files"
+                                    disabled={controlsDisabled}
                                 >
                                     {facultyPdfBusy ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     ) : (
-                                        <Download className="h-4 w-4" />
+                                        <Download className="mr-2 h-4 w-4" />
                                     )}
+                                    {facultyPdfBusy ? "Exporting Faculty..." : "Faculty PDF"}
                                 </Button>
                             ) : null}
 
-                            <Button
-                                onClick={() => void onExportPdf()}
-                                disabled={pdfBusy || facultyPdfBusy || !hasRows}
-                            >
+                            <Button onClick={() => void onExportPdf()} disabled={controlsDisabled}>
                                 <Download className="mr-2 h-4 w-4" />
                                 Download PDF
                             </Button>
