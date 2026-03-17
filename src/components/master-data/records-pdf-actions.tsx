@@ -26,6 +26,17 @@ type Props = {
     showBatchFacultyExport?: boolean
 }
 
+const LEFT_LOGO_PATH = "/logo.png"
+const RIGHT_LOGO_PATH = "/CCS.png"
+
+const HEADER_REPUBLIC = "Republic of the Philippines"
+const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"
+const HEADER_SUBTITLE = "The Premier University in Zamboanga del Norte"
+const HEADER_COLLEGE = "COLLEGE OF COMPUTING STUDIES"
+const HEADER_DOCUMENT = "LIST OF RECORDS"
+
+const assetUrlCache = new Map<string, Promise<string>>()
+
 function pad2(n: number) {
     return String(n).padStart(2, "0")
 }
@@ -160,6 +171,86 @@ function downloadBlob(blob: Blob, filename: string) {
     setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
+async function blobToDataUrl(blob: Blob) {
+    return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(String(reader.result ?? ""))
+        reader.onerror = () => reject(new Error("Failed to read file data."))
+        reader.readAsDataURL(blob)
+    })
+}
+
+function isSvgAsset(path: string, blob: Blob) {
+    return /\.svg(?:$|\?)/i.test(path) || /image\/svg\+xml/i.test(blob.type)
+}
+
+async function loadImageElement(src: string) {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new window.Image()
+        image.decoding = "async"
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error("Failed to decode image asset."))
+        image.src = src
+    })
+}
+
+async function rasterizeSvgBlobToPngDataUrl(blob: Blob) {
+    const objectUrl = URL.createObjectURL(blob)
+
+    try {
+        const image = await loadImageElement(objectUrl)
+        const width = Math.max(image.naturalWidth || image.width || 1, 1)
+        const height = Math.max(image.naturalHeight || image.height || 1, 1)
+
+        const canvas = document.createElement("canvas")
+        canvas.width = width
+        canvas.height = height
+
+        const context = canvas.getContext("2d")
+        if (!context) {
+            throw new Error("Failed to prepare canvas for SVG conversion.")
+        }
+
+        context.clearRect(0, 0, width, height)
+        context.drawImage(image, 0, 0, width, height)
+
+        return canvas.toDataURL("image/png")
+    } finally {
+        URL.revokeObjectURL(objectUrl)
+    }
+}
+
+async function assetBlobToPdfDataUrl(path: string, blob: Blob) {
+    if (isSvgAsset(path, blob)) {
+        return await rasterizeSvgBlobToPngDataUrl(blob)
+    }
+
+    return await blobToDataUrl(blob)
+}
+
+function getAssetAsDataUrl(path: string) {
+    if (!assetUrlCache.has(path)) {
+        const promise = (async () => {
+            try {
+                const response = await fetch(path, { cache: "force-cache" })
+                if (!response.ok) {
+                    throw new Error(`Failed to load asset: ${path}`)
+                }
+
+                const blob = await response.blob()
+                return await assetBlobToPdfDataUrl(path, blob)
+            } catch (error) {
+                assetUrlCache.delete(path)
+                throw error
+            }
+        })()
+
+        assetUrlCache.set(path, promise)
+    }
+
+    return assetUrlCache.get(path)!
+}
+
 export function RecordsPdfActions({
     rows,
     resolveTermLabel,
@@ -173,31 +264,12 @@ export function RecordsPdfActions({
     const [facultyPdfBusy, setFacultyPdfBusy] = React.useState(false)
 
     const [pdfUrl, setPdfUrl] = React.useState<string | null>(null)
+    const pdfUrlRef = React.useRef<string | null>(null)
     const [pdfPreviewBusy, setPdfPreviewBusy] = React.useState(false)
 
-    const pdfUrlRef = React.useRef<string | null>(null)
-    const pdfPreviewBusyRef = React.useRef(false)
-    const previewRequestIdRef = React.useRef(0)
-
-    const hasRows = rows.length > 0
+    const hasRows = rows && rows.length > 0
     const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
     const singleFacultyLabel = React.useMemo(() => inferSingleFacultyLabel(rows), [rows])
-    const canExportFacultyIndividually =
-        showBatchFacultyExport && facultyGroups.length > 1 && !singleFacultyLabel
-    const controlsDisabled = !hasRows || pdfBusy || facultyPdfBusy
-
-    const cleanupPreviewUrl = React.useCallback(() => {
-        previewRequestIdRef.current += 1
-        pdfPreviewBusyRef.current = false
-
-        if (pdfUrlRef.current) {
-            URL.revokeObjectURL(pdfUrlRef.current)
-            pdfUrlRef.current = null
-        }
-
-        setPdfPreviewBusy(false)
-        setPdfUrl(null)
-    }, [])
 
     const buildPdfBlob = React.useCallback(
         async (targetRows: any[], facultyLabel?: string) => {
@@ -206,8 +278,14 @@ export function RecordsPdfActions({
             const Page = m.Page as any
             const Text = m.Text as any
             const View = m.View as any
+            const Image = m.Image as any
             const StyleSheet = m.StyleSheet as any
             const pdf = m.pdf as any
+
+            const [leftLogoSrc, rightLogoSrc] = await Promise.all([
+                getAssetAsDataUrl(LEFT_LOGO_PATH),
+                getAssetAsDataUrl(RIGHT_LOGO_PATH),
+            ])
 
             const generatedAt = new Date()
             const isIndividualFaculty = Boolean(facultyLabel?.trim())
@@ -216,10 +294,6 @@ export function RecordsPdfActions({
             const filename = isIndividualFaculty
                 ? `list-of-records_${sanitizeFilenamePart(normalizedFacultyLabel)}_${formatTimestamp(generatedAt)}.pdf`
                 : `list-of-records_${formatTimestamp(generatedAt)}.pdf`
-
-            const title = isIndividualFaculty
-                ? `WorkloadHub — List of Records — ${normalizedFacultyLabel}`
-                : "WorkloadHub — List of Records"
 
             const subtitle = isIndividualFaculty
                 ? `Filters: ${subjectFilterLabel} • ${unitFilterLabel} • Faculty: ${normalizedFacultyLabel}`
@@ -253,20 +327,108 @@ export function RecordsPdfActions({
                   ] as const)
 
             const styles = StyleSheet.create({
-                page: { padding: 24, fontSize: 9, fontFamily: "Helvetica" },
-                title: { fontSize: 14, fontWeight: 700, marginBottom: 4, color: "#0F172A" },
-                meta: { fontSize: 9, color: "#475569", marginBottom: 2 },
-                table: { marginTop: 10, borderWidth: 1, borderColor: "#CBD5E1" },
+                page: {
+                    paddingTop: 18,
+                    paddingRight: 22,
+                    paddingBottom: 36,
+                    paddingLeft: 22,
+                    fontFamily: "Helvetica",
+                    color: "#1F2937",
+                    fontSize: 8.5,
+                },
 
-                headerRow: { flexDirection: "row", backgroundColor: "#0F172A" },
+                headerWrap: {
+                    width: "100%",
+                },
+                headerRow: {
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    width: "100%",
+                },
+                logoWrap: {
+                    width: 72,
+                    height: 60,
+                    alignItems: "center",
+                    justifyContent: "center",
+                },
+                logo: {
+                    width: 54,
+                    height: 54,
+                    objectFit: "contain",
+                },
+                centerHeader: {
+                    flexGrow: 1,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 6,
+                },
+                republic: {
+                    fontSize: 7,
+                    color: "#4B5563",
+                    textAlign: "center",
+                    marginBottom: 1,
+                },
+                school: {
+                    fontSize: 10.5,
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    marginBottom: 1,
+                },
+                campusLine: {
+                    fontSize: 7.2,
+                    color: "#4B5563",
+                    textAlign: "center",
+                    marginBottom: 4,
+                },
+                college: {
+                    fontSize: 9.25,
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    marginBottom: 1,
+                },
+                documentTitle: {
+                    fontSize: 15.5,
+                    fontStyle: "italic",
+                    textAlign: "center",
+                    color: "#4B5563",
+                    marginTop: 8,
+                    marginBottom: 2,
+                },
+                facultyLine: {
+                    fontSize: 9.4,
+                    textAlign: "center",
+                    color: "#334155",
+                    marginBottom: 2,
+                    fontWeight: "bold",
+                },
+                metaCenter: {
+                    fontSize: 8.1,
+                    textAlign: "center",
+                    color: "#475569",
+                    marginBottom: 1,
+                },
+
+                table: {
+                    marginTop: 10,
+                    borderWidth: 1,
+                    borderColor: "#CBD5E1",
+                },
+                headerRowTable: {
+                    flexDirection: "row",
+                    backgroundColor: "#0F172A",
+                },
                 headerCell: {
                     padding: 6,
                     color: "#FFFFFF",
-                    fontWeight: 700,
+                    fontWeight: "bold",
                     borderRightWidth: 1,
                     borderRightColor: "#CBD5E1",
+                    textAlign: "center",
                 },
-                row: { flexDirection: "row" },
+                row: {
+                    flexDirection: "row",
+                },
                 cell: {
                     padding: 6,
                     borderTopWidth: 1,
@@ -275,30 +437,73 @@ export function RecordsPdfActions({
                     borderRightColor: "#CBD5E1",
                     color: "#0F172A",
                 },
-                zebra: { backgroundColor: "#F8FAFC" },
-                conflictRow: { backgroundColor: "#FEE2E2" },
+                zebra: {
+                    backgroundColor: "#F8FAFC",
+                },
+                conflictRow: {
+                    backgroundColor: "#FEE2E2",
+                },
 
-                footer: {
+                footerText: {
                     position: "absolute",
-                    bottom: 14,
-                    left: 24,
-                    right: 24,
+                    bottom: 12,
+                    left: 22,
+                    right: 22,
                     flexDirection: "row",
                     justifyContent: "space-between",
                     fontSize: 8,
                     color: "#64748B",
                 },
+                footerRuleWrap: {
+                    position: "absolute",
+                    bottom: 24,
+                    left: 22,
+                    right: 22,
+                },
+                blueRule: {
+                    height: 2,
+                    backgroundColor: "#7FA7E8",
+                    width: "100%",
+                },
+                goldRule: {
+                    height: 1.5,
+                    backgroundColor: "#E9C76B",
+                    width: "100%",
+                    marginTop: 2,
+                },
             })
 
             const RecordsPdfDocument = () => (
-                <Document title={title}>
+                <Document title={`${HEADER_DOCUMENT}${isIndividualFaculty ? ` - ${normalizedFacultyLabel}` : ""}`}>
                     <Page size="A4" orientation="landscape" style={styles.page}>
-                        <Text style={styles.title}>{title}</Text>
-                        <Text style={styles.meta}>{subtitle}</Text>
-                        <Text style={styles.meta}>{generatedLabel}</Text>
+                        <View style={styles.headerWrap}>
+                            <View style={styles.headerRow}>
+                                <View style={styles.logoWrap}>
+                                    <Image src={leftLogoSrc} style={styles.logo} />
+                                </View>
+
+                                <View style={styles.centerHeader}>
+                                    <Text style={styles.republic}>{HEADER_REPUBLIC}</Text>
+                                    <Text style={styles.school}>{HEADER_INSTITUTION}</Text>
+                                    <Text style={styles.campusLine}>{HEADER_SUBTITLE}</Text>
+                                    <Text style={styles.college}>{HEADER_COLLEGE}</Text>
+                                </View>
+
+                                <View style={styles.logoWrap}>
+                                    <Image src={rightLogoSrc} style={styles.logo} />
+                                </View>
+                            </View>
+                        </View>
+
+                        <Text style={styles.documentTitle}>{HEADER_DOCUMENT}</Text>
+                        {isIndividualFaculty ? (
+                            <Text style={styles.facultyLine}>{normalizedFacultyLabel}</Text>
+                        ) : null}
+                        <Text style={styles.metaCenter}>{subtitle}</Text>
+                        <Text style={styles.metaCenter}>{generatedLabel}</Text>
 
                         <View style={styles.table}>
-                            <View style={styles.headerRow} wrap={false}>
+                            <View style={styles.headerRowTable} wrap={false}>
                                 {cols.map((c, idx) => (
                                     <View
                                         key={c.key}
@@ -309,18 +514,20 @@ export function RecordsPdfActions({
                                         }}
                                     >
                                         <Text
-                                            style={{
-                                                ...styles.headerCell,
-                                                borderRightWidth: 0,
-                                                textAlign:
-                                                    c.key === "day" ||
-                                                    c.key === "start" ||
-                                                    c.key === "end" ||
-                                                    c.key === "units" ||
-                                                    c.key === "conflict"
-                                                        ? "center"
-                                                        : "left",
-                                            }}
+                                            style={[
+                                                styles.headerCell,
+                                                {
+                                                    borderRightWidth: 0,
+                                                    textAlign:
+                                                        c.key === "day" ||
+                                                        c.key === "start" ||
+                                                        c.key === "end" ||
+                                                        c.key === "units" ||
+                                                        c.key === "conflict"
+                                                            ? "center"
+                                                            : "left",
+                                                },
+                                            ]}
                                         >
                                             {c.label}
                                         </Text>
@@ -395,18 +602,20 @@ export function RecordsPdfActions({
                                                     }}
                                                 >
                                                     <Text
-                                                        style={{
-                                                            ...styles.cell,
-                                                            borderRightWidth: 0,
-                                                            textAlign: align,
-                                                            fontWeight: c.key === "conflict" ? 700 : 400,
-                                                            color:
-                                                                c.key === "conflict"
-                                                                    ? isConflict
-                                                                        ? "#7F1D1D"
-                                                                        : "#065F46"
-                                                                    : "#0F172A",
-                                                        }}
+                                                        style={[
+                                                            styles.cell,
+                                                            {
+                                                                borderRightWidth: 0,
+                                                                textAlign: align,
+                                                                fontWeight: c.key === "conflict" ? "bold" : "normal",
+                                                                color:
+                                                                    c.key === "conflict"
+                                                                        ? isConflict
+                                                                            ? "#7F1D1D"
+                                                                            : "#065F46"
+                                                                        : "#0F172A",
+                                                            },
+                                                        ]}
                                                     >
                                                         {String(value ?? "—")}
                                                     </Text>
@@ -418,7 +627,12 @@ export function RecordsPdfActions({
                             })}
                         </View>
 
-                        <View style={styles.footer} fixed>
+                        <View style={styles.footerRuleWrap} fixed>
+                            <View style={styles.blueRule} />
+                            <View style={styles.goldRule} />
+                        </View>
+
+                        <View style={styles.footerText} fixed>
                             <Text>
                                 {targetRows.length} record{targetRows.length === 1 ? "" : "s"}
                             </Text>
@@ -435,54 +649,50 @@ export function RecordsPdfActions({
     )
 
     const ensurePdfPreview = React.useCallback(async () => {
-        if (!hasRows || pdfPreviewBusyRef.current) return
+        if (!hasRows) return
+        if (pdfUrl) return
+        if (pdfPreviewBusy) return
 
-        const requestId = previewRequestIdRef.current + 1
-        previewRequestIdRef.current = requestId
-        pdfPreviewBusyRef.current = true
         setPdfPreviewBusy(true)
-
         try {
             const { blob } = await buildPdfBlob(rows, singleFacultyLabel ?? undefined)
-            if (previewRequestIdRef.current !== requestId) return
-
-            const nextUrl = URL.createObjectURL(blob)
-            if (previewRequestIdRef.current !== requestId) {
-                URL.revokeObjectURL(nextUrl)
-                return
-            }
+            const url = URL.createObjectURL(blob)
 
             if (pdfUrlRef.current) {
                 URL.revokeObjectURL(pdfUrlRef.current)
             }
-
-            pdfUrlRef.current = nextUrl
-            setPdfUrl(nextUrl)
+            pdfUrlRef.current = url
+            setPdfUrl(url)
         } catch (e: any) {
-            if (previewRequestIdRef.current === requestId) {
-                cleanupPreviewUrl()
-                toast.error(e?.message ?? "Failed to generate PDF preview.")
-            }
+            toast.error(e?.message ?? "Failed to generate PDF preview.")
         } finally {
-            if (previewRequestIdRef.current === requestId) {
-                pdfPreviewBusyRef.current = false
-                setPdfPreviewBusy(false)
+            setPdfPreviewBusy(false)
+        }
+    }, [hasRows, pdfUrl, pdfPreviewBusy, buildPdfBlob, rows, singleFacultyLabel])
+
+    React.useEffect(() => {
+        if (!previewOpen) return
+        void ensurePdfPreview()
+    }, [previewOpen, ensurePdfPreview])
+
+    React.useEffect(() => {
+        if (previewOpen) return
+        if (pdfUrlRef.current) {
+            URL.revokeObjectURL(pdfUrlRef.current)
+            pdfUrlRef.current = null
+        }
+        setPdfUrl(null)
+        setPdfPreviewBusy(false)
+    }, [previewOpen])
+
+    React.useEffect(() => {
+        return () => {
+            if (pdfUrlRef.current) {
+                URL.revokeObjectURL(pdfUrlRef.current)
+                pdfUrlRef.current = null
             }
         }
-    }, [hasRows, buildPdfBlob, rows, singleFacultyLabel, cleanupPreviewUrl])
-
-    React.useEffect(() => {
-        if (!previewOpen) {
-            cleanupPreviewUrl()
-            return
-        }
-
-        void ensurePdfPreview()
-    }, [previewOpen, ensurePdfPreview, cleanupPreviewUrl])
-
-    React.useEffect(() => {
-        return () => cleanupPreviewUrl()
-    }, [cleanupPreviewUrl])
+    }, [])
 
     const onExportPdf = React.useCallback(async () => {
         if (!hasRows) {
@@ -541,33 +751,34 @@ export function RecordsPdfActions({
                     variant="outline"
                     size="sm"
                     onClick={() => setPreviewOpen(true)}
-                    disabled={controlsDisabled}
+                    disabled={!hasRows}
                 >
-                    {pdfPreviewBusy && !pdfUrl ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                        <Eye className="mr-2 h-4 w-4" />
-                    )}
-                    {pdfPreviewBusy && !pdfUrl ? "Preparing preview..." : "Preview PDF"}
+                    <Eye className="mr-2 h-4 w-4" />
+                    Preview PDF
                 </Button>
 
-                {canExportFacultyIndividually ? (
+                {showBatchFacultyExport ? (
                     <Button
                         variant="outline"
-                        size="sm"
+                        size="icon"
                         onClick={() => void onExportFacultyPdf()}
-                        disabled={controlsDisabled}
+                        disabled={!hasRows || pdfBusy || facultyPdfBusy}
+                        aria-label="Export individual faculty PDF files"
+                        title="Export individual faculty PDF files"
                     >
                         {facultyPdfBusy ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                            <Download className="mr-2 h-4 w-4" />
+                            <Download className="h-4 w-4" />
                         )}
-                        {facultyPdfBusy ? "Exporting Faculty..." : "Faculty PDF"}
                     </Button>
                 ) : null}
 
-                <Button size="sm" onClick={() => void onExportPdf()} disabled={controlsDisabled}>
+                <Button
+                    size="sm"
+                    onClick={() => void onExportPdf()}
+                    disabled={!hasRows || pdfBusy || facultyPdfBusy}
+                >
                     {pdfBusy ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -577,21 +788,15 @@ export function RecordsPdfActions({
                 </Button>
             </div>
 
-            <Dialog
-                open={previewOpen}
-                onOpenChange={(open) => {
-                    setPreviewOpen(open)
-                    if (!open) cleanupPreviewUrl()
-                }}
-            >
-                <DialogContent className="h-[95svh] min-w-0 overflow-hidden sm:max-w-7xl">
+            <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+                <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
                     <DialogHeader>
                         <DialogTitle>
                             PDF Preview — List of Records
                             {singleFacultyLabel ? ` — ${singleFacultyLabel}` : ""}
                         </DialogTitle>
                         <DialogDescription>
-                            Preview the PDF layout before downloading. Conflict rows are highlighted.
+                            Preview the branded PDF layout before downloading. Conflict rows are highlighted.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -599,71 +804,62 @@ export function RecordsPdfActions({
                         <Badge variant="secondary">{subjectFilterLabel}</Badge>
                         <Badge variant="secondary">{unitFilterLabel}</Badge>
                         {singleFacultyLabel ? <Badge variant="secondary">{singleFacultyLabel}</Badge> : null}
-                        {canExportFacultyIndividually ? (
-                            <Badge variant="secondary">
-                                {facultyGroups.length} faculty file
-                                {facultyGroups.length === 1 ? "" : "s"}
-                            </Badge>
-                        ) : null}
                         <Badge variant="outline">
                             {rows.length} record{rows.length === 1 ? "" : "s"}
                         </Badge>
                     </div>
 
-                    <div className="mt-3 min-w-0 max-w-full overflow-hidden rounded-md border bg-background">
-                        {pdfUrl ? (
-                            <iframe
-                                key={pdfUrl}
-                                title="PDF Preview"
-                                src={pdfUrl}
-                                className="block h-[75vh] w-full bg-background"
-                            />
-                        ) : pdfPreviewBusy ? (
-                            <div className="space-y-3 p-4">
+                    <div className="mt-3 rounded-md border min-w-0 max-w-full overflow-hidden">
+                        {pdfPreviewBusy ? (
+                            <div className="p-4 space-y-3">
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Generating PDF preview...
                                 </div>
                                 <Skeleton className="h-8 w-full" />
-                                <Skeleton className="h-[70vh] w-full" />
+                                <Skeleton className="h-[52vh] w-full" />
                             </div>
+                        ) : pdfUrl ? (
+                            <iframe title="PDF Preview" src={pdfUrl} className="h-[60vh] w-full" />
                         ) : (
                             <div className="p-4 text-sm text-muted-foreground">
-                                PDF preview is not ready yet.
+                                PDF preview is not ready. Click “Preview PDF” again or export PDF.
                             </div>
                         )}
                     </div>
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            {canExportFacultyIndividually
-                                ? "PDF export uses A4 landscape layout with conflict highlighting. Faculty PDF creates one file per faculty and automatically removes the Faculty column."
-                                : singleFacultyLabel
-                                  ? "PDF export uses A4 landscape layout with conflict highlighting and removes the Faculty column for this individual faculty export."
-                                  : "PDF export uses A4 landscape layout with the same columns and conflict highlighting."}
+                            PDF export now includes the JRMSU and CCS logos, official institutional header,
+                            branded title area, footer rules, and conflict highlighting.
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
                                 Close
                             </Button>
 
-                            {canExportFacultyIndividually ? (
+                            {showBatchFacultyExport ? (
                                 <Button
                                     variant="outline"
+                                    size="icon"
                                     onClick={() => void onExportFacultyPdf()}
-                                    disabled={controlsDisabled}
+                                    disabled={facultyPdfBusy || pdfBusy || !hasRows}
+                                    aria-label="Export individual faculty PDF files"
+                                    title="Export individual faculty PDF files"
                                 >
                                     {facultyPdfBusy ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="h-4 w-4 animate-spin" />
                                     ) : (
-                                        <Download className="mr-2 h-4 w-4" />
+                                        <Download className="h-4 w-4" />
                                     )}
-                                    {facultyPdfBusy ? "Exporting Faculty..." : "Faculty PDF"}
                                 </Button>
                             ) : null}
 
-                            <Button onClick={() => void onExportPdf()} disabled={controlsDisabled}>
+                            <Button
+                                onClick={() => void onExportPdf()}
+                                disabled={pdfBusy || facultyPdfBusy || !hasRows}
+                            >
                                 <Download className="mr-2 h-4 w-4" />
                                 Download PDF
                             </Button>

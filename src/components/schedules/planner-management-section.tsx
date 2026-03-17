@@ -259,12 +259,47 @@ function inferSectionTrackPrefix(values: Array<string | number | null | undefine
     return ""
 }
 
+function extractSectionYearNumber(value?: string | number | null) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+
+    if (!normalized) return null
+
+    const direct = normalized.match(/^([1-9]\d*)$/)
+    if (direct) return Number(direct[1])
+
+    const prefixed = normalized.match(/^(?:CS|IS)\s+Y?\s*([1-9]\d*)$/)
+    if (prefixed) return Number(prefixed[1])
+
+    const yearNamed = normalized.match(/^YEAR\s*([1-9]\d*)$/)
+    if (yearNamed) return Number(yearNamed[1])
+
+    const yearDash = normalized.match(/^Y?\s*([1-9]\d*)\s*-/)
+    if (yearDash) return Number(yearDash[1])
+
+    const trailing = normalized.match(/(?:^|[\s-])Y?\s*([1-9]\d*)$/)
+    if (trailing) return Number(trailing[1])
+
+    return null
+}
+
+function normalizeSectionYearCore(value: string) {
+    return String(value || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/^YEAR\s*/i, "")
+        .replace(/^Y(?=\s*[1-9]\d*\b)/i, "")
+        .trim()
+}
+
 function formatYearLevelDisplay(
     yearLevel?: string | number | null,
     prefix?: string | null
 ) {
-    const parsedYear = Number(String(yearLevel ?? "").trim())
-    if (!Number.isFinite(parsedYear) || parsedYear <= 0) return "—"
+    const parsedYear = extractSectionYearNumber(yearLevel)
+    if (!Number.isFinite(parsedYear) || (parsedYear ?? 0) <= 0) return "—"
 
     const safePrefix = String(prefix ?? "").trim()
     return safePrefix ? `${safePrefix} ${parsedYear}` : String(parsedYear)
@@ -274,7 +309,7 @@ function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) 
     const normalized = String(rawValue || "").trim().replace(/\s+/g, " ")
     if (!normalized) return ""
 
-    const compactMatch = normalized.match(/^([A-Z]{2,6})\s*([1-9]\d*)\s*-\s*(.+)$/i)
+    const compactMatch = normalized.match(/^([A-Z]{2,6})\s*Y?\s*([1-9]\d*)\s*-\s*(.+)$/i)
     if (compactMatch) {
         const resolvedPrefix =
             inferSectionTrackPrefix([compactMatch[1]]) || compactMatch[1].toUpperCase()
@@ -289,7 +324,7 @@ function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) 
         )
         .trim()
 
-    const normalizedYearCore = withoutProgramPrefix.replace(/^YEAR\s*/i, "").trim()
+    const normalizedYearCore = normalizeSectionYearCore(withoutProgramPrefix)
     const prefix = inferSectionTrackPrefix([normalized]) || preferredPrefix
 
     const yearSectionMatch = normalizedYearCore.match(/^([1-9]\d*)\s*-\s*(.+)$/i)
@@ -329,8 +364,8 @@ function formatSectionDisplayLabel({
     const formattedFromName = buildFormattedSectionLabel(rawName, preferredPrefix)
     if (formattedFromName) return formattedFromName
 
-    const parsedYear = Number(yearLevel || 0)
-    const hasYear = Number.isFinite(parsedYear) && parsedYear > 0
+    const parsedYear = extractSectionYearNumber(yearLevel)
+    const hasYear = Number.isFinite(parsedYear) && (parsedYear ?? 0) > 0
 
     if (hasYear && rawName) {
         const core = `${parsedYear} - ${rawName}`
@@ -923,7 +958,7 @@ export function PlannerManagementSection({
 
         const sectionAny = selectedSection as any
         const name = String(selectedSection.name || sectionAny.sectionName || "").trim() || selectedSection.$id
-        const yearLevel = Number(selectedSection.yearLevel || sectionAny.yearLevel || 0)
+        const yearLevel = selectedSection.yearLevel || sectionAny.yearLevel || ""
 
         return formatSectionDisplayLabel({
             label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
@@ -1423,7 +1458,8 @@ export function PlannerManagementSection({
                                             {sections.map((s) => {
                                                 const sectionAny = s as any
                                                 const name = String(s.name || "").trim() || s.$id
-                                                const y = Number(s.yearLevel || 0)
+                                                const y = s.yearLevel || ""
+
                                                 const sectionLabel = formatSectionDisplayLabel({
                                                     label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
                                                     yearLevel: y,

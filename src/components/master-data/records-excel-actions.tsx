@@ -35,6 +35,17 @@ type Props = {
     showBatchFacultyExport?: boolean
 }
 
+const LEFT_LOGO_PATH = "/logo.png"
+const RIGHT_LOGO_PATH = "/CCS.png"
+
+const HEADER_REPUBLIC = "Republic of the Philippines"
+const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"
+const HEADER_SUBTITLE = "The Premier University in Zamboanga del Norte"
+const HEADER_COLLEGE = "COLLEGE OF COMPUTING STUDIES"
+const HEADER_DOCUMENT = "LIST OF RECORDS"
+
+const assetUrlCache = new Map<string, Promise<string>>()
+
 function pad2(n: number) {
     return String(n).padStart(2, "0")
 }
@@ -152,27 +163,6 @@ function formatDateTimeAmPm(d: Date) {
     }
 }
 
-/**
- * ✅ Excel Export Styling
- * - Prefer "xlsx-js-style" (supports colors/styles)
- * - Fallback to "xlsx" (no styling support, export still works)
- */
-let xlsxPromise: Promise<{ XLSX: any; supportsStyles: boolean }> | null = null
-async function loadXlsxModule() {
-    if (!xlsxPromise) {
-        xlsxPromise = (async () => {
-            try {
-                const m: any = await import("xlsx-js-style")
-                return { XLSX: m?.default ?? m, supportsStyles: true }
-            } catch {
-                const m: any = await import("xlsx")
-                return { XLSX: m?.default ?? m, supportsStyles: false }
-            }
-        })()
-    }
-    return xlsxPromise
-}
-
 function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -180,6 +170,102 @@ function downloadBlob(blob: Blob, filename: string) {
     a.download = filename
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+async function blobToDataUrl(blob: Blob) {
+    return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(String(reader.result ?? ""))
+        reader.onerror = () => reject(new Error("Failed to read file data."))
+        reader.readAsDataURL(blob)
+    })
+}
+
+function isSvgAsset(path: string, blob: Blob) {
+    return /\.svg(?:$|\?)/i.test(path) || /image\/svg\+xml/i.test(blob.type)
+}
+
+async function loadImageElement(src: string) {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new window.Image()
+        image.decoding = "async"
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error("Failed to decode image asset."))
+        image.src = src
+    })
+}
+
+async function rasterizeSvgBlobToPngDataUrl(blob: Blob) {
+    const objectUrl = URL.createObjectURL(blob)
+
+    try {
+        const image = await loadImageElement(objectUrl)
+        const width = Math.max(image.naturalWidth || image.width || 1, 1)
+        const height = Math.max(image.naturalHeight || image.height || 1, 1)
+
+        const canvas = document.createElement("canvas")
+        canvas.width = width
+        canvas.height = height
+
+        const context = canvas.getContext("2d")
+        if (!context) {
+            throw new Error("Failed to prepare canvas for SVG conversion.")
+        }
+
+        context.clearRect(0, 0, width, height)
+        context.drawImage(image, 0, 0, width, height)
+
+        return canvas.toDataURL("image/png")
+    } finally {
+        URL.revokeObjectURL(objectUrl)
+    }
+}
+
+async function assetBlobToExcelDataUrl(path: string, blob: Blob) {
+    if (isSvgAsset(path, blob)) {
+        return await rasterizeSvgBlobToPngDataUrl(blob)
+    }
+
+    return await blobToDataUrl(blob)
+}
+
+function getAssetAsDataUrl(path: string) {
+    if (!assetUrlCache.has(path)) {
+        const promise = (async () => {
+            try {
+                const response = await fetch(path, { cache: "force-cache" })
+                if (!response.ok) {
+                    throw new Error(`Failed to load asset: ${path}`)
+                }
+
+                const blob = await response.blob()
+                return await assetBlobToExcelDataUrl(path, blob)
+            } catch (error) {
+                assetUrlCache.delete(path)
+                throw error
+            }
+        })()
+
+        assetUrlCache.set(path, promise)
+    }
+
+    return assetUrlCache.get(path)!
+}
+
+function inferExcelImageExtension(dataUrl: string) {
+    const match = /^data:image\/([a-zA-Z0-9.+-]+);base64,/i.exec(dataUrl)
+    const mime = String(match?.[1] ?? "").toLowerCase()
+
+    if (mime.includes("jpeg") || mime.includes("jpg")) return "jpeg"
+    return "png"
+}
+
+let excelJsPromise: Promise<any> | null = null
+async function loadExcelJsModule() {
+    if (!excelJsPromise) {
+        excelJsPromise = import("exceljs").then((m: any) => m?.default ?? m)
+    }
+    return excelJsPromise
 }
 
 export function RecordsExcelActions({
@@ -194,15 +280,11 @@ export function RecordsExcelActions({
 
     const [excelBusy, setExcelBusy] = React.useState(false)
     const [facultyExcelBusy, setFacultyExcelBusy] = React.useState(false)
-    const warnedStylesRef = React.useRef(false)
 
-    const hasRows = rows.length > 0
+    const hasRows = rows && rows.length > 0
 
     const facultyGroups = React.useMemo(() => groupRowsByFaculty(rows), [rows])
     const singleFacultyLabel = React.useMemo(() => inferSingleFacultyLabel(rows), [rows])
-    const canExportFacultyIndividually =
-        showBatchFacultyExport && facultyGroups.length > 1 && !singleFacultyLabel
-    const controlsDisabled = !hasRows || excelBusy || facultyExcelBusy
 
     const previewColumns = React.useMemo(() => {
         const isIndividualFaculty = Boolean(singleFacultyLabel?.trim())
@@ -255,15 +337,11 @@ export function RecordsExcelActions({
 
     const buildWorkbookBlob = React.useCallback(
         async (targetRows: any[], facultyLabel?: string) => {
-            const { XLSX, supportsStyles } = await loadXlsxModule()
+            const ExcelJS: any = await loadExcelJsModule()
 
             const generatedAt = new Date()
             const isIndividualFaculty = Boolean(facultyLabel?.trim())
             const normalizedFacultyLabel = facultyLabel?.trim() || ""
-
-            const title = isIndividualFaculty
-                ? `WorkloadHub — List of Records — ${normalizedFacultyLabel}`
-                : "WorkloadHub — List of Records"
 
             const filename = isIndividualFaculty
                 ? `list-of-records_${sanitizeFilenamePart(normalizedFacultyLabel)}_${formatTimestamp(generatedAt)}.xlsx`
@@ -275,43 +353,183 @@ export function RecordsExcelActions({
 
             const columns = isIndividualFaculty
                 ? [
-                      { key: "term", label: "Term", wch: 28 },
-                      { key: "day", label: "Day", wch: 14 },
-                      { key: "start", label: "Start Time", wch: 14 },
-                      { key: "end", label: "End Time", wch: 14 },
-                      { key: "room", label: "Room", wch: 22 },
-                      { key: "code", label: "Subject Code", wch: 18 },
-                      { key: "title", label: "Subject Title", wch: 48 },
-                      { key: "units", label: "Units", wch: 10 },
-                      { key: "conflict", label: "Conflict", wch: 12 },
+                      { key: "term", label: "Term", width: 24 },
+                      { key: "day", label: "Day", width: 14 },
+                      { key: "start", label: "Start Time", width: 14 },
+                      { key: "end", label: "End Time", width: 14 },
+                      { key: "room", label: "Room", width: 22 },
+                      { key: "code", label: "Subject Code", width: 18 },
+                      { key: "title", label: "Subject Title", width: 42 },
+                      { key: "units", label: "Units", width: 10 },
+                      { key: "conflict", label: "Conflict", width: 12 },
                   ]
                 : [
-                      { key: "term", label: "Term", wch: 28 },
-                      { key: "day", label: "Day", wch: 14 },
-                      { key: "start", label: "Start Time", wch: 14 },
-                      { key: "end", label: "End Time", wch: 14 },
-                      { key: "room", label: "Room", wch: 22 },
-                      { key: "faculty", label: "Faculty", wch: 34 },
-                      { key: "code", label: "Subject Code", wch: 18 },
-                      { key: "title", label: "Subject Title", wch: 48 },
-                      { key: "units", label: "Units", wch: 10 },
-                      { key: "conflict", label: "Conflict", wch: 12 },
+                      { key: "term", label: "Term", width: 24 },
+                      { key: "day", label: "Day", width: 14 },
+                      { key: "start", label: "Start Time", width: 14 },
+                      { key: "end", label: "End Time", width: 14 },
+                      { key: "room", label: "Room", width: 22 },
+                      { key: "faculty", label: "Faculty", width: 28 },
+                      { key: "code", label: "Subject Code", width: 18 },
+                      { key: "title", label: "Subject Title", width: 42 },
+                      { key: "units", label: "Units", width: 10 },
+                      { key: "conflict", label: "Conflict", width: 12 },
                   ]
 
-            const headers = columns.map((column) => column.label)
+            const workbook = new ExcelJS.Workbook()
+            workbook.creator = "WorkloadHub"
+            workbook.lastModifiedBy = "WorkloadHub"
+            workbook.created = generatedAt
+            workbook.modified = generatedAt
 
-            const dataRows = targetRows.map((r: any) => {
+            const worksheet = workbook.addWorksheet("List of Records", {
+                views: [{ state: "frozen", ySplit: 10 }],
+            })
+
+            worksheet.pageSetup = {
+                orientation: "landscape",
+                paperSize: 9,
+                fitToPage: true,
+                fitToWidth: 1,
+                fitToHeight: 0,
+                margins: {
+                    left: 0.3,
+                    right: 0.3,
+                    top: 0.35,
+                    bottom: 0.35,
+                    header: 0.2,
+                    footer: 0.2,
+                },
+            }
+
+            worksheet.properties.defaultRowHeight = 22
+            worksheet.columns = columns.map((column) => ({
+                key: column.key,
+                width: column.width,
+            }))
+
+            const totalCols = columns.length
+            const centerStartCol = 3
+            const centerEndCol = Math.max(totalCols - 2, centerStartCol)
+            const lastColLetter = worksheet.getColumn(totalCols).letter
+
+            for (let row = 1; row <= 8; row += 1) {
+                worksheet.mergeCells(row, centerStartCol, row, centerEndCol)
+            }
+
+            worksheet.getCell(1, centerStartCol).value = HEADER_REPUBLIC
+            worksheet.getCell(2, centerStartCol).value = HEADER_INSTITUTION
+            worksheet.getCell(3, centerStartCol).value = HEADER_SUBTITLE
+            worksheet.getCell(4, centerStartCol).value = HEADER_COLLEGE
+            worksheet.getCell(5, centerStartCol).value = HEADER_DOCUMENT
+            worksheet.getCell(6, centerStartCol).value = isIndividualFaculty ? normalizedFacultyLabel : "All Faculty"
+            worksheet.getCell(7, centerStartCol).value = filtersLine
+            worksheet.getCell(8, centerStartCol).value = `Generated at: ${formatDateTimeAmPm(generatedAt)}`
+
+            worksheet.getRow(1).height = 14
+            worksheet.getRow(2).height = 18
+            worksheet.getRow(3).height = 14
+            worksheet.getRow(4).height = 16
+            worksheet.getRow(5).height = 24
+            worksheet.getRow(6).height = 18
+            worksheet.getRow(7).height = 18
+            worksheet.getRow(8).height = 18
+            worksheet.getRow(9).height = 8
+            worksheet.getRow(10).height = 24
+
+            const border = {
+                top: { style: "thin", color: { argb: "FFCBD5E1" } },
+                bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+                left: { style: "thin", color: { argb: "FFCBD5E1" } },
+                right: { style: "thin", color: { argb: "FFCBD5E1" } },
+            }
+
+            const headerCenterBase = {
+                font: { name: "Helvetica", color: { argb: "FF0F172A" } },
+                alignment: { vertical: "middle", horizontal: "center", wrapText: true },
+            }
+
+            Object.assign(worksheet.getCell(1, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 9, color: { argb: "FF475569" } },
+                },
+            })
+
+            Object.assign(worksheet.getCell(2, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 14, bold: true, color: { argb: "FF0F172A" } },
+                },
+            })
+
+            Object.assign(worksheet.getCell(3, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 9, color: { argb: "FF475569" } },
+                },
+            })
+
+            Object.assign(worksheet.getCell(4, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 11, bold: true, color: { argb: "FF0F172A" } },
+                },
+            })
+
+            Object.assign(worksheet.getCell(5, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 16, italic: true, color: { argb: "FF6B7280" } },
+                },
+            })
+
+            Object.assign(worksheet.getCell(6, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 10, bold: true, color: { argb: "FF334155" } },
+                },
+            })
+
+            Object.assign(worksheet.getCell(7, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 9, color: { argb: "FF475569" } },
+                },
+            })
+
+            Object.assign(worksheet.getCell(8, centerStartCol), {
+                style: {
+                    ...headerCenterBase,
+                    font: { name: "Helvetica", size: 9, color: { argb: "FF475569" } },
+                },
+            })
+
+            columns.forEach((column, index) => {
+                const cell = worksheet.getCell(10, index + 1)
+                cell.value = column.label
+                cell.style = {
+                    font: { name: "Helvetica", size: 10, bold: true, color: { argb: "FFFFFFFF" } },
+                    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } },
+                    alignment: { vertical: "middle", horizontal: "center", wrapText: true },
+                    border,
+                }
+            })
+
+            targetRows.forEach((r: any, rowIndex: number) => {
+                const excelRowNumber = 11 + rowIndex
                 const id = safeId(r)
-                const hasConflict = id ? conflictRecordIds.has(id) : false
+                const isConflict = id ? conflictRecordIds.has(id) : false
+                const even = rowIndex % 2 === 0
+
+                const startRaw = r?.startTime ?? r?.start ?? "—"
+                const endRaw = r?.endTime ?? r?.end ?? "—"
 
                 const unitsRaw = r?.units
                 const unitsNum = Number(unitsRaw)
                 const units = Number.isFinite(unitsNum) ? unitsNum : "—"
 
-                const startRaw = r?.startTime ?? r?.start ?? "—"
-                const endRaw = r?.endTime ?? r?.end ?? "—"
-
-                return columns.map((column) => {
+                const rowValues = columns.map((column) => {
                     if (column.key === "term") return resolveTermLabel(r)
                     if (column.key === "day") return String(r?.dayOfWeek ?? r?.day ?? "—")
                     if (column.key === "start") return formatTimeAmPm(startRaw)
@@ -321,158 +539,115 @@ export function RecordsExcelActions({
                     if (column.key === "code") return String(r?.subjectCode ?? r?.code ?? "—")
                     if (column.key === "title") return String(r?.subjectTitle ?? r?.title ?? "—")
                     if (column.key === "units") return units
-                    if (column.key === "conflict") return hasConflict ? "Conflict" : "Clear"
+                    if (column.key === "conflict") return isConflict ? "Conflict" : "Clear"
                     return "—"
                 })
-            })
 
-            const aoa: any[][] = [
-                [title],
-                [filtersLine],
-                [`Generated at: ${formatDateTimeAmPm(generatedAt)}`],
-                [],
-                headers,
-                ...dataRows,
-            ]
+                rowValues.forEach((value, cellIndex) => {
+                    const column = columns[cellIndex]
+                    const cell = worksheet.getCell(excelRowNumber, cellIndex + 1)
 
-            const ws = XLSX.utils.aoa_to_sheet(aoa)
+                    cell.value = value as any
 
-            const totalCols = headers.length
-            const headerRowIndex = 5
-            const firstDataRowIndex = headerRowIndex + 1
+                    const isConflictCol = column.key === "conflict"
+                    const centerAligned =
+                        column.key === "day" ||
+                        column.key === "start" ||
+                        column.key === "end" ||
+                        column.key === "units" ||
+                        column.key === "conflict"
 
-            ws["!merges"] = ws["!merges"] || []
-            ws["!merges"].push({
-                s: { r: 0, c: 0 },
-                e: { r: 0, c: totalCols - 1 },
-            })
+                    const fillArgb = isConflict
+                        ? "FFFEE2E2"
+                        : even
+                          ? "FFFFFFFF"
+                          : "FFF8FAFC"
 
-            ws["!cols"] = columns.map((column) => ({ wch: column.wch }))
-
-            ws["!rows"] = ws["!rows"] || []
-            ws["!rows"][0] = { hpt: 28 }
-            ws["!rows"][1] = { hpt: 20 }
-            ws["!rows"][2] = { hpt: 20 }
-            ws["!rows"][4] = { hpt: 24 }
-
-            const lastColLetter = XLSX.utils.encode_col(totalCols - 1)
-            ws["!autofilter"] = { ref: `A${headerRowIndex}:${lastColLetter}${headerRowIndex}` }
-
-            const border = {
-                top: { style: "thin", color: { rgb: "CBD5E1" } },
-                bottom: { style: "thin", color: { rgb: "CBD5E1" } },
-                left: { style: "thin", color: { rgb: "CBD5E1" } },
-                right: { style: "thin", color: { rgb: "CBD5E1" } },
-            }
-
-            const titleStyle = {
-                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
-                fill: { patternType: "solid", fgColor: { rgb: "0F172A" } },
-                alignment: { horizontal: "center", vertical: "center" },
-            }
-
-            const metaStyle = {
-                font: { color: { rgb: "334155" }, sz: 10 },
-                fill: { patternType: "solid", fgColor: { rgb: "F1F5F9" } },
-                alignment: { horizontal: "left", vertical: "center", indent: 1 },
-            }
-
-            const headerStyle = {
-                font: { bold: true, color: { rgb: "FFFFFF" } },
-                fill: { patternType: "solid", fgColor: { rgb: "1E293B" } },
-                alignment: { horizontal: "center", vertical: "center", wrapText: true },
-                border,
-            }
-
-            const rowStyleBase = {
-                alignment: { horizontal: "left", vertical: "top", wrapText: true, indent: 1 },
-                border,
-            }
-
-            const zebraFill = (even: boolean) => ({
-                patternType: "solid",
-                fgColor: { rgb: even ? "FFFFFF" : "F8FAFC" },
-            })
-
-            const conflictFill = { patternType: "solid", fgColor: { rgb: "FEE2E2" } }
-            const clearFill = { patternType: "solid", fgColor: { rgb: "ECFDF5" } }
-
-            const titleCellAddr = "A1"
-            if (ws[titleCellAddr]) ws[titleCellAddr].s = titleStyle
-
-            const metaRows = [2, 3]
-            for (const r of metaRows) {
-                const addr = `A${r}`
-                if (ws[addr]) {
-                    ws[addr].s = metaStyle
-                    ws["!merges"].push({
-                        s: { r: r - 1, c: 0 },
-                        e: { r: r - 1, c: totalCols - 1 },
-                    })
-                }
-            }
-
-            for (let c = 0; c < totalCols; c++) {
-                const addr = XLSX.utils.encode_cell({ r: headerRowIndex - 1, c })
-                if (ws[addr]) ws[addr].s = headerStyle
-            }
-
-            for (let i = 0; i < dataRows.length; i++) {
-                const excelRow = firstDataRowIndex + i
-                const even = i % 2 === 0
-                const recordId = safeId(targetRows[i])
-                const isConflict = recordId ? conflictRecordIds.has(recordId) : false
-
-                ws["!rows"][excelRow - 1] = { hpt: 30 }
-
-                for (let c = 0; c < totalCols; c++) {
-                    const addr = XLSX.utils.encode_cell({ r: excelRow - 1, c })
-                    if (!ws[addr]) continue
-
-                    const columnKey = columns[c]?.key
-                    const isConflictCol = columnKey === "conflict"
-                    const isCenterColumn =
-                        columnKey === "day" ||
-                        columnKey === "start" ||
-                        columnKey === "end" ||
-                        columnKey === "units" ||
-                        columnKey === "conflict"
-
-                    const fill =
-                        isConflictCol
+                    const conflictFillArgb = isConflict ? "FFFEE2E2" : "FFECFDF5"
+                    const fontColor =
+                        column.key === "conflict"
                             ? isConflict
-                                ? conflictFill
-                                : clearFill
-                            : isConflict
-                              ? conflictFill
-                              : zebraFill(even)
+                                ? "FF7F1D1D"
+                                : "FF065F46"
+                            : "FF0F172A"
 
-                    ws[addr].s = {
-                        ...rowStyleBase,
-                        alignment: isCenterColumn
-                            ? { horizontal: "center", vertical: "center", wrapText: true }
-                            : rowStyleBase.alignment,
-                        fill,
-                        font: isConflictCol
-                            ? { bold: true, color: { rgb: isConflict ? "7F1D1D" : "065F46" } }
-                            : undefined,
+                    cell.style = {
+                        font: {
+                            name: "Helvetica",
+                            size: 10,
+                            bold: isConflictCol,
+                            color: { argb: fontColor },
+                        },
+                        fill: {
+                            type: "pattern",
+                            pattern: "solid",
+                            fgColor: {
+                                argb: isConflictCol ? conflictFillArgb : fillArgb,
+                            },
+                        },
+                        alignment: {
+                            vertical: "middle",
+                            horizontal: centerAligned ? "center" : "left",
+                            wrapText: true,
+                            indent: centerAligned ? 0 : 1,
+                        },
+                        border,
                     }
+                })
 
-                    if (columnKey === "units" && typeof ws[addr]?.v === "number") {
-                        ws[addr].z = "0"
-                    }
-                }
+                worksheet.getRow(excelRowNumber).height = 28
+            })
+
+            worksheet.autoFilter = {
+                from: { row: 10, column: 1 },
+                to: { row: 10, column: totalCols },
             }
 
-            const wb = XLSX.utils.book_new()
-            XLSX.utils.book_append_sheet(wb, ws, "List of Records")
+            const leftLogoDataUrl = await getAssetAsDataUrl(LEFT_LOGO_PATH)
+            const rightLogoDataUrl = await getAssetAsDataUrl(RIGHT_LOGO_PATH)
 
-            const out: ArrayBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" })
-            const blob = new Blob([out], {
+            const leftLogoId = workbook.addImage({
+                base64: leftLogoDataUrl,
+                extension: inferExcelImageExtension(leftLogoDataUrl),
+            })
+
+            const rightLogoId = workbook.addImage({
+                base64: rightLogoDataUrl,
+                extension: inferExcelImageExtension(rightLogoDataUrl),
+            })
+
+            worksheet.addImage(leftLogoId, {
+                tl: { col: 0.25, row: 0.2 },
+                ext: { width: 58, height: 58 },
+            })
+
+            worksheet.addImage(rightLogoId, {
+                tl: { col: Math.max(totalCols - 1.7, 0), row: 0.2 },
+                ext: { width: 58, height: 58 },
+            })
+
+            worksheet.getCell(`A${targetRows.length + 12}`).value = ""
+            worksheet.getCell(`A${targetRows.length + 13}`).fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FF7FA7E8" },
+            }
+            worksheet.getCell(`A${targetRows.length + 14}`).fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FFE9C76B" },
+            }
+            worksheet.mergeCells(`A${targetRows.length + 13}:${lastColLetter}${targetRows.length + 13}`)
+            worksheet.mergeCells(`A${targetRows.length + 14}:${lastColLetter}${targetRows.length + 14}`)
+            worksheet.getRow(targetRows.length + 13).height = 4
+            worksheet.getRow(targetRows.length + 14).height = 3
+
+            const buffer = await workbook.xlsx.writeBuffer()
+            const blob = new Blob([buffer], {
                 type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             })
 
-            return { blob, filename, supportsStyles }
+            return { blob, filename }
         },
         [resolveTermLabel, conflictRecordIds, subjectFilterLabel, unitFilterLabel]
     )
@@ -485,16 +660,10 @@ export function RecordsExcelActions({
 
         setExcelBusy(true)
         try {
-            const { blob, filename, supportsStyles } = await buildWorkbookBlob(
+            const { blob, filename } = await buildWorkbookBlob(
                 rows,
                 singleFacultyLabel ?? undefined
             )
-
-            if (!supportsStyles && !warnedStylesRef.current) {
-                warnedStylesRef.current = true
-                toast.message("Tip: Install xlsx-js-style to enable colored/styled Excel export.")
-            }
-
             downloadBlob(blob, filename)
             toast.success("Excel exported.")
         } catch (e: any) {
@@ -520,15 +689,10 @@ export function RecordsExcelActions({
             let exportedCount = 0
 
             for (const group of facultyGroups) {
-                const { blob, filename, supportsStyles } = await buildWorkbookBlob(
+                const { blob, filename } = await buildWorkbookBlob(
                     group.rows,
                     group.facultyLabel
                 )
-
-                if (!supportsStyles && !warnedStylesRef.current) {
-                    warnedStylesRef.current = true
-                    toast.message("Tip: Install xlsx-js-style to enable colored/styled Excel export.")
-                }
 
                 downloadBlob(blob, filename)
                 exportedCount += 1
@@ -552,29 +716,34 @@ export function RecordsExcelActions({
                     variant="outline"
                     size="sm"
                     onClick={() => setPreviewOpen(true)}
-                    disabled={controlsDisabled}
+                    disabled={!hasRows}
                 >
                     <Eye className="mr-2 h-4 w-4" />
                     Preview Excel
                 </Button>
 
-                {canExportFacultyIndividually ? (
+                {showBatchFacultyExport ? (
                     <Button
                         variant="outline"
-                        size="sm"
+                        size="icon"
                         onClick={() => void onExportFacultyExcel()}
-                        disabled={controlsDisabled}
+                        disabled={!hasRows || excelBusy || facultyExcelBusy}
+                        aria-label="Export individual faculty Excel files"
+                        title="Export individual faculty Excel files"
                     >
                         {facultyExcelBusy ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                            <Download className="mr-2 h-4 w-4" />
+                            <Download className="h-4 w-4" />
                         )}
-                        {facultyExcelBusy ? "Exporting Faculty..." : "Faculty Excel"}
                     </Button>
                 ) : null}
 
-                <Button size="sm" onClick={() => void onExportExcel()} disabled={controlsDisabled}>
+                <Button
+                    size="sm"
+                    onClick={() => void onExportExcel()}
+                    disabled={!hasRows || excelBusy || facultyExcelBusy}
+                >
                     {excelBusy ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -585,34 +754,72 @@ export function RecordsExcelActions({
             </div>
 
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="h-[95svh] min-w-0 overflow-hidden sm:max-w-7xl">
+                <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
                     <DialogHeader>
                         <DialogTitle>
                             Excel Preview — List of Records
                             {singleFacultyLabel ? ` — ${singleFacultyLabel}` : ""}
                         </DialogTitle>
                         <DialogDescription>
-                            Preview the Excel table layout before downloading. Conflict rows are highlighted.
+                            Preview the branded Excel layout before downloading. Conflict rows are highlighted.
                         </DialogDescription>
                     </DialogHeader>
+
+                    <div className="rounded-md border bg-muted/20 px-4 py-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="flex h-16 w-16 shrink-0 items-center justify-center">
+                                <img
+                                    src={LEFT_LOGO_PATH}
+                                    alt="JRMSU logo"
+                                    className="h-14 w-14 object-contain"
+                                />
+                            </div>
+
+                            <div className="min-w-0 flex-1 text-center">
+                                <div className="text-[11px] text-muted-foreground">
+                                    {HEADER_REPUBLIC}
+                                </div>
+                                <div className="text-base font-bold leading-tight">
+                                    {HEADER_INSTITUTION}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                    {HEADER_SUBTITLE}
+                                </div>
+                                <div className="mt-1 text-sm font-bold">
+                                    {HEADER_COLLEGE}
+                                </div>
+                                <div className="mt-2 text-xl italic text-muted-foreground">
+                                    {HEADER_DOCUMENT}
+                                </div>
+                                <div className="mt-1 text-sm font-medium text-foreground">
+                                    {singleFacultyLabel || "All Faculty"}
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                    Filters: {subjectFilterLabel} • {unitFilterLabel}
+                                </div>
+                            </div>
+
+                            <div className="flex h-16 w-16 shrink-0 items-center justify-center">
+                                <img
+                                    src={RIGHT_LOGO_PATH}
+                                    alt="CCS logo"
+                                    className="h-14 w-14 object-contain"
+                                />
+                            </div>
+                        </div>
+                    </div>
 
                     <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{subjectFilterLabel}</Badge>
                         <Badge variant="secondary">{unitFilterLabel}</Badge>
                         {singleFacultyLabel ? <Badge variant="secondary">{singleFacultyLabel}</Badge> : null}
-                        {canExportFacultyIndividually ? (
-                            <Badge variant="secondary">
-                                {facultyGroups.length} faculty file
-                                {facultyGroups.length === 1 ? "" : "s"}
-                            </Badge>
-                        ) : null}
                         <Badge variant="outline">
                             {rows.length} record{rows.length === 1 ? "" : "s"}
                         </Badge>
                     </div>
 
-                    <div className="mt-3 min-w-0 max-w-full rounded-md border">
-                        <ScrollArea className="h-[72vh] w-full min-w-0">
+                    <div className="mt-3 rounded-md border min-w-0 max-w-full">
+                        <ScrollArea className="h-[60vh] w-full min-w-0">
                             <Table containerClassName="w-max overflow-visible" className="w-full">
                                 <TableHeader>
                                     <TableRow>
@@ -717,34 +924,36 @@ export function RecordsExcelActions({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            {canExportFacultyIndividually
-                                ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight. Faculty Excel creates one file per faculty and automatically removes the Faculty column."
-                                : singleFacultyLabel
-                                  ? "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, conflict highlight, and removes the Faculty column for this individual faculty export."
-                                  : "Excel export includes styled title/header rows, zebra striping, borders, extra spacing for long text, and conflict highlight."}
+                            Excel export now includes the JRMSU and CCS logos, official institutional header,
+                            branded title area, styled table rows, and conflict highlighting.
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
                                 Close
                             </Button>
 
-                            {canExportFacultyIndividually ? (
+                            {showBatchFacultyExport ? (
                                 <Button
                                     variant="outline"
+                                    size="icon"
                                     onClick={() => void onExportFacultyExcel()}
-                                    disabled={controlsDisabled}
+                                    disabled={facultyExcelBusy || excelBusy || !hasRows}
+                                    aria-label="Export individual faculty Excel files"
+                                    title="Export individual faculty Excel files"
                                 >
                                     {facultyExcelBusy ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="h-4 w-4 animate-spin" />
                                     ) : (
-                                        <Download className="mr-2 h-4 w-4" />
+                                        <Download className="h-4 w-4" />
                                     )}
-                                    {facultyExcelBusy ? "Exporting Faculty..." : "Faculty Excel"}
                                 </Button>
                             ) : null}
 
-                            <Button onClick={() => void onExportExcel()} disabled={controlsDisabled}>
+                            <Button
+                                onClick={() => void onExportExcel()}
+                                disabled={excelBusy || facultyExcelBusy || !hasRows}
+                            >
                                 <Download className="mr-2 h-4 w-4" />
                                 Download Excel
                             </Button>
