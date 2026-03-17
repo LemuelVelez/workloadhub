@@ -789,7 +789,7 @@ export function RecordsPdfActions({
             </div>
 
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="sm:max-w-6xl min-w-0 overflow-hidden">
+                <DialogContent className="sm:max-w-6xl min-w-0 overflow-auto h-[95svh]">
                     <DialogHeader>
                         <DialogTitle>
                             PDF Preview — List of Records
