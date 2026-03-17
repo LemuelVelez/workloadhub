@@ -258,6 +258,22 @@ function buildSectionLabel(section?: SectionLite | null) {
     return name
 }
 
+function buildPrintableSubjectLabel(item: RoomSchedulePrintItem) {
+    const code = str(item.subjectCode)
+    const title = str(item.subjectTitle)
+
+    if (code && title) return `${code} — ${title}`
+    return code || title || "—"
+}
+
+function buildPrintableSectionText(item: RoomSchedulePrintItem) {
+    return str(item.sectionLabel) || "—"
+}
+
+function buildPrintableInstructorText(item: RoomSchedulePrintItem) {
+    return str(item.facultyName) || "Unassigned Instructor"
+}
+
 function choosePreferredVersions(versions: ScheduleVersionLite[]) {
     const byDepartment = new Map<string, ScheduleVersionLite[]>()
 
@@ -407,12 +423,13 @@ async function fetchRoomPrintableSchedule(params: {
 
     const subjectIds = classes.map((klass) => klass.subjectId).filter(Boolean)
     const sectionIds = classes.map((klass) => klass.sectionId).filter(Boolean)
-    const facultyUserIds = classes.map((klass) => str(klass.facultyUserId)).filter(Boolean)
+    const facultyLookupValues = classes.map((klass) => str(klass.facultyUserId)).filter(Boolean)
 
-    const [subjectDocs, sectionDocs, userDocs] = await Promise.all([
+    const [subjectDocs, sectionDocs, userDocsByUserId, userDocsByProfileId] = await Promise.all([
         listDocsByField(COLLECTIONS.SUBJECTS, "$id", subjectIds),
         listDocsByField(COLLECTIONS.SECTIONS, "$id", sectionIds),
-        listDocsByField(COLLECTIONS.USER_PROFILES, "userId", facultyUserIds),
+        listDocsByField(COLLECTIONS.USER_PROFILES, "userId", facultyLookupValues),
+        listDocsByField(COLLECTIONS.USER_PROFILES, "$id", facultyLookupValues),
     ])
 
     const subjectById = new Map<string, SubjectLite>(
@@ -437,26 +454,32 @@ async function fetchRoomPrintableSchedule(params: {
         ])
     )
 
-    const facultyByUserId = new Map<string, UserProfileLite>(
-        userDocs.map((user: any) => [
-            str(user.userId),
-            {
-                $id: user.$id,
-                userId: str(user.userId),
-                name: user.name ? str(user.name) : null,
-                email: user.email ? str(user.email) : null,
-            } as UserProfileLite,
-        ])
-    )
+    const facultyByLookupId = new Map<string, UserProfileLite>()
+    for (const user of [...userDocsByUserId, ...userDocsByProfileId]) {
+        const profile = {
+            $id: str(user.$id),
+            userId: str(user.userId),
+            name: user.name ? str(user.name) : null,
+            email: user.email ? str(user.email) : null,
+        } as UserProfileLite
+
+        if (profile.$id) {
+            facultyByLookupId.set(profile.$id, profile)
+        }
+
+        if (profile.userId) {
+            facultyByLookupId.set(profile.userId, profile)
+        }
+    }
 
     const printableItems = meetings.map((meeting) => {
         const klass = classById.get(meeting.classId)
         const subject = klass ? subjectById.get(klass.subjectId) : null
         const section = klass ? sectionById.get(klass.sectionId) : null
         const faculty =
-            klass && klass.facultyUserId ? facultyByUserId.get(klass.facultyUserId) : null
+            klass && klass.facultyUserId ? facultyByLookupId.get(str(klass.facultyUserId)) : null
 
-        const facultyName = str(faculty?.name) || "TBA"
+        const facultyName = str(faculty?.name) || str(faculty?.email) || "Unassigned Instructor"
         const subjectCode = str(subject?.code)
         const subjectTitle = str(subject?.title)
         const sectionLabel = buildSectionLabel(section)
@@ -695,6 +718,18 @@ export default function AdminRoomsAndFacilitiesPage() {
         [terms, printTermId]
     )
 
+    const uniquePrintInstructors = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    printItems
+                        .map((item) => buildPrintableInstructorText(item))
+                        .filter(Boolean)
+                )
+            ),
+        [printItems]
+    )
+
     const q = search.trim().toLowerCase()
 
     const filteredRooms = React.useMemo(() => {
@@ -861,6 +896,10 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     <Badge variant="outline">
                                         {printItems.length} schedule block{printItems.length === 1 ? "" : "s"}
                                     </Badge>
+                                    <Badge variant="outline">
+                                        {uniquePrintInstructors.length} instructor
+                                        {uniquePrintInstructors.length === 1 ? "" : "s"}
+                                    </Badge>
                                 </div>
                             </div>
                         </div>
@@ -870,8 +909,8 @@ export default function AdminRoomsAndFacilitiesPage() {
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <p className="text-sm text-muted-foreground">
                                 The generated PDF follows the official room monitoring layout with aligned top logos,
-                                a corrected table header, sign columns, a noon break row, and color-coded schedule
-                                blocks.
+                                a corrected table header, sign columns, a noon break row, color-coded schedule
+                                blocks, and visible instructor assignments.
                             </p>
 
                             <div className="flex items-center gap-2">
@@ -904,30 +943,62 @@ export default function AdminRoomsAndFacilitiesPage() {
                         ) : (
                             <div className="rounded-md border bg-muted/20 p-4">
                                 {printItems.length > 0 ? (
-                                    <div className="space-y-2">
-                                        <div className="text-sm font-medium">Loaded printable schedule data</div>
-                                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                                            {printItems.slice(0, 6).map((item) => (
-                                                <div
-                                                    key={item.id || `${item.dayOfWeek}-${item.startTime}-${item.endTime}`}
-                                                    className="rounded-md border bg-background p-3 text-sm"
-                                                >
-                                                    <div className="font-medium">
-                                                        {normalizeDayLabel(item.dayOfWeek)} • {item.startTime} -{" "}
-                                                        {item.endTime}
-                                                    </div>
-                                                    <div className="text-muted-foreground">
-                                                        {(item.contentLines ?? []).join(" • ")}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        {printItems.length > 6 ? (
-                                            <div className="text-xs text-muted-foreground">
-                                                Showing 6 of {printItems.length} schedule blocks. Full data is included
-                                                in the PDF preview and export.
+                                    <div className="space-y-3">
+                                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                            <div className="text-sm font-medium">
+                                                Loaded printable schedule data
                                             </div>
-                                        ) : null}
+                                            <div className="text-xs text-muted-foreground">
+                                                Klaro na makita diri kung kinsang instructor ang assigned sa room.
+                                            </div>
+                                        </div>
+
+                                        <div className="overflow-hidden rounded-md border bg-background">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead className="w-36">Day</TableHead>
+                                                        <TableHead className="w-40">Time</TableHead>
+                                                        <TableHead>Instructor</TableHead>
+                                                        <TableHead>Subject</TableHead>
+                                                        <TableHead className="w-28">Section</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {printItems.map((item) => (
+                                                        <TableRow
+                                                            key={
+                                                                item.id ||
+                                                                `${item.dayOfWeek}-${item.startTime}-${item.endTime}`
+                                                            }
+                                                        >
+                                                            <TableCell className="font-medium">
+                                                                {normalizeDayLabel(item.dayOfWeek)}
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                {item.startTime} - {item.endTime}
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <div className="font-medium">
+                                                                    {buildPrintableInstructorText(item)}
+                                                                </div>
+                                                                {str(item.notes) ? (
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        {str(item.notes)}
+                                                                    </div>
+                                                                ) : null}
+                                                            </TableCell>
+                                                            <TableCell className="text-muted-foreground">
+                                                                {buildPrintableSubjectLabel(item)}
+                                                            </TableCell>
+                                                            <TableCell className="text-muted-foreground">
+                                                                {buildPrintableSectionText(item)}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="text-sm text-muted-foreground">

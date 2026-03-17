@@ -856,7 +856,12 @@ export function RoomSchedulePrintSheet({
                                                         styles.meetingText,
                                                         {
                                                             color: block.textColor,
-                                                            fontSize: block.fontSize,
+                                                            fontSize:
+                                                                lineIndex === 0
+                                                                    ? block.fontSize + 0.3
+                                                                    : block.fontSize,
+                                                            fontWeight:
+                                                                lineIndex === 0 ? "bold" : "normal",
                                                         },
                                                     ]}
                                                 >
@@ -1000,7 +1005,8 @@ export function RoomSchedulePrintSheet({
                     <DialogHeader>
                         <DialogTitle>PDF Preview — {roomLabel}</DialogTitle>
                         <DialogDescription>
-                            A4 landscape room monitoring sheet aligned to the official printed sample.
+                            A4 landscape room monitoring sheet with visible instructor assignments per
+                            schedule block.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1039,7 +1045,7 @@ export function RoomSchedulePrintSheet({
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             Includes the official PNG logo, aligned upper-right CCS mark, corrected header
-                            structure, and simplified official layout.
+                            structure, visible instructor names, and simplified official layout.
                         </div>
 
                         <div className="flex items-center gap-2">
