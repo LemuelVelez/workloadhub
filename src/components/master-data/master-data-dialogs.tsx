@@ -498,16 +498,6 @@ export function MasterDataDialogs({ vm }: Props) {
                             />
                         </div>
 
-                        <div className="rounded-md border border-dashed p-3">
-                            <div className="text-xs text-muted-foreground">Faculty Load Source</div>
-                            <div className="mt-1 text-sm font-medium">
-                                Units and hours are auto-populated from the faculty member&apos;s assigned subjects.
-                            </div>
-                            <div className="mt-2 text-xs text-muted-foreground">
-                                You do not need to manually encode max units or max hours in the Faculty form anymore.
-                            </div>
-                        </div>
-
                         <div className="grid gap-2">
                             <Label>Notes (optional)</Label>
                             <Textarea

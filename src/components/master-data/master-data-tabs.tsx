@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Plus, Pencil, Trash2 } from "lucide-react"
 
 import type { MasterDataManagementVM } from "./use-master-data"
-import { FacultyMobileCards, RecordMobileCards } from "./master-data-mobile-cards"
+import { RecordMobileCards } from "./master-data-mobile-cards"
 import { RecordsExcelActions } from "./records-excel-actions"
 import { RecordsPdfActions } from "./records-pdf-actions"
 
@@ -71,6 +71,13 @@ const DAYS = [
     "Saturday",
     "Sunday",
 ] as const
+
+const EMPTY_FACULTY_LOAD = {
+    assignedRecordCount: 0,
+    assignedSubjectCount: 0,
+    totalUnits: 0,
+    totalHours: 0,
+} as const
 
 function hasOwn(obj: any, key: string) {
     return obj != null && Object.prototype.hasOwnProperty.call(obj, key)
@@ -157,6 +164,103 @@ function safeTimeSortValue(value: any) {
     return mins == null ? Number.MAX_SAFE_INTEGER : mins
 }
 
+function normalizeLookupValue(value: any) {
+    return String(value ?? "").trim()
+}
+
+function toFiniteNumber(value: any): number | null {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : null
+}
+
+function formatLoadNumber(value: number) {
+    if (!Number.isFinite(value)) return "0"
+    return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function getSubjectHours(subject: any): number | null {
+    const totalHours = toFiniteNumber(subject?.totalHours)
+    if (totalHours != null) return totalHours
+
+    const lectureHours = toFiniteNumber(subject?.lectureHours) ?? 0
+    const labHours = toFiniteNumber(subject?.labHours) ?? 0
+
+    if (lectureHours > 0 || labHours > 0) {
+        return lectureHours + labHours
+    }
+
+    return null
+}
+
+function getRowDurationHours(row: any): number | null {
+    const start = parseTimeToMinutes(String(row?.startTime ?? row?.start ?? "").trim())
+    const end = parseTimeToMinutes(String(row?.endTime ?? row?.end ?? "").trim())
+
+    if (start == null || end == null || end <= start) return null
+    return (end - start) / 60
+}
+
+function findSubjectForRow(row: any, subjects: any[]) {
+    const subjectId = normalizeLookupValue(
+        row?.subjectId ?? row?.subject ?? row?.subjectDocId ?? row?.subjectID ?? ""
+    )
+
+    if (subjectId) {
+        const byId = subjects.find((subject) => normalizeLookupValue(subject?.$id) === subjectId)
+        if (byId) return byId
+    }
+
+    const subjectCode = normalizeGroupKey(row?.subjectCode ?? row?.code ?? "")
+    if (subjectCode) {
+        const byCode = subjects.find((subject) => normalizeGroupKey(subject?.code) === subjectCode)
+        if (byCode) return byCode
+    }
+
+    return null
+}
+
+function buildFacultyAssignedLoad(facultyUserId: string, rows: any[], subjects: any[]) {
+    const targetFacultyUserId = normalizeGroupKey(facultyUserId)
+
+    if (!targetFacultyUserId) return EMPTY_FACULTY_LOAD
+
+    let totalUnits = 0
+    let totalHours = 0
+    let assignedRecordCount = 0
+    const subjectKeys = new Set<string>()
+
+    for (const row of rows) {
+        const rowFacultyUserId = normalizeGroupKey(
+            row?.facultyUserId ?? row?.facultyId ?? row?.faculty ?? row?.userId ?? ""
+        )
+
+        if (!rowFacultyUserId || rowFacultyUserId !== targetFacultyUserId) continue
+
+        assignedRecordCount += 1
+
+        const subject = findSubjectForRow(row, subjects)
+        const units = toFiniteNumber(subject?.units) ?? toFiniteNumber(row?.units) ?? 0
+        const hours = getSubjectHours(subject) ?? getRowDurationHours(row) ?? 0
+
+        totalUnits += units
+        totalHours += hours
+
+        const subjectKey = normalizeLookupValue(
+            subject?.$id ?? row?.subjectId ?? row?.subjectCode ?? row?.subject ?? ""
+        )
+        if (subjectKey) {
+            subjectKeys.add(subjectKey)
+        }
+    }
+
+    return {
+        assignedRecordCount,
+        assignedSubjectCount: subjectKeys.size,
+        totalUnits,
+        totalHours,
+    }
+}
+
 export function MasterDataTabs({ vm }: Props) {
     // ===================== RECORD EDIT (LOCAL DIALOG) =====================
     const [recordEditOpen, setRecordEditOpen] = React.useState(false)
@@ -194,6 +298,24 @@ export function MasterDataTabs({ vm }: Props) {
         ],
         []
     )
+
+    const sourceRecordRows = React.useMemo(() => {
+        const rawRecordRows = (vm as any).recordRows
+        return Array.isArray(rawRecordRows) ? rawRecordRows : vm.filteredRecordRows
+    }, [vm, vm.filteredRecordRows])
+
+    const facultyAssignedLoadMap = React.useMemo(() => {
+        const map = new Map<string, ReturnType<typeof buildFacultyAssignedLoad>>()
+
+        for (const faculty of vm.filteredFaculty) {
+            map.set(
+                normalizeGroupKey(faculty.userId),
+                buildFacultyAssignedLoad(String(faculty.userId ?? ""), sourceRecordRows, vm.subjects)
+            )
+        }
+
+        return map
+    }, [sourceRecordRows, vm.filteredFaculty, vm.subjects])
 
     const openEditRecord = React.useCallback(
         (r: any) => {
@@ -808,7 +930,7 @@ export function MasterDataTabs({ vm }: Props) {
                                 <div>
                                     <div className="font-medium">Faculty</div>
                                     <div className="text-sm text-muted-foreground">
-                                        Faculty profile details and notes. Units and hours are derived automatically from the assigned subject.
+                                        Faculty info, rank, and auto-calculated teaching load based on assigned subjects.
                                     </div>
                                 </div>
 
@@ -834,8 +956,83 @@ export function MasterDataTabs({ vm }: Props) {
                                 <div className="text-sm text-muted-foreground">No faculty found.</div>
                             ) : (
                                 <>
-                                    <div className="sm:hidden">
-                                        <FacultyMobileCards vm={vm} />
+                                    <div className="space-y-3 sm:hidden">
+                                        {vm.filteredFaculty.map((f) => {
+                                            const u = vm.facultyUserMap.get(String(f.userId).trim()) ?? null
+                                            const facultyName = u ? vm.facultyDisplay(u) : "Unknown faculty"
+                                            const collegeName = vm.collegeLabel(vm.colleges, f.departmentId)
+                                            const load =
+                                                facultyAssignedLoadMap.get(normalizeGroupKey(f.userId)) ??
+                                                EMPTY_FACULTY_LOAD
+
+                                            return (
+                                                <Card key={f.$id}>
+                                                    <CardHeader className="space-y-2">
+                                                        <CardTitle className="text-base">{facultyName}</CardTitle>
+                                                        <CardDescription>{collegeName}</CardDescription>
+                                                    </CardHeader>
+                                                    <CardContent className="space-y-4">
+                                                        <div className="grid gap-2 text-sm">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-muted-foreground">Employee No</span>
+                                                                <span className="font-medium">{f.employeeNo || "—"}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-muted-foreground">Rank</span>
+                                                                <span className="font-medium text-right">{f.rank || "—"}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-muted-foreground">Subjects</span>
+                                                                <span className="font-medium">{load.assignedSubjectCount}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-muted-foreground">Records</span>
+                                                                <span className="font-medium">{load.assignedRecordCount}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-muted-foreground">Units</span>
+                                                                <span className="font-medium">
+                                                                    {formatLoadNumber(load.totalUnits)}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-muted-foreground">Hours</span>
+                                                                <span className="font-medium">
+                                                                    {formatLoadNumber(load.totalHours)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                                                            Teaching load is computed automatically from the faculty member&apos;s assigned subjects and records.
+                                                        </div>
+
+                                                        <div className="flex justify-end gap-2">
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    vm.setFacultyEditing(f)
+                                                                    vm.setFacultyOpen(true)
+                                                                }}
+                                                            >
+                                                                <Pencil className="mr-2 h-4 w-4" />
+                                                                Edit
+                                                            </Button>
+
+                                                            <Button
+                                                                variant="destructive"
+                                                                size="sm"
+                                                                onClick={() => vm.setDeleteIntent({ type: "faculty", doc: f })}
+                                                            >
+                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                Delete
+                                                            </Button>
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )
+                                        })}
                                     </div>
 
                                     <div className="hidden overflow-hidden rounded-md border sm:block">
@@ -844,6 +1041,9 @@ export function MasterDataTabs({ vm }: Props) {
                                                 const u = vm.facultyUserMap.get(String(f.userId).trim()) ?? null
                                                 const facultyName = u ? vm.facultyDisplay(u) : "Unknown faculty"
                                                 const collegeName = vm.collegeLabel(vm.colleges, f.departmentId)
+                                                const load =
+                                                    facultyAssignedLoadMap.get(normalizeGroupKey(f.userId)) ??
+                                                    EMPTY_FACULTY_LOAD
 
                                                 return (
                                                     <AccordionItem key={f.$id} value={f.$id} className="px-4">
@@ -858,7 +1058,11 @@ export function MasterDataTabs({ vm }: Props) {
                                                                     <span>•</span>
                                                                     <span>{f.employeeNo || "No employee no"}</span>
                                                                     <span>•</span>
-                                                                    <span>{f.rank || "No rank set"}</span>
+                                                                    <span>Subjects: {load.assignedSubjectCount}</span>
+                                                                    <span>•</span>
+                                                                    <span>Units: {formatLoadNumber(load.totalUnits)}</span>
+                                                                    <span>•</span>
+                                                                    <span>Hours: {formatLoadNumber(load.totalHours)}</span>
                                                                 </div>
                                                             </div>
                                                         </AccordionTrigger>
@@ -916,18 +1120,6 @@ export function MasterDataTabs({ vm }: Props) {
                                                                                     {f.rank || "—"}
                                                                                 </div>
                                                                             </div>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <div className="rounded-md border p-4">
-                                                                        <div className="mb-3 text-sm font-medium">
-                                                                            Workload Source
-                                                                        </div>
-
-                                                                        <div className="grid gap-3 text-sm">
-                                                                            <div className="rounded-md border border-dashed bg-muted/30 p-3 text-muted-foreground">
-                                                                                Subject units, lecture hours, and lab hours are pulled automatically from the selected subject in the record or schedule entry. No manual faculty unit or hour setup is needed here.
-                                                                            </div>
 
                                                                             <div className="grid gap-1">
                                                                                 <div className="text-xs font-medium text-muted-foreground">
@@ -935,6 +1127,59 @@ export function MasterDataTabs({ vm }: Props) {
                                                                                 </div>
                                                                                 <div className="whitespace-pre-wrap wrap-break-word text-muted-foreground">
                                                                                     {f.notes || "—"}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="rounded-md border p-4">
+                                                                        <div className="mb-3 text-sm font-medium">
+                                                                            Auto-Calculated Teaching Load
+                                                                        </div>
+
+                                                                        <div className="grid gap-3 text-sm">
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Assigned Subjects
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {load.assignedSubjectCount}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Assigned Records
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {load.assignedRecordCount}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Total Units
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {formatLoadNumber(load.totalUnits)}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Total Hours
+                                                                                </div>
+                                                                                <div className="text-muted-foreground">
+                                                                                    {formatLoadNumber(load.totalHours)}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid gap-1">
+                                                                                <div className="text-xs font-medium text-muted-foreground">
+                                                                                    Source
+                                                                                </div>
+                                                                                <div className="whitespace-pre-wrap wrap-break-word text-muted-foreground">
+                                                                                    Load is derived automatically from the faculty member&apos;s assigned subjects and records, so units and hours no longer need manual encoding in Faculty.
                                                                                 </div>
                                                                             </div>
                                                                         </div>
@@ -978,7 +1223,8 @@ export function MasterDataTabs({ vm }: Props) {
                                     <CardTitle>Optional: Encode List of Faculties</CardTitle>
                                     <CardDescription>
                                         Useful when the same faculty roster repeats every semester.
-                                        Subject units and hours will still be derived automatically from assigned subjects.
+                                        Format per line: userId,employeeNo,rank,maxUnits,maxHours,notes.
+                                        Max units and max hours remain legacy optional caps, while the displayed teaching load is automatically computed from assigned subjects.
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-3">
@@ -1383,7 +1629,7 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                             <DialogHeader>
                                 <DialogTitle>Edit Record</DialogTitle>
                                 <ShadDialogDescription>
-                                    Update term/day/time/room/faculty/subject for this record. Changes will reflect in conflict detection after refresh.
+                                    Update term/day/time/room/faculty/subject for this record. Changes will reflect in conflict detection after refresh, and units will sync automatically from the selected subject when the record schema stores units.
                                 </ShadDialogDescription>
                             </DialogHeader>
 
@@ -1511,6 +1757,9 @@ faculty-user-id-2,2026-002,Assistant Professor,18,24,Thesis adviser`}
                                                 )}
                                             </SelectContent>
                                         </Select>
+                                        <div className="text-xs text-muted-foreground">
+                                            Units are taken automatically from the selected subject.
+                                        </div>
                                     </div>
                                 </div>
                             </div>
