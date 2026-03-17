@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "005_sections_yearlevel_prefixed_string" as const;
+export const SCHEMA_MIGRATION_ID = "006_backfill_section_yearlevel_prefixes" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
