@@ -188,7 +188,7 @@ function formatPdfTimeText(startTime?: string, endTime?: string) {
     return `${start} to ${end}`
 }
 
-function normalizeSectionTrackPrefix(value?: string | null) {
+function normalizeSectionTrackPrefix(value?: string | number | null) {
     const normalized = String(value ?? "")
         .trim()
         .toUpperCase()
@@ -259,6 +259,17 @@ function inferSectionTrackPrefix(values: Array<string | number | null | undefine
     return ""
 }
 
+function formatYearLevelDisplay(
+    yearLevel?: string | number | null,
+    prefix?: string | null
+) {
+    const parsedYear = Number(String(yearLevel ?? "").trim())
+    if (!Number.isFinite(parsedYear) || parsedYear <= 0) return "—"
+
+    const safePrefix = String(prefix ?? "").trim()
+    return safePrefix ? `${safePrefix} ${parsedYear}` : String(parsedYear)
+}
+
 function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) {
     const normalized = String(rawValue || "").trim().replace(/\s+/g, " ")
     if (!normalized) return ""
@@ -278,11 +289,18 @@ function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) 
         )
         .trim()
 
-    const yearSectionMatch = withoutProgramPrefix.match(/^Y?\s*([1-9]\d*)\s*-\s*(.+)$/i)
+    const normalizedYearCore = withoutProgramPrefix.replace(/^YEAR\s*/i, "").trim()
+    const prefix = inferSectionTrackPrefix([normalized]) || preferredPrefix
+
+    const yearSectionMatch = normalizedYearCore.match(/^([1-9]\d*)\s*-\s*(.+)$/i)
     if (yearSectionMatch) {
-        const prefix = inferSectionTrackPrefix([normalized]) || preferredPrefix
         const core = `${yearSectionMatch[1]} - ${yearSectionMatch[2].trim()}`
         return prefix ? `${prefix} ${core}` : core
+    }
+
+    const yearOnlyMatch = normalizedYearCore.match(/^([1-9]\d*)$/i)
+    if (yearOnlyMatch) {
+        return prefix ? `${prefix} ${yearOnlyMatch[1]}` : yearOnlyMatch[1]
     }
 
     return ""
@@ -294,52 +312,40 @@ function formatSectionDisplayLabel({
     name,
     programCode,
     programName,
-    sectionReference,
-    track,
 }: {
     label?: string | null
     yearLevel?: string | number | null
     name?: string | null
     programCode?: string | null
     programName?: string | null
-    sectionReference?: string | null
-    track?: string | null
 }) {
     const rawLabel = String(label || "").trim()
     const rawName = String(name || "").trim()
-    const rawSectionReference = String(sectionReference || "").trim()
-    const rawTrack = String(track || "").trim()
-
-    const preferredPrefix = inferSectionTrackPrefix([
-        rawSectionReference,
-        rawTrack,
-        rawLabel,
-        rawName,
-        programCode,
-        programName,
-    ])
-
-    const normalizedPrefixOnlyLabel = normalizeSectionTrackPrefix(rawLabel)
-    const isPrefixOnlyLabel =
-        Boolean(rawLabel) &&
-        Boolean(normalizedPrefixOnlyLabel) &&
-        rawLabel.toUpperCase() === normalizedPrefixOnlyLabel
+    const preferredPrefix = inferSectionTrackPrefix([rawLabel, rawName, programCode, programName])
 
     const formattedFromLabel = buildFormattedSectionLabel(rawLabel, preferredPrefix)
     if (formattedFromLabel) return formattedFromLabel
-    if (rawLabel && !isPrefixOnlyLabel) return rawLabel
 
     const formattedFromName = buildFormattedSectionLabel(rawName, preferredPrefix)
     if (formattedFromName) return formattedFromName
 
     const parsedYear = Number(yearLevel || 0)
-    if (rawName && Number.isFinite(parsedYear) && parsedYear > 0) {
+    const hasYear = Number.isFinite(parsedYear) && parsedYear > 0
+
+    if (hasYear && rawName) {
         const core = `${parsedYear} - ${rawName}`
         return preferredPrefix ? `${preferredPrefix} ${core}` : core
     }
+
+    if (hasYear && rawLabel) {
+        const core = `${parsedYear} - ${rawLabel}`
+        return preferredPrefix ? `${preferredPrefix} ${core}` : core
+    }
+
+    if (rawLabel) return rawLabel
     if (rawName) return rawName
-    if (Number.isFinite(parsedYear) && parsedYear > 0) {
-        return preferredPrefix ? `${preferredPrefix} ${parsedYear}` : `Year ${parsedYear}`
+    if (hasYear) {
+        return formatYearLevelDisplay(parsedYear, preferredPrefix)
     }
 
     return "—"
@@ -354,8 +360,6 @@ function formatRowSectionDisplayLabel(row: ScheduleRow) {
         name: rowAny.sectionName ?? rowAny.name,
         programCode: rowAny.sectionProgramCode ?? rowAny.programCode,
         programName: rowAny.sectionProgramName ?? rowAny.programName,
-        sectionReference: rowAny.sectionReference ?? rowAny.reference ?? rowAny.prefix,
-        track: rowAny.sectionTrack ?? rowAny.track,
     })
 }
 
@@ -909,6 +913,27 @@ export function PlannerManagementSection({
 }: Props) {
     const [pdfPreviewOpen, setPdfPreviewOpen] = React.useState(false)
 
+    const selectedSection = React.useMemo(
+        () => sections.find((section) => section.$id === formSectionId) ?? null,
+        [sections, formSectionId]
+    )
+
+    const selectedSectionPreviewLabel = React.useMemo(() => {
+        if (!selectedSection) return "—"
+
+        const sectionAny = selectedSection as any
+        const name = String(selectedSection.name || sectionAny.sectionName || "").trim() || selectedSection.$id
+        const yearLevel = Number(selectedSection.yearLevel || sectionAny.yearLevel || 0)
+
+        return formatSectionDisplayLabel({
+            label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
+            yearLevel,
+            name,
+            programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
+            programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
+        })
+    }, [selectedSection])
+
     const renderConflictBadges = (flags?: ConflictFlags) => {
         if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
             return <Badge variant="outline">No Conflict</Badge>
@@ -1381,65 +1406,49 @@ export function PlannerManagementSection({
                     <DialogHeader>
                         <DialogTitle>{editingRow ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
                         <DialogDescription>
-                            Use dropdowns for section, subject, faculty, and room. Section labels now follow the saved CS/IS reference when available.
+                            Use dropdowns for section, subject, faculty, and room. Section CS/IS reference is derived automatically from the selected program.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
                         <div className="grid gap-3 md:grid-cols-2">
-                            <div className="space-y-1">
-                                <Label>Section (CS/IS Reference)</Label>
-                                <Select value={formSectionId} onValueChange={setFormSectionId}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select section reference" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {sections.map((s) => {
-                                            const sectionAny = s as any
-                                            const name = String(s.name || "").trim() || s.$id
-                                            const y = Number(s.yearLevel || 0)
-                                            const sectionLabel = formatSectionDisplayLabel({
-                                                label: String(
-                                                    sectionAny.label ||
-                                                    sectionAny.sectionLabel ||
-                                                    sectionAny.displayLabel ||
-                                                    ""
-                                                ).trim(),
-                                                yearLevel: y,
-                                                name,
-                                                programCode: String(
-                                                    sectionAny.programCode ||
-                                                    sectionAny.sectionProgramCode ||
-                                                    sectionAny.courseCode ||
-                                                    ""
-                                                ).trim(),
-                                                programName: String(
-                                                    sectionAny.programName ||
-                                                    sectionAny.sectionProgramName ||
-                                                    sectionAny.courseName ||
-                                                    ""
-                                                ).trim(),
-                                                sectionReference: String(
-                                                    sectionAny.sectionReference ||
-                                                    sectionAny.reference ||
-                                                    sectionAny.prefix ||
-                                                    ""
-                                                ).trim(),
-                                                track: String(
-                                                    sectionAny.sectionTrack ||
-                                                    sectionAny.track ||
-                                                    ""
-                                                ).trim(),
-                                            })
+                            <div className="space-y-3">
+                                <div className="space-y-1">
+                                    <Label>Section</Label>
+                                    <Select value={formSectionId} onValueChange={setFormSectionId}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="Select section" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {sections.map((s) => {
+                                                const sectionAny = s as any
+                                                const name = String(s.name || "").trim() || s.$id
+                                                const y = Number(s.yearLevel || 0)
+                                                const sectionLabel = formatSectionDisplayLabel({
+                                                    label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
+                                                    yearLevel: y,
+                                                    name,
+                                                    programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
+                                                    programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
+                                                })
 
-                                            return (
-                                                <SelectItem key={s.$id} value={s.$id}>
-                                                    {sectionLabel}
-                                                </SelectItem>
-                                            )
-                                        })}
-                                    </SelectContent>
-                                </Select>
+                                                return (
+                                                    <SelectItem key={s.$id} value={s.$id}>
+                                                        {sectionLabel}
+                                                    </SelectItem>
+                                                )
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="rounded-xl border border-dashed p-3">
+                                    <div className="text-xs text-muted-foreground">Section CS/IS Reference Preview</div>
+                                    <div className="mt-1 font-medium">{selectedSectionPreviewLabel}</div>
+                                    <div className="mt-1 text-xs text-muted-foreground">
+                                        Reference is derived automatically from the selected program. Example: BSCS → CS 1 - A, BSIS → IS 1 - A.
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="space-y-1">

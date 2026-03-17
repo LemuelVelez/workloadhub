@@ -110,6 +110,56 @@ function inferSectionTrackPrefix(values: Array<string | null | undefined>) {
     return ""
 }
 
+function extractSectionTrackPrefixFromYearLevel(value?: string | number | null) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+
+    if (!normalized) return ""
+
+    const match = normalized.match(/^(CS|IS)\s+[1-9]\d*$/)
+    return match?.[1] ?? ""
+}
+
+function extractSectionYearNumber(value?: string | number | null) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+
+    if (!normalized) return ""
+
+    const direct = normalized.match(/^([1-9]\d*)$/)
+    if (direct) return direct[1]
+
+    const prefixed = normalized.match(/^(?:CS|IS)\s+([1-9]\d*)$/)
+    if (prefixed) return prefixed[1]
+
+    const trailing = normalized.match(/(?:^|[\s-])([1-9]\d*)$/)
+    return trailing?.[1] ?? ""
+}
+
+function buildSectionYearLevelValue({
+    yearLevel,
+    programCode,
+    programName,
+}: {
+    yearLevel?: string | number | null
+    programCode?: string | null
+    programName?: string | null
+}) {
+    const yearNumber = extractSectionYearNumber(yearLevel)
+    if (!yearNumber) return ""
+
+    const inferredPrefixFromProgram = inferSectionTrackPrefix([programCode, programName])
+    const existingPrefix =
+        extractSectionTrackPrefixFromYearLevel(yearLevel) || inferSectionTrackPrefix([String(yearLevel ?? "")])
+
+    const prefix = inferredPrefixFromProgram || existingPrefix
+    return prefix ? `${prefix} ${yearNumber}` : yearNumber
+}
+
 function buildSectionPreviewLabel({
     yearLevel,
     sectionName,
@@ -121,17 +171,21 @@ function buildSectionPreviewLabel({
     programCode?: string | null
     programName?: string | null
 }) {
-    const parsedYear = Number(String(yearLevel ?? "").trim())
+    const yearNumber = extractSectionYearNumber(yearLevel)
     const safeSectionName = String(sectionName ?? "").trim()
-    const prefix = inferSectionTrackPrefix([programCode, programName])
 
-    const hasYear = Number.isFinite(parsedYear) && parsedYear > 0
-    if (!hasYear && !safeSectionName) return "—"
+    const inferredPrefixFromProgram = inferSectionTrackPrefix([programCode, programName])
+    const existingPrefix =
+        extractSectionTrackPrefixFromYearLevel(yearLevel) || inferSectionTrackPrefix([String(yearLevel ?? "")])
 
-    const core = hasYear && safeSectionName
-        ? `${parsedYear} - ${safeSectionName}`
-        : hasYear
-            ? String(parsedYear)
+    const prefix = inferredPrefixFromProgram || existingPrefix
+
+    if (!yearNumber && !safeSectionName) return "—"
+
+    const core = yearNumber && safeSectionName
+        ? `${yearNumber} - ${safeSectionName}`
+        : yearNumber
+            ? yearNumber
             : safeSectionName
 
     return prefix ? `${prefix} ${core}` : core
@@ -141,6 +195,15 @@ export function MasterDataDialogs({ vm }: Props) {
     const selectedSectionProgram = vm.programsForSelectedCollege.find(
         (program) => program.$id === vm.sectionProgramId
     )
+
+    const sectionYearSelectValue = extractSectionYearNumber(vm.sectionYear)
+    const currentSectionTrackPrefix = extractSectionTrackPrefixFromYearLevel(vm.sectionYear)
+
+    const sectionStoredYearLevelValue = buildSectionYearLevelValue({
+        yearLevel: vm.sectionYear,
+        programCode: selectedSectionProgram?.code,
+        programName: selectedSectionProgram?.name,
+    })
 
     const sectionPreviewLabel = buildSectionPreviewLabel({
         yearLevel: vm.sectionYear,
@@ -531,7 +594,24 @@ export function MasterDataDialogs({ vm }: Props) {
                             <Label>Program (optional)</Label>
                             <Select
                                 value={vm.sectionProgramId || "__none__"}
-                                onValueChange={(v) => vm.setSectionProgramId(v === "__none__" ? "" : v)}
+                                onValueChange={(v) => {
+                                    const nextProgramId = v === "__none__" ? "" : v
+                                    vm.setSectionProgramId(nextProgramId)
+
+                                    const nextProgram = vm.programsForSelectedCollege.find(
+                                        (program) => program.$id === nextProgramId
+                                    )
+
+                                    const normalizedYearLevel = buildSectionYearLevelValue({
+                                        yearLevel: vm.sectionYear,
+                                        programCode: nextProgram?.code,
+                                        programName: nextProgram?.name,
+                                    })
+
+                                    if (normalizedYearLevel) {
+                                        vm.setSectionYear(normalizedYearLevel)
+                                    }
+                                }}
                             >
                                 <SelectTrigger>
                                     <SelectValue placeholder="No Program" />
@@ -553,26 +633,45 @@ export function MasterDataDialogs({ vm }: Props) {
                         <div className="rounded-md border border-dashed p-3">
                             <div className="text-xs text-muted-foreground">Section CS/IS Reference Preview</div>
                             <div className="mt-1 font-medium">{sectionPreviewLabel}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                                Reference is derived automatically from the selected program. Example: BSCS → CS 1 - A, BSIS → IS 1 - A.
+                            <div className="mt-2 text-xs text-muted-foreground">
+                                Stored yearLevel:{" "}
+                                <span className="font-medium text-foreground">
+                                    {sectionStoredYearLevelValue || "—"}
+                                </span>
                             </div>
                         </div>
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="grid gap-2">
                                 <Label>Year Level</Label>
-                                <Select value={vm.sectionYear} onValueChange={vm.setSectionYear}>
+                                <Select
+                                    value={sectionYearSelectValue}
+                                    onValueChange={(value) =>
+                                        vm.setSectionYear(
+                                            buildSectionYearLevelValue({
+                                                yearLevel: currentSectionTrackPrefix
+                                                    ? `${currentSectionTrackPrefix} ${value}`
+                                                    : value,
+                                                programCode: selectedSectionProgram?.code,
+                                                programName: selectedSectionProgram?.name,
+                                            })
+                                        )
+                                    }
+                                >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Year Level" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {YEAR_LEVEL_OPTIONS.map((y) => (
                                             <SelectItem key={y} value={String(y)}>
-                                                Year {y}
+                                                {y}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
+                                <div className="text-xs text-muted-foreground">
+                                    Saved automatically as CS 1 / IS 1 based on the selected program.
+                                </div>
                             </div>
 
                             <div className="grid gap-2">
@@ -634,7 +733,7 @@ export function MasterDataDialogs({ vm }: Props) {
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            className="bg-destructive text-white hover:bg-destructive/90"
                             onClick={() => void vm.confirmDelete()}
                         >
                             Delete

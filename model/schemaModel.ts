@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "002_first_login_users" as const;
+export const SCHEMA_MIGRATION_ID = "005_sections_yearlevel_prefixed_string" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -48,6 +48,21 @@ export const SECTION_LETTERS_A_TO_Z = [
 export const SECTION_NAME_OPTIONS = [...SECTION_LETTERS_A_TO_Z, "Others"] as const;
 
 export type SectionNameOption = (typeof SECTION_NAME_OPTIONS)[number];
+
+export const SECTION_TRACK_CODES = ["CS", "IS"] as const;
+export type SectionTrackCode = (typeof SECTION_TRACK_CODES)[number];
+
+export const SECTION_YEAR_NUMBER_OPTIONS = ["1", "2", "3", "4", "5"] as const;
+export type SectionYearNumber = (typeof SECTION_YEAR_NUMBER_OPTIONS)[number];
+
+/**
+ * Stored section yearLevel format:
+ * - CS 1
+ * - CS 2
+ * - IS 1
+ * - IS 2
+ */
+export type SectionYearLevelValue = `${SectionTrackCode} ${SectionYearNumber}` | (string & {});
 
 /**
  * Appwrite Collection IDs (must match migration IDs exactly)
@@ -328,9 +343,9 @@ export const INDEX = {
 
     SECTIONS: {
         termDepartment: "idx_sections_term_department",
-    
-        // ✅ NEW unique key (termId + departmentId + yearLevel + name)
-        // Appwrite key must be <= 36 chars
+
+        // ✅ unique key (termId + departmentId + yearLevel + name)
+        // yearLevel now stores values like "CS 1" / "IS 1"
         termDeptYearNameUnique: "idx_sec_term_dept_yr_name_u",
     },
     SCHEDULE_VERSIONS: {
@@ -506,7 +521,15 @@ export type Section = {
     termId: string;
     departmentId: string;
     programId?: string | null;
-    yearLevel: number;
+
+    /**
+     * ✅ Stored as prefixed string:
+     * - CS 1
+     * - CS 2
+     * - IS 1
+     * - IS 2
+     */
+    yearLevel: SectionYearLevelValue;
 
     /**
      * ✅ Section name should be A-Z or Others (frontend enforced)
