@@ -57,8 +57,11 @@ export type SectionDoc = {
     $id: string
     termId: string
     departmentId: string
-    yearLevel?: number | null
+    yearLevel?: string | number | null
     name?: string | null
+    label?: string | null
+    programCode?: string | null
+    programName?: string | null
     isActive?: boolean
 }
 
@@ -126,6 +129,10 @@ export type ScheduleRow = {
 
     sectionId: string
     sectionLabel: string
+    sectionYearLevel?: string | number | null
+    sectionName?: string | null
+    sectionProgramCode?: string | null
+    sectionProgramName?: string | null
 
     subjectId: string
     subjectLabel: string

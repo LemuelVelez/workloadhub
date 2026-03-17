@@ -408,6 +408,7 @@ export function RecordsExcelActions({
             const centerStartCol = 3
             const centerEndCol = Math.max(totalCols - 2, centerStartCol)
             const lastColLetter = worksheet.getColumn(totalCols).letter
+            const conflictColumnIndex = totalCols - 1
 
             for (let row = 1; row <= 8; row += 1) {
                 worksheet.mergeCells(row, centerStartCol, row, centerEndCol)
@@ -422,15 +423,15 @@ export function RecordsExcelActions({
             worksheet.getCell(7, centerStartCol).value = filtersLine
             worksheet.getCell(8, centerStartCol).value = `Generated at: ${formatDateTimeAmPm(generatedAt)}`
 
-            worksheet.getRow(1).height = 14
-            worksheet.getRow(2).height = 18
-            worksheet.getRow(3).height = 14
-            worksheet.getRow(4).height = 16
-            worksheet.getRow(5).height = 24
-            worksheet.getRow(6).height = 18
-            worksheet.getRow(7).height = 18
-            worksheet.getRow(8).height = 18
-            worksheet.getRow(9).height = 8
+            worksheet.getRow(1).height = 18
+            worksheet.getRow(2).height = 22
+            worksheet.getRow(3).height = 18
+            worksheet.getRow(4).height = 20
+            worksheet.getRow(5).height = 28
+            worksheet.getRow(6).height = 20
+            worksheet.getRow(7).height = 20
+            worksheet.getRow(8).height = 20
+            worksheet.getRow(9).height = 10
             worksheet.getRow(10).height = 24
 
             const border = {
@@ -591,13 +592,13 @@ export function RecordsExcelActions({
             })
 
             worksheet.addImage(leftImageId, {
-                tl: { col: 0.2, row: 0.15 },
-                ext: { width: 58, height: 58 },
+                tl: { col: 0.08, row: 0.05 },
+                ext: { width: 78, height: 78 },
             })
 
             worksheet.addImage(rightImageId, {
-                tl: { col: Math.max(totalCols - 1.8, 0), row: 0.15 },
-                ext: { width: 58, height: 58 },
+                tl: { col: conflictColumnIndex + 0.02, row: 0.05 },
+                ext: { width: 78, height: 78 },
             })
 
             worksheet.autoFilter = {
@@ -739,7 +740,7 @@ export function RecordsExcelActions({
             </div>
 
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="sm:max-w-6xl min-w-0 overflow-auto h-[95svh]">
+                <DialogContent className="sm:max-w-6xl min-w-0 overflow-auto h-[95vh]">
                     <DialogHeader>
                         <DialogTitle>
                             Excel Preview — List of Records
@@ -752,11 +753,11 @@ export function RecordsExcelActions({
 
                     <div className="rounded-md border bg-muted/20 px-4 py-5">
                         <div className="flex items-center justify-between gap-3">
-                            <div className="flex h-16 w-16 shrink-0 items-center justify-center">
+                            <div className="flex h-20 w-20 shrink-0 items-center justify-center">
                                 <img
                                     src={LEFT_LOGO_PATH}
                                     alt="JRMSU logo"
-                                    className="h-14 w-14 object-contain"
+                                    className="h-18 w-18 object-contain"
                                 />
                             </div>
 
@@ -784,11 +785,11 @@ export function RecordsExcelActions({
                                 </div>
                             </div>
 
-                            <div className="flex h-16 w-16 shrink-0 items-center justify-center">
+                            <div className="flex h-20 w-20 shrink-0 items-center justify-center">
                                 <img
                                     src={RIGHT_LOGO_PATH}
                                     alt="CCS logo"
-                                    className="h-14 w-14 object-contain"
+                                    className="h-18 w-18 object-contain"
                                 />
                             </div>
                         </div>
@@ -908,9 +909,7 @@ export function RecordsExcelActions({
                     </div>
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="text-xs text-muted-foreground">
-                            The Excel export includes embedded JRMSU and CCS images, official branded header text, styled rows, and conflict highlighting.
-                        </div>
+
 
                         <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={() => setPreviewOpen(false)}>

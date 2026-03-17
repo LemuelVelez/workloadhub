@@ -101,12 +101,10 @@ type Props = {
     laboratoryRows: ScheduleRow[]
     conflictFlagsByMeetingId: Map<string, ConflictFlags>
 
-    // PDF labels
     selectedVersionLabel: string
     selectedTermLabel: string
     selectedDeptLabel: string
 
-    // Entry dialog state
     entryDialogOpen: boolean
     setEntryDialogOpen: (v: boolean) => void
     editingRow: ScheduleRow | null
@@ -259,47 +257,47 @@ function inferSectionTrackPrefix(values: Array<string | number | null | undefine
     return ""
 }
 
-function extractSectionYearNumber(value?: string | number | null) {
+function normalizeSectionYearLevelDisplay(value?: string | number | null) {
     const normalized = String(value ?? "")
         .trim()
         .toUpperCase()
         .replace(/\s+/g, " ")
 
-    if (!normalized) return null
+    if (!normalized) return ""
 
-    const direct = normalized.match(/^([1-9]\d*)$/)
-    if (direct) return Number(direct[1])
+    const prefixedMatch = normalized.match(/^(CS|IS)\s*([1-9]\d*)$/)
+    if (prefixedMatch) {
+        return `${prefixedMatch[1]} ${prefixedMatch[2]}`
+    }
 
-    const prefixed = normalized.match(/^(?:CS|IS)\s+Y?\s*([1-9]\d*)$/)
-    if (prefixed) return Number(prefixed[1])
+    const legacyYearMatch = normalized.match(/^(?:Y|YEAR)\s*([1-9]\d*)$/)
+    if (legacyYearMatch) {
+        return legacyYearMatch[1]
+    }
 
-    const yearNamed = normalized.match(/^YEAR\s*([1-9]\d*)$/)
-    if (yearNamed) return Number(yearNamed[1])
+    const ordinalYearMatch = normalized.match(/^([1-9]\d*)(?:ST|ND|RD|TH)?(?:\s+YEAR)?$/)
+    if (ordinalYearMatch) {
+        return ordinalYearMatch[1]
+    }
 
-    const yearDash = normalized.match(/^Y?\s*([1-9]\d*)\s*-/)
-    if (yearDash) return Number(yearDash[1])
+    const inferredPrefix = inferSectionTrackPrefix([normalized])
+    const numericMatch = normalized.match(/([1-9]\d*)/)
+    if (numericMatch) {
+        return inferredPrefix ? `${inferredPrefix} ${numericMatch[1]}` : numericMatch[1]
+    }
 
-    const trailing = normalized.match(/(?:^|[\s-])Y?\s*([1-9]\d*)$/)
-    if (trailing) return Number(trailing[1])
-
-    return null
-}
-
-function normalizeSectionYearCore(value: string) {
-    return String(value || "")
-        .trim()
-        .replace(/\s+/g, " ")
-        .replace(/^YEAR\s*/i, "")
-        .replace(/^Y(?=\s*[1-9]\d*\b)/i, "")
-        .trim()
+    return ""
 }
 
 function formatYearLevelDisplay(
     yearLevel?: string | number | null,
     prefix?: string | null
 ) {
-    const parsedYear = extractSectionYearNumber(yearLevel)
-    if (!Number.isFinite(parsedYear) || (parsedYear ?? 0) <= 0) return "—"
+    const normalizedYearLevel = normalizeSectionYearLevelDisplay(yearLevel)
+    if (normalizedYearLevel) return normalizedYearLevel
+
+    const parsedYear = Number(String(yearLevel ?? "").trim())
+    if (!Number.isFinite(parsedYear) || parsedYear <= 0) return "—"
 
     const safePrefix = String(prefix ?? "").trim()
     return safePrefix ? `${safePrefix} ${parsedYear}` : String(parsedYear)
@@ -309,7 +307,12 @@ function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) 
     const normalized = String(rawValue || "").trim().replace(/\s+/g, " ")
     if (!normalized) return ""
 
-    const compactMatch = normalized.match(/^([A-Z]{2,6})\s*Y?\s*([1-9]\d*)\s*-\s*(.+)$/i)
+    const legacyYearSectionMatch = normalized.match(/^(?:Y|YEAR)\s*([1-9]\d*)\s*-\s*(.+)$/i)
+    if (legacyYearSectionMatch) {
+        return `${legacyYearSectionMatch[1]} - ${legacyYearSectionMatch[2].trim()}`
+    }
+
+    const compactMatch = normalized.match(/^([A-Z]{2,6})\s*([1-9]\d*)\s*-\s*(.+)$/i)
     if (compactMatch) {
         const resolvedPrefix =
             inferSectionTrackPrefix([compactMatch[1]]) || compactMatch[1].toUpperCase()
@@ -324,7 +327,7 @@ function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) 
         )
         .trim()
 
-    const normalizedYearCore = normalizeSectionYearCore(withoutProgramPrefix)
+    const normalizedYearCore = withoutProgramPrefix.replace(/^YEAR\s*/i, "").trim()
     const prefix = inferSectionTrackPrefix([normalized]) || preferredPrefix
 
     const yearSectionMatch = normalizedYearCore.match(/^([1-9]\d*)\s*-\s*(.+)$/i)
@@ -358,14 +361,20 @@ function formatSectionDisplayLabel({
     const rawName = String(name || "").trim()
     const preferredPrefix = inferSectionTrackPrefix([rawLabel, rawName, programCode, programName])
 
+    const normalizedYearLevel = normalizeSectionYearLevelDisplay(yearLevel)
+    if (normalizedYearLevel && rawName) {
+        return `${normalizedYearLevel} - ${rawName}`
+    }
+    if (normalizedYearLevel) return normalizedYearLevel
+
     const formattedFromLabel = buildFormattedSectionLabel(rawLabel, preferredPrefix)
     if (formattedFromLabel) return formattedFromLabel
 
     const formattedFromName = buildFormattedSectionLabel(rawName, preferredPrefix)
     if (formattedFromName) return formattedFromName
 
-    const parsedYear = extractSectionYearNumber(yearLevel)
-    const hasYear = Number.isFinite(parsedYear) && (parsedYear ?? 0) > 0
+    const parsedYear = Number(yearLevel || 0)
+    const hasYear = Number.isFinite(parsedYear) && parsedYear > 0
 
     if (hasYear && rawName) {
         const core = `${parsedYear} - ${rawName}`
@@ -391,10 +400,10 @@ function formatRowSectionDisplayLabel(row: ScheduleRow) {
 
     return formatSectionDisplayLabel({
         label: row.sectionLabel,
-        yearLevel: rowAny.sectionYearLevel ?? rowAny.yearLevel,
-        name: rowAny.sectionName ?? rowAny.name,
-        programCode: rowAny.sectionProgramCode ?? rowAny.programCode,
-        programName: rowAny.sectionProgramName ?? rowAny.programName,
+        yearLevel: row.sectionYearLevel ?? rowAny.sectionYearLevel ?? rowAny.yearLevel,
+        name: row.sectionName ?? rowAny.sectionName ?? rowAny.name,
+        programCode: row.sectionProgramCode ?? rowAny.sectionProgramCode ?? rowAny.programCode,
+        programName: row.sectionProgramName ?? rowAny.sectionProgramName ?? rowAny.programName,
     })
 }
 
@@ -958,7 +967,7 @@ export function PlannerManagementSection({
 
         const sectionAny = selectedSection as any
         const name = String(selectedSection.name || sectionAny.sectionName || "").trim() || selectedSection.$id
-        const yearLevel = selectedSection.yearLevel || sectionAny.yearLevel || ""
+        const yearLevel = selectedSection.yearLevel ?? sectionAny.yearLevel ?? null
 
         return formatSectionDisplayLabel({
             label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
@@ -1441,7 +1450,7 @@ export function PlannerManagementSection({
                     <DialogHeader>
                         <DialogTitle>{editingRow ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
                         <DialogDescription>
-                            Use dropdowns for section, subject, faculty, and room. Section CS/IS reference is derived automatically from the selected program.
+                            Use dropdowns for section, subject, faculty, and room. Legacy Y-prefixed section years are normalized automatically for display.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1458,11 +1467,10 @@ export function PlannerManagementSection({
                                             {sections.map((s) => {
                                                 const sectionAny = s as any
                                                 const name = String(s.name || "").trim() || s.$id
-                                                const y = s.yearLevel || ""
-
+                                                const yearLevel = s.yearLevel ?? sectionAny.yearLevel ?? null
                                                 const sectionLabel = formatSectionDisplayLabel({
                                                     label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
-                                                    yearLevel: y,
+                                                    yearLevel,
                                                     name,
                                                     programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
                                                     programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
@@ -1479,10 +1487,10 @@ export function PlannerManagementSection({
                                 </div>
 
                                 <div className="rounded-xl border border-dashed p-3">
-                                    <div className="text-xs text-muted-foreground">Section CS/IS Reference Preview</div>
+                                    <div className="text-xs text-muted-foreground">Section Reference Preview</div>
                                     <div className="mt-1 font-medium">{selectedSectionPreviewLabel}</div>
                                     <div className="mt-1 text-xs text-muted-foreground">
-                                        Reference is derived automatically from the selected program. Example: BSCS → CS 1 - A, BSIS → IS 1 - A.
+                                        Legacy values like Y1, Y2, or Y2 - A are displayed without the Y prefix.
                                     </div>
                                 </div>
                             </div>
