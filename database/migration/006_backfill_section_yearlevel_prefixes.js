@@ -2,6 +2,9 @@ import { Query } from "node-appwrite";
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const FAIL_ON_UNRESOLVED_SECTION_PREFIXES =
+    String(process.env.FAIL_ON_UNRESOLVED_SECTION_PREFIXES || "").trim() === "1";
+
 async function safeCall(fn, { onExists = "skip", onNotFound = "skip", label = "" } = {}) {
     try {
         return await fn();
@@ -344,6 +347,17 @@ function resolvePrefixFromClassPrograms(programIds, programById) {
     return "";
 }
 
+function printOverrideTemplate(unresolved) {
+    console.warn("🛠️ Copy-paste any confirmed values into SECTION_TRACK_PREFIX_OVERRIDES:");
+    console.warn("const SECTION_TRACK_PREFIX_OVERRIDES = {");
+    for (const item of unresolved) {
+        console.warn(
+            `    // "${item.sectionId}": "CS", // current=${item.currentYearLevel} | section.programId=${item.sectionProgramId || "—"} | class.programIds=${item.classProgramIds.join(", ") || "—"}`
+        );
+    }
+    console.warn("};");
+}
+
 export const COLLECTIONS = {
     SECTIONS: "sections",
     PROGRAMS: "programs",
@@ -469,20 +483,32 @@ export async function up({ databases, databaseId }) {
         await delay(20);
     }
 
+    const CURRENT_UNIQUE_KEY = "idx_sec_term_dept_yr_name_u";
+
     if (unresolved.length > 0) {
-        console.error("❌ Unresolved section yearLevel prefixes remain:");
+        console.warn("⚠️ Unresolved section yearLevel prefixes remain:");
         for (const item of unresolved) {
-            console.error(
+            console.warn(
                 ` - ${item.sectionId} | current=${item.currentYearLevel} | section.programId=${item.sectionProgramId || "—"} | class.programIds=${item.classProgramIds.join(", ") || "—"}`
             );
         }
 
-        throw new Error(
-            `Unresolved section yearLevel prefixes for ${unresolved.length} section(s). Add CS/IS values to SECTION_TRACK_PREFIX_OVERRIDES in migration ${id} and rerun.`
-        );
-    }
+        printOverrideTemplate(unresolved);
 
-    const CURRENT_UNIQUE_KEY = "idx_sec_term_dept_yr_name_u";
+        if (FAIL_ON_UNRESOLVED_SECTION_PREFIXES) {
+            throw new Error(
+                `Unresolved section yearLevel prefixes for ${unresolved.length} section(s). Add CS/IS values to SECTION_TRACK_PREFIX_OVERRIDES in migration ${id} and rerun.`
+            );
+        }
+
+        console.warn(
+            `⚠️ Skipping unique index ${CURRENT_UNIQUE_KEY} because ${unresolved.length} section(s) still have unresolved CS/IS prefixes.`
+        );
+        console.warn(
+            `✅ Migration ${id} completed in best-effort mode. Updated ${updatedCount} section(s). Resolve the remaining sections later, then add/create the unique index once all yearLevel values are prefixed.`
+        );
+        return;
+    }
 
     await ensureUniqueIndex(databases, databaseId, COLLECTIONS.SECTIONS, CURRENT_UNIQUE_KEY, [
         "termId",
