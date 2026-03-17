@@ -1,3 +1,5 @@
+import { Query } from "node-appwrite";
+
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -201,6 +203,11 @@ async function listAllDocuments(databases, databaseId, collectionId) {
     let offset = 0;
 
     while (true) {
+        const queries = [
+            Query.limit(limit),
+            Query.offset(offset),
+        ];
+
         const page = await safeCall(
             () =>
                 callDb(
@@ -209,9 +216,9 @@ async function listAllDocuments(databases, databaseId, collectionId) {
                     {
                         databaseId,
                         collectionId,
-                        queries: [`limit(${limit})`, `offset(${offset})`],
+                        queries,
                     },
-                    [databaseId, collectionId, [`limit(${limit})`, `offset(${offset})`]]
+                    [databaseId, collectionId, queries]
                 ),
             { label: `listDocuments ${collectionId} offset=${offset}` }
         );
