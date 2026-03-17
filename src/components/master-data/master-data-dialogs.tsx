@@ -412,7 +412,7 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.facultyEditing ? "Edit Faculty" : "Add Faculty"}</DialogTitle>
                         <DialogDescription>
-                            Select a Faculty user from USER_PROFILES (role: FACULTY / CHAIR / DEAN) and store rank + optional max load.
+                            Select a Faculty user from USER_PROFILES (role: FACULTY / CHAIR / DEAN). Subject units and hours are derived automatically from the assigned subject, so manual unit/hour setup is not needed here.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -498,25 +498,8 @@ export function MasterDataDialogs({ vm }: Props) {
                             />
                         </div>
 
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="grid gap-2">
-                                <Label>Max Units (optional)</Label>
-                                <Input
-                                    value={vm.facultyMaxUnits}
-                                    onChange={(e) => vm.setFacultyMaxUnits(e.target.value)}
-                                    inputMode="numeric"
-                                    placeholder="e.g. 18"
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label>Max Hours (optional)</Label>
-                                <Input
-                                    value={vm.facultyMaxHours}
-                                    onChange={(e) => vm.setFacultyMaxHours(e.target.value)}
-                                    inputMode="numeric"
-                                    placeholder="e.g. 24"
-                                />
-                            </div>
+                        <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
+                            Faculty load is based on the assigned subject. Units, lecture hours, and lab hours will populate automatically when a subject is selected in the record or schedule entry.
                         </div>
 
                         <div className="grid gap-2">

@@ -948,9 +948,6 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             <div className="text-sm font-medium">
                                                 Loaded printable schedule data
                                             </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                Klaro na makita diri kung kinsang instructor ang assigned sa room.
-                                            </div>
                                         </div>
 
                                         <div className="overflow-hidden rounded-md border bg-background">
