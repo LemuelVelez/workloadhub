@@ -154,6 +154,8 @@ type Props = {
     onConfirmDeleteEntry: () => Promise<void> | void
 }
 
+type SectionDisplayLookup = Record<string, string>
+
 const PDF_LEFT_LOGO_SRC = "/logo.png"
 const PDF_RIGHT_LOGO_SRC = "/CCS.png"
 
@@ -186,77 +188,6 @@ function formatPdfTimeText(startTime?: string, endTime?: string) {
     return `${start} to ${end}`
 }
 
-function normalizeSectionTrackPrefix(value?: string | number | null) {
-    const normalized = String(value ?? "")
-        .trim()
-        .toUpperCase()
-        .replace(/\s+/g, " ")
-
-    if (!normalized) return ""
-
-    if (
-        normalized === "IS" ||
-        normalized === "BSIS" ||
-        normalized === "INFORMATION SYSTEMS" ||
-        normalized === "BS INFORMATION SYSTEMS" ||
-        normalized === "INFO SYSTEMS" ||
-        normalized === "INFO SYS"
-    ) {
-        return "IS"
-    }
-
-    if (
-        normalized === "CS" ||
-        normalized === "BSCS" ||
-        normalized === "COMPUTER SCIENCE" ||
-        normalized === "BS COMPUTER SCIENCE" ||
-        normalized === "COMP SCI" ||
-        normalized === "COMSCI"
-    ) {
-        return "CS"
-    }
-
-    return ""
-}
-
-function inferSectionTrackPrefix(values: Array<string | number | null | undefined>) {
-    const normalizedValues = values
-        .map((value) => String(value ?? "").trim().toUpperCase())
-        .filter(Boolean)
-
-    if (normalizedValues.length === 0) return ""
-
-    const directPrefix = normalizedValues
-        .map((value) => normalizeSectionTrackPrefix(value))
-        .find(Boolean)
-
-    if (directPrefix) return directPrefix
-
-    const joined = normalizedValues.join(" ")
-    const tokens = joined
-        .split(/[\s/-]+/)
-        .map((token) => token.trim())
-        .filter(Boolean)
-
-    if (
-        tokens.includes("BSIS") ||
-        tokens.includes("IS") ||
-        /INFORMATION\s+SYSTEMS?/.test(joined)
-    ) {
-        return "IS"
-    }
-
-    if (
-        tokens.includes("BSCS") ||
-        tokens.includes("CS") ||
-        /COMPUTER\s+SCIENCE/.test(joined)
-    ) {
-        return "CS"
-    }
-
-    return ""
-}
-
 function normalizeSectionYearLevelDisplay(value?: string | number | null) {
     const normalized = String(value ?? "")
         .trim()
@@ -265,9 +196,18 @@ function normalizeSectionYearLevelDisplay(value?: string | number | null) {
 
     if (!normalized) return ""
 
+    if (/^(CS|IS)\s+[1-9]\d*$/.test(normalized)) {
+        return normalized
+    }
+
     const prefixedMatch = normalized.match(/^(CS|IS)\s*([1-9]\d*)$/)
     if (prefixedMatch) {
         return `${prefixedMatch[1]} ${prefixedMatch[2]}`
+    }
+
+    const plainNumberMatch = normalized.match(/^([1-9]\d*)$/)
+    if (plainNumberMatch) {
+        return plainNumberMatch[1]
     }
 
     const legacyYearMatch = normalized.match(/^(?:Y|YEAR)\s*([1-9]\d*)$/)
@@ -280,45 +220,33 @@ function normalizeSectionYearLevelDisplay(value?: string | number | null) {
         return ordinalYearMatch[1]
     }
 
-    const inferredPrefix = inferSectionTrackPrefix([normalized])
-    const numericMatch = normalized.match(/([1-9]\d*)/)
-    if (numericMatch) {
-        return inferredPrefix ? `${inferredPrefix} ${numericMatch[1]}` : numericMatch[1]
-    }
-
     return ""
 }
 
-function formatYearLevelDisplay(
-    yearLevel?: string | number | null,
-    prefix?: string | null
-) {
-    const normalizedYearLevel = normalizeSectionYearLevelDisplay(yearLevel)
-    if (normalizedYearLevel) return normalizedYearLevel
-
-    const parsedYear = Number(String(yearLevel ?? "").trim())
-    if (!Number.isFinite(parsedYear) || parsedYear <= 0) return "—"
-
-    const safePrefix = String(prefix ?? "").trim()
-    return safePrefix ? `${safePrefix} ${parsedYear}` : String(parsedYear)
+function normalizeSectionNameDisplay(value?: string | null) {
+    return String(value ?? "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/^[—–-]\s*/, "")
 }
 
-function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) {
+function isUnknownSectionYearMarker(value?: string | number | null) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+
+    if (!normalized) return false
+    if (normalized === "?") return true
+    if (/^(?:Y|YEAR|LEVEL)\s*\?$/.test(normalized)) return true
+    if (/^(?:Y|YEAR|LEVEL)\s*[—–-]?$/.test(normalized)) return true
+
+    return false
+}
+
+function buildFormattedSectionLabel(rawValue: string) {
     const normalized = String(rawValue || "").trim().replace(/\s+/g, " ")
     if (!normalized) return ""
-
-    const legacyYearSectionMatch = normalized.match(/^(?:Y|YEAR)\s*([1-9]\d*)\s*-\s*(.+)$/i)
-    if (legacyYearSectionMatch) {
-        return `${legacyYearSectionMatch[1]} - ${legacyYearSectionMatch[2].trim()}`
-    }
-
-    const compactMatch = normalized.match(/^([A-Z]{2,6})\s*([1-9]\d*)\s*-\s*(.+)$/i)
-    if (compactMatch) {
-        const resolvedPrefix =
-            inferSectionTrackPrefix([compactMatch[1]]) || compactMatch[1].toUpperCase()
-
-        return `${resolvedPrefix} ${compactMatch[2]} - ${compactMatch[3].trim()}`
-    }
 
     const withoutProgramPrefix = normalized
         .replace(
@@ -327,29 +255,46 @@ function buildFormattedSectionLabel(rawValue: string, preferredPrefix?: string) 
         )
         .trim()
 
-    const normalizedYearCore = withoutProgramPrefix.replace(/^YEAR\s*/i, "").trim()
-    const prefix = inferSectionTrackPrefix([normalized]) || preferredPrefix
+    const hyphenParts = withoutProgramPrefix
+        .split(/\s*-\s*/)
+        .map((part) => part.trim())
+        .filter(Boolean)
 
-    const yearSectionMatch = normalizedYearCore.match(/^([1-9]\d*)\s*-\s*(.+)$/i)
-    if (yearSectionMatch) {
-        const core = `${yearSectionMatch[1]} - ${yearSectionMatch[2].trim()}`
-        return prefix ? `${prefix} ${core}` : core
+    if (hyphenParts.length >= 2) {
+        const leftPart = hyphenParts[0]
+        const rightPart = normalizeSectionNameDisplay(hyphenParts.slice(1).join(" - "))
+        const normalizedLeftYear = normalizeSectionYearLevelDisplay(leftPart)
+
+        if (normalizedLeftYear && rightPart) {
+            return `${normalizedLeftYear} - ${rightPart}`
+        }
+
+        if (rightPart && isUnknownSectionYearMarker(leftPart)) {
+            return rightPart
+        }
     }
 
-    const yearOnlyMatch = normalizedYearCore.match(/^([1-9]\d*)$/i)
+    const yearOnlyMatch = withoutProgramPrefix.match(/^(CS|IS)\s+[1-9]\d*$/i)
     if (yearOnlyMatch) {
-        return prefix ? `${prefix} ${yearOnlyMatch[1]}` : yearOnlyMatch[1]
+        return yearOnlyMatch[0].toUpperCase().replace(/\s+/g, " ")
     }
 
-    return ""
+    const normalizedWholeYear = normalizeSectionYearLevelDisplay(withoutProgramPrefix)
+    if (normalizedWholeYear) {
+        return normalizedWholeYear
+    }
+
+    if (isUnknownSectionYearMarker(withoutProgramPrefix)) {
+        return ""
+    }
+
+    return withoutProgramPrefix
 }
 
 function formatSectionDisplayLabel({
     label,
     yearLevel,
     name,
-    programCode,
-    programName,
 }: {
     label?: string | null
     yearLevel?: string | number | null
@@ -359,37 +304,37 @@ function formatSectionDisplayLabel({
 }) {
     const rawLabel = String(label || "").trim()
     const rawName = String(name || "").trim()
-    const preferredPrefix = inferSectionTrackPrefix([rawLabel, rawName, programCode, programName])
-
     const normalizedYearLevel = normalizeSectionYearLevelDisplay(yearLevel)
-    if (normalizedYearLevel && rawName) {
-        return `${normalizedYearLevel} - ${rawName}`
-    }
-    if (normalizedYearLevel) return normalizedYearLevel
+    const normalizedName = normalizeSectionNameDisplay(name)
+    const labelYearToken = rawLabel.split(/\s*-\s*/)[0] || rawLabel
 
-    const formattedFromLabel = buildFormattedSectionLabel(rawLabel, preferredPrefix)
-    if (formattedFromLabel) return formattedFromLabel
-
-    const formattedFromName = buildFormattedSectionLabel(rawName, preferredPrefix)
-    if (formattedFromName) return formattedFromName
-
-    const parsedYear = Number(yearLevel || 0)
-    const hasYear = Number.isFinite(parsedYear) && parsedYear > 0
-
-    if (hasYear && rawName) {
-        const core = `${parsedYear} - ${rawName}`
-        return preferredPrefix ? `${preferredPrefix} ${core}` : core
+    if (normalizedYearLevel && normalizedName) {
+        return `${normalizedYearLevel} - ${normalizedName}`
     }
 
-    if (hasYear && rawLabel) {
-        const core = `${parsedYear} - ${rawLabel}`
-        return preferredPrefix ? `${preferredPrefix} ${core}` : core
+    if (normalizedYearLevel) {
+        return normalizedYearLevel
     }
 
-    if (rawLabel) return rawLabel
-    if (rawName) return rawName
-    if (hasYear) {
-        return formatYearLevelDisplay(parsedYear, preferredPrefix)
+    if (
+        normalizedName &&
+        (isUnknownSectionYearMarker(yearLevel) || isUnknownSectionYearMarker(labelYearToken))
+    ) {
+        return normalizedName
+    }
+
+    const formattedFromLabel = buildFormattedSectionLabel(rawLabel)
+    if (formattedFromLabel) {
+        return formattedFromLabel
+    }
+
+    const formattedFromName = buildFormattedSectionLabel(rawName)
+    if (formattedFromName) {
+        return formattedFromName
+    }
+
+    if (normalizedName) {
+        return normalizedName
     }
 
     return "—"
@@ -405,6 +350,35 @@ function formatRowSectionDisplayLabel(row: ScheduleRow) {
         programCode: row.sectionProgramCode ?? rowAny.sectionProgramCode ?? rowAny.programCode,
         programName: row.sectionProgramName ?? rowAny.sectionProgramName ?? rowAny.programName,
     })
+}
+
+function buildSectionDisplayLookup(sections: SectionDoc[]): SectionDisplayLookup {
+    const lookup: SectionDisplayLookup = {}
+
+    for (const section of sections) {
+        const sectionAny = section as any
+        const name = String(section.name || sectionAny.sectionName || "").trim() || section.$id
+        const yearLevel = section.yearLevel ?? sectionAny.yearLevel ?? null
+
+        lookup[section.$id] = formatSectionDisplayLabel({
+            label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
+            yearLevel,
+            name,
+            programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
+            programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
+        })
+    }
+
+    return lookup
+}
+
+function getRowSectionDisplayLabel(row: ScheduleRow, sectionDisplayLookup: SectionDisplayLookup) {
+    const sectionId = String(row.sectionId || "").trim()
+    if (sectionId && sectionDisplayLookup[sectionId]) {
+        return sectionDisplayLookup[sectionId]
+    }
+
+    return formatRowSectionDisplayLabel(row)
 }
 
 const styles = StyleSheet.create({
@@ -709,6 +683,7 @@ function SchedulePdfDocument({
     generatedAt,
     stats,
     filteredByConflict,
+    sectionDisplayLookup,
 }: {
     rows: ScheduleRow[]
     versionLabel: string
@@ -717,6 +692,7 @@ function SchedulePdfDocument({
     generatedAt: string
     stats: PlannerStats
     filteredByConflict: boolean
+    sectionDisplayLookup: SectionDisplayLookup
 }) {
     const leftLogoSrc = getPdfAssetUrl(PDF_LEFT_LOGO_SRC)
     const rightLogoSrc = getPdfAssetUrl(PDF_RIGHT_LOGO_SRC)
@@ -855,7 +831,7 @@ function SchedulePdfDocument({
 
                                             <View style={[styles.tableCell, styles.colSection]}>
                                                 <Text style={styles.cellText}>
-                                                    {formatRowSectionDisplayLabel(r)}
+                                                    {getRowSectionDisplayLabel(r, sectionDisplayLookup)}
                                                 </Text>
                                             </View>
 
@@ -957,6 +933,8 @@ export function PlannerManagementSection({
 }: Props) {
     const [pdfPreviewOpen, setPdfPreviewOpen] = React.useState(false)
 
+    const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
+
     const selectedSection = React.useMemo(
         () => sections.find((section) => section.$id === formSectionId) ?? null,
         [sections, formSectionId]
@@ -964,19 +942,8 @@ export function PlannerManagementSection({
 
     const selectedSectionPreviewLabel = React.useMemo(() => {
         if (!selectedSection) return "—"
-
-        const sectionAny = selectedSection as any
-        const name = String(selectedSection.name || sectionAny.sectionName || "").trim() || selectedSection.$id
-        const yearLevel = selectedSection.yearLevel ?? sectionAny.yearLevel ?? null
-
-        return formatSectionDisplayLabel({
-            label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
-            yearLevel,
-            name,
-            programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
-            programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
-        })
-    }, [selectedSection])
+        return sectionDisplayLookup[selectedSection.$id] || "—"
+    }, [selectedSection, sectionDisplayLookup])
 
     const renderConflictBadges = (flags?: ConflictFlags) => {
         if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
@@ -1024,6 +991,7 @@ export function PlannerManagementSection({
                     generatedAt={generatedAt}
                     stats={plannerStats}
                     filteredByConflict={showConflictsOnly}
+                    sectionDisplayLookup={sectionDisplayLookup}
                 />
             )
 
@@ -1238,7 +1206,7 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm leading-relaxed">
-                                                    {formatRowSectionDisplayLabel(row)}
+                                                    {getRowSectionDisplayLabel(row, sectionDisplayLookup)}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
@@ -1386,7 +1354,7 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {formatRowSectionDisplayLabel(row)}
+                                                    {getRowSectionDisplayLabel(row, sectionDisplayLookup)}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
@@ -1421,6 +1389,7 @@ export function PlannerManagementSection({
                                 generatedAt={generatedAt}
                                 stats={plannerStats}
                                 filteredByConflict={showConflictsOnly}
+                                sectionDisplayLookup={sectionDisplayLookup}
                             />
                         </PDFViewer>
                     </div>
@@ -1450,7 +1419,7 @@ export function PlannerManagementSection({
                     <DialogHeader>
                         <DialogTitle>{editingRow ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
                         <DialogDescription>
-                            Use dropdowns for section, subject, faculty, and room. Legacy Y-prefixed section years are normalized automatically for display.
+                            Use dropdowns for section, subject, faculty, and room. Section labels follow the same display format used in Master Data.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1464,24 +1433,11 @@ export function PlannerManagementSection({
                                             <SelectValue placeholder="Select section" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {sections.map((s) => {
-                                                const sectionAny = s as any
-                                                const name = String(s.name || "").trim() || s.$id
-                                                const yearLevel = s.yearLevel ?? sectionAny.yearLevel ?? null
-                                                const sectionLabel = formatSectionDisplayLabel({
-                                                    label: String(sectionAny.label || sectionAny.sectionLabel || "").trim(),
-                                                    yearLevel,
-                                                    name,
-                                                    programCode: String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim(),
-                                                    programName: String(sectionAny.programName || sectionAny.sectionProgramName || "").trim(),
-                                                })
-
-                                                return (
-                                                    <SelectItem key={s.$id} value={s.$id}>
-                                                        {sectionLabel}
-                                                    </SelectItem>
-                                                )
-                                            })}
+                                            {sections.map((s) => (
+                                                <SelectItem key={s.$id} value={s.$id}>
+                                                    {sectionDisplayLookup[s.$id] || s.$id}
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1490,7 +1446,7 @@ export function PlannerManagementSection({
                                     <div className="text-xs text-muted-foreground">Section Reference Preview</div>
                                     <div className="mt-1 font-medium">{selectedSectionPreviewLabel}</div>
                                     <div className="mt-1 text-xs text-muted-foreground">
-                                        Legacy values like Y1, Y2, or Y2 - A are displayed without the Y prefix.
+                                        Section labels follow the same display format used in Master Data.
                                     </div>
                                 </div>
                             </div>
@@ -1713,7 +1669,7 @@ export function PlannerManagementSection({
                                         {candidateConflicts.slice(0, 6).map((c, idx) => (
                                             <li key={`${c.type}-${c.row.meetingId}-${idx}`}>
                                                 [{c.type.toUpperCase()}] {c.row.dayOfWeek} {formatTimeRange(c.row.startTime, c.row.endTime)} •{" "}
-                                                {c.row.subjectLabel} • {formatRowSectionDisplayLabel(c.row)} • {c.row.roomLabel}
+                                                {c.row.subjectLabel} • {getRowSectionDisplayLabel(c.row, sectionDisplayLookup)} • {c.row.roomLabel}
                                             </li>
                                         ))}
                                     </ul>
