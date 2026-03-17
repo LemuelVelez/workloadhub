@@ -40,6 +40,52 @@ async function listDocs(collectionId: string, queries: any[] = []) {
     return (res?.documents ?? []) as any[]
 }
 
+function normalizeSectionYearLevelValue(value?: string | number | null) {
+    return String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+}
+
+function extractSectionYearNumber(value?: string | number | null) {
+    const normalized = normalizeSectionYearLevelValue(value)
+    if (!normalized) return ""
+
+    const direct = normalized.match(/^([1-9]\d*)$/)
+    if (direct) return direct[1]
+
+    const prefixed = normalized.match(/^(?:CS|IS)\s+([1-9]\d*)$/)
+    if (prefixed) return prefixed[1]
+
+    const trailing = normalized.match(/(?:^|[\s-])([1-9]\d*)$/)
+    return trailing?.[1] ?? ""
+}
+
+function normalizeSectionNameValue(value?: string | null) {
+    const normalized = String(value ?? "").trim()
+    if (!normalized) return ""
+
+    const matched = SECTION_NAME_OPTIONS.find(
+        (option) => option.toUpperCase() === normalized.toUpperCase()
+    )
+
+    return matched ?? normalized
+}
+
+function buildSectionDisplayLabel(
+    yearLevel?: string | number | null,
+    name?: string | null
+) {
+    const normalizedYearLevel = normalizeSectionYearLevelValue(yearLevel)
+    const normalizedName = normalizeSectionNameValue(name)
+
+    if (!normalizedYearLevel && !normalizedName) return "—"
+    if (!normalizedYearLevel) return normalizedName
+    if (!normalizedName) return normalizedYearLevel
+
+    return `${normalizedYearLevel} ${normalizedName}`
+}
+
 export function useMasterDataManagement() {
     const [tab, setTab] = React.useState<MasterTab>("colleges")
     const [loading, setLoading] = React.useState(true)
@@ -178,8 +224,8 @@ export function useMasterDataManagement() {
                     termId: str(s.termId),
                     departmentId: str(s.departmentId),
                     programId: s.programId ? str(s.programId) : null,
-                    yearLevel: num(s.yearLevel, 1),
-                    name: str(s.name),
+                    yearLevel: (normalizeSectionYearLevelValue(s.yearLevel) || "1") as any,
+                    name: normalizeSectionNameValue(s.name),
                     studentCount: s.studentCount != null ? num(s.studentCount, 0) : null,
                     isActive: toBool(s.isActive),
                 }))
@@ -644,8 +690,8 @@ export function useMasterDataManagement() {
         setSectionTermId(str(sectionEditing.termId))
         setSectionCollegeId(str(sectionEditing.departmentId))
         setSectionProgramId(sectionEditing.programId ? str(sectionEditing.programId) : "__none__")
-        setSectionYear(String(sectionEditing.yearLevel ?? 1))
-        setSectionName(str(sectionEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
+        setSectionYear(normalizeSectionYearLevelValue(sectionEditing.yearLevel) || "1")
+        setSectionName(normalizeSectionNameValue(sectionEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
         setSectionStudentCount(sectionEditing.studentCount != null ? String(sectionEditing.studentCount) : "")
         setSectionActive(Boolean(sectionEditing.isActive))
     }, [sectionOpen, sectionEditing, selectedTermId, defaultCollegeId])
@@ -661,8 +707,9 @@ export function useMasterDataManagement() {
     async function saveSection() {
         const termId = str(sectionTermId)
         const departmentId = str(sectionCollegeId)
-        const yearLevel = num(sectionYear, 1)
-        const name = str(sectionName)
+        const yearLevel = normalizeSectionYearLevelValue(sectionYear)
+        const yearNumber = extractSectionYearNumber(yearLevel)
+        const name = normalizeSectionNameValue(sectionName)
 
         if (!termId) {
             toast.error("Academic term is required for Sections.")
@@ -672,7 +719,7 @@ export function useMasterDataManagement() {
             toast.error("College is required for Sections.")
             return
         }
-        if (!Number.isFinite(yearLevel) || yearLevel <= 0 || !YEAR_LEVEL_OPTIONS.includes(yearLevel as any)) {
+        if (!yearLevel || !yearNumber || !YEAR_LEVEL_OPTIONS.map(String).includes(yearNumber)) {
             toast.error("Year level must be valid.")
             return
         }
@@ -687,6 +734,7 @@ export function useMasterDataManagement() {
 
         const programId = str(sectionProgramId) === "__none__" ? null : str(sectionProgramId)
         const studentCount = str(sectionStudentCount) ? num(sectionStudentCount, 0) : null
+        const editingSectionId = sectionEditing?.$id ?? null
 
         const payload: any = {
             termId,
@@ -698,22 +746,28 @@ export function useMasterDataManagement() {
             isActive: Boolean(sectionActive),
         }
 
-        const conflict = sections.find((s) => {
-            if (sectionEditing?.$id && s.$id === sectionEditing.$id) return false
-            return (
-                str(s.termId) === termId &&
-                str(s.departmentId) === departmentId &&
-                num(s.yearLevel, 0) === yearLevel &&
-                str(s.name).toUpperCase() === name.toUpperCase()
-            )
-        })
-
-        if (conflict) {
-            toast.error("Section already exists for this term/college/year/name.")
-            return
-        }
-
         try {
+            const duplicateResult = await databases.listDocuments(
+                DATABASE_ID,
+                COLLECTIONS.SECTIONS,
+                [
+                    Query.equal("termId", termId),
+                    Query.equal("departmentId", departmentId),
+                    Query.equal("yearLevel", yearLevel),
+                    Query.equal("name", name),
+                    Query.limit(100),
+                ]
+            )
+
+            const conflictingSection = (duplicateResult?.documents ?? []).find(
+                (doc: any) => String(doc?.$id ?? "") !== String(editingSectionId ?? "")
+            )
+
+            if (conflictingSection) {
+                toast.error("Section already exists for this term/college/year/name.")
+                return
+            }
+
             if (sectionEditing) {
                 await databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, sectionEditing.$id, payload)
                 toast.success("Section updated.")
@@ -811,7 +865,7 @@ export function useMasterDataManagement() {
             const college = collegeLabel(colleges, s.departmentId)
             const prog = programLabel(programs, s.programId ?? null)
             const term = termLabel(terms, s.termId)
-            const main = `Y${s.yearLevel} ${s.name}`
+            const main = buildSectionDisplayLabel(s.yearLevel, s.name)
             return `${main} ${college} ${prog} ${term} ${s.studentCount ?? ""}`
                 .toLowerCase()
                 .includes(q)
@@ -946,7 +1000,7 @@ export function useMasterDataManagement() {
                     : deleteIntent?.type === "faculty"
                         ? `This will permanently delete faculty for userId "${deleteIntent.doc.userId}".`
                         : deleteIntent?.type === "section"
-                            ? `This will permanently delete section "Y${deleteIntent.doc.yearLevel} ${deleteIntent.doc.name}".`
+                            ? `This will permanently delete section "${buildSectionDisplayLabel(deleteIntent.doc.yearLevel, deleteIntent.doc.name)}".`
                             : "This action cannot be undone."
 
     return {
