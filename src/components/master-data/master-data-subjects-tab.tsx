@@ -3,11 +3,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as React from "react"
-import { Plus, Pencil, Trash2, Link2 } from "lucide-react"
+import { Plus, Pencil, Trash2, Link2, Unlink2 } from "lucide-react"
+import { toast } from "sonner"
 
 import type { AcademicTermDoc, SubjectDoc } from "../../../model/schemaModel"
 import type { MasterDataManagementVM } from "./use-master-data"
 
+import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
+
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -109,6 +113,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkLinkSemesterHint, setBulkLinkSemesterHint] = React.useState("")
     const [bulkLinkSubjectIds, setBulkLinkSubjectIds] = React.useState<string[]>([])
     const [bulkLinking, setBulkLinking] = React.useState(false)
+
+    const [subjectLinkOpen, setSubjectLinkOpen] = React.useState(false)
+    const [subjectLinkTermId, setSubjectLinkTermId] = React.useState("")
+    const [subjectLinkSaving, setSubjectLinkSaving] = React.useState(false)
+    const [subjectLinkSubject, setSubjectLinkSubject] = React.useState<LooseSubjectDoc | null>(null)
 
     const termMap = React.useMemo(() => {
         const map = new Map<string, LooseAcademicTermDoc>()
@@ -232,6 +241,23 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         termMap,
     ])
 
+    const subjectLinkSemesterHint = React.useMemo(() => {
+        if (!subjectLinkSubject) return ""
+        return resolveSubjectSemester(subjectLinkSubject, termMap)
+    }, [subjectLinkSubject, termMap])
+
+    const subjectLinkTermOptions = React.useMemo(() => {
+        const terms = [...(vm.terms as LooseAcademicTermDoc[])]
+        if (!subjectLinkSemesterHint) return terms
+
+        const matched = terms.filter((term) => {
+            const semester = normalizeSemesterLabel(String(term.semester ?? ""))
+            return semester === subjectLinkSemesterHint
+        })
+
+        return matched.length > 0 ? matched : terms
+    }, [subjectLinkSemesterHint, vm.terms])
+
     React.useEffect(() => {
         if (!bulkLinkOpen) return
 
@@ -257,11 +283,46 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         )
     }, [bulkLinkOpen, bulkLinkEligibleSubjects])
 
+    React.useEffect(() => {
+        if (!subjectLinkOpen) return
+        if (!subjectLinkSubject) return
+
+        const currentLinkedTermId = resolveSubjectTermId(subjectLinkSubject)
+
+        const hasCurrentTerm = subjectLinkTermOptions.some(
+            (term) => String(term.$id) === currentLinkedTermId
+        )
+
+        if (currentLinkedTermId && hasCurrentTerm) {
+            setSubjectLinkTermId(currentLinkedTermId)
+            return
+        }
+
+        const nextTerm =
+            subjectLinkTermOptions.find((term) => Boolean(term.isActive)) ??
+            subjectLinkTermOptions[0] ??
+            null
+
+        setSubjectLinkTermId(nextTerm ? String(nextTerm.$id) : "")
+    }, [subjectLinkOpen, subjectLinkSubject, subjectLinkTermOptions])
+
     const openBulkLinkDialog = React.useCallback((semesterHint = "") => {
         setBulkLinkSemesterHint(semesterHint)
         setBulkLinkTermId("")
         setBulkLinkSubjectIds([])
         setBulkLinkOpen(true)
+    }, [])
+
+    const closeSubjectLinkDialog = React.useCallback(() => {
+        setSubjectLinkOpen(false)
+        setSubjectLinkSubject(null)
+        setSubjectLinkTermId("")
+    }, [])
+
+    const openSubjectLinkDialog = React.useCallback((subject: LooseSubjectDoc) => {
+        setSubjectLinkSubject(subject)
+        setSubjectLinkTermId(resolveSubjectTermId(subject))
+        setSubjectLinkOpen(true)
     }, [])
 
     const toggleBulkLinkSubject = React.useCallback(
@@ -294,13 +355,73 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         }
     }, [bulkLinkSubjectIds, bulkLinkTermId, vm])
 
+    const linkSingleSubjectToTerm = React.useCallback(async () => {
+        if (!subjectLinkSubject) {
+            toast.error("No subject selected.")
+            return
+        }
+
+        const termId = subjectLinkTermId.trim()
+        if (!termId) {
+            toast.error("Please select a term.")
+            return
+        }
+
+        setSubjectLinkSaving(true)
+        try {
+            await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.SUBJECTS,
+                String(subjectLinkSubject.$id),
+                { termId }
+            )
+
+            toast.success(
+                `${String(subjectLinkSubject.code)} linked to ${vm.termLabel(vm.terms, termId)}.`
+            )
+            closeSubjectLinkDialog()
+            await vm.refreshAll()
+        } catch (e: any) {
+            toast.error(e?.message ?? "Failed to link subject to term.")
+        } finally {
+            setSubjectLinkSaving(false)
+        }
+    }, [closeSubjectLinkDialog, subjectLinkSubject, subjectLinkTermId, vm])
+
+    const unlinkSingleSubjectFromTerm = React.useCallback(
+        async (subject: LooseSubjectDoc, closeAfter = false) => {
+            setSubjectLinkSaving(true)
+            try {
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.SUBJECTS,
+                    String(subject.$id),
+                    { termId: null }
+                )
+
+                toast.success(`${String(subject.code)} unlinked from term.`)
+
+                if (closeAfter) {
+                    closeSubjectLinkDialog()
+                }
+
+                await vm.refreshAll()
+            } catch (e: any) {
+                toast.error(e?.message ?? "Failed to unlink subject from term.")
+            } finally {
+                setSubjectLinkSaving(false)
+            }
+        },
+        [closeSubjectLinkDialog, vm]
+    )
+
     return (
         <TabsContent value="subjects" className="space-y-4">
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <div className="font-medium">Subjects</div>
                     <div className="text-sm text-muted-foreground">
-                        Manage subject list, units, hours, and semester segregation.
+                        Manage subject list, units, hours, semester segregation, and direct term links.
                     </div>
                 </div>
 
@@ -337,33 +458,43 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             ) : vm.filteredSubjects.length === 0 ? (
                 <div className="text-sm text-muted-foreground">No subjects found.</div>
             ) : (
-                <div className="space-y-4">
+                <Accordion
+                    type="multiple"
+                    defaultValue={groupedSubjects.map((group) => `subjects-${group.semesterLabel}`)}
+                    className="space-y-4"
+                >
                     {groupedSubjects.map((group) => (
-                        <div
+                        <AccordionItem
                             key={group.semesterLabel}
+                            value={`subjects-${group.semesterLabel}`}
                             className="overflow-hidden rounded-lg border"
                         >
-                            <div className="flex flex-col gap-2 border-b bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="space-y-1">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <div className="font-medium">
-                                            {group.semesterLabel}
+                            <div className="flex flex-col gap-2 border-b bg-muted/30 sm:flex-row sm:items-center sm:justify-between">
+                                <AccordionTrigger className="flex-1 px-4 py-3 text-left hover:no-underline">
+                                    <div className="space-y-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <div className="font-medium">
+                                                {group.semesterLabel}
+                                            </div>
+                                            <Badge variant="secondary">
+                                                {group.subjects.length}
+                                            </Badge>
                                         </div>
-                                        <Badge variant="secondary">
-                                            {group.subjects.length}
-                                        </Badge>
-                                    </div>
 
-                                    <div className="text-xs text-muted-foreground">
-                                        {group.linkedCount} linked subject
-                                        {group.linkedCount === 1 ? "" : "s"} •{" "}
-                                        {group.inheritedCount} subject
-                                        {group.inheritedCount === 1 ? "" : "s"} without
-                                        direct term link
+                                        <div className="text-xs text-muted-foreground">
+                                            {group.linkedCount} linked subject
+                                            {group.linkedCount === 1 ? "" : "s"} •{" "}
+                                            {group.inheritedCount} subject
+                                            {group.inheritedCount === 1 ? "" : "s"} without
+                                            direct term link
+                                        </div>
                                     </div>
-                                </div>
+                                </AccordionTrigger>
 
-                                <div className="flex flex-wrap items-center gap-2">
+                                <div
+                                    className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:pb-0"
+                                    onClick={(event) => event.stopPropagation()}
+                                >
                                     {group.inheritedCount > 0 ? (
                                         <Button
                                             variant="outline"
@@ -389,123 +520,161 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                 </div>
                             </div>
 
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-40">Code</TableHead>
-                                        <TableHead>Title</TableHead>
-                                        <TableHead className="w-72">College</TableHead>
-                                        <TableHead className="w-60">Semester / Term</TableHead>
-                                        <TableHead className="w-44">Units / Hours</TableHead>
-                                        <TableHead className="w-32 text-right">Actions</TableHead>
-                                    </TableRow>
-                                </TableHeader>
+                            <AccordionContent className="p-0">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-40">Code</TableHead>
+                                            <TableHead>Title</TableHead>
+                                            <TableHead className="w-72">College</TableHead>
+                                            <TableHead className="w-60">Semester / Term</TableHead>
+                                            <TableHead className="w-44">Units / Hours</TableHead>
+                                            <TableHead className="w-56 text-right">Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
 
-                                <TableBody>
-                                    {group.subjects.map((subject) => {
-                                        const linkedTermId = resolveSubjectTermId(subject)
-                                        const semesterLabel =
-                                            resolveSubjectSemester(subject, termMap) ||
-                                            INHERIT_SEMESTER_LABEL
+                                    <TableBody>
+                                        {group.subjects.map((subject) => {
+                                            const linkedTermId = resolveSubjectTermId(subject)
+                                            const semesterLabel =
+                                                resolveSubjectSemester(subject, termMap) ||
+                                                INHERIT_SEMESTER_LABEL
 
-                                        const termLabel = linkedTermId
-                                            ? vm.termLabel(vm.terms, linkedTermId)
-                                            : "Not yet linked. Use Edit All Link to Term to permanently connect."
+                                            const termLabel = linkedTermId
+                                                ? vm.termLabel(vm.terms, linkedTermId)
+                                                : "Not yet linked. Use Link to Term to permanently connect."
 
-                                        return (
-                                            <TableRow key={subject.$id}>
-                                                <TableCell className="font-medium">
-                                                    {subject.code}
-                                                </TableCell>
+                                            return (
+                                                <TableRow key={subject.$id}>
+                                                    <TableCell className="font-medium">
+                                                        {subject.code}
+                                                    </TableCell>
 
-                                                <TableCell>{subject.title}</TableCell>
+                                                    <TableCell>{subject.title}</TableCell>
 
-                                                <TableCell className="text-muted-foreground">
-                                                    {vm.collegeLabel(
-                                                        vm.colleges,
-                                                        (subject.departmentId as string | null) ??
-                                                            null
-                                                    )}
-                                                </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {vm.collegeLabel(
+                                                            vm.colleges,
+                                                            (subject.departmentId as string | null) ??
+                                                                null
+                                                        )}
+                                                    </TableCell>
 
-                                                <TableCell>
-                                                    <div className="flex flex-col gap-1">
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <Badge
-                                                                variant={
-                                                                    linkedTermId
-                                                                        ? "secondary"
-                                                                        : "outline"
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <Badge
+                                                                    variant={
+                                                                        linkedTermId
+                                                                            ? "secondary"
+                                                                            : "outline"
+                                                                    }
+                                                                >
+                                                                    {semesterLabel}
+                                                                </Badge>
+
+                                                                <Badge
+                                                                    variant={
+                                                                        linkedTermId
+                                                                            ? "secondary"
+                                                                            : "outline"
+                                                                    }
+                                                                >
+                                                                    {linkedTermId
+                                                                        ? "Linked to Term"
+                                                                        : "Unlinked"}
+                                                                </Badge>
+                                                            </div>
+
+                                                            <div className="text-xs text-muted-foreground">
+                                                                {termLabel}
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+
+                                                    <TableCell>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            Units:{" "}
+                                                            <span className="font-medium text-foreground">
+                                                                {subject.units}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            Lec {subject.lectureHours} / Lab{" "}
+                                                            {subject.labHours} ={" "}
+                                                            <span className="font-medium text-foreground">
+                                                                {Number.isFinite(
+                                                                    Number(subject.totalHours)
+                                                                )
+                                                                    ? subject.totalHours
+                                                                    : Number(subject.lectureHours ?? 0) +
+                                                                      Number(subject.labHours ?? 0)}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+
+                                                    <TableCell className="text-right">
+                                                        <div className="flex flex-wrap justify-end gap-2">
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => openSubjectLinkDialog(subject)}
+                                                                disabled={vm.terms.length === 0}
+                                                            >
+                                                                <Link2 className="mr-2 h-4 w-4" />
+                                                                {linkedTermId ? "Change Link" : "Link to Term"}
+                                                            </Button>
+
+                                                            {linkedTermId ? (
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        void unlinkSingleSubjectFromTerm(subject)
+                                                                    }
+                                                                    disabled={subjectLinkSaving}
+                                                                >
+                                                                    <Unlink2 className="mr-2 h-4 w-4" />
+                                                                    Unlink
+                                                                </Button>
+                                                            ) : null}
+
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    vm.setSubjectEditing(subject as any)
+                                                                    vm.setSubjectOpen(true)
+                                                                }}
+                                                            >
+                                                                <Pencil className="mr-2 h-4 w-4" />
+                                                                Edit
+                                                            </Button>
+
+                                                            <Button
+                                                                variant="destructive"
+                                                                size="sm"
+                                                                onClick={() =>
+                                                                    vm.setDeleteIntent({
+                                                                        type: "subject",
+                                                                        doc: subject as any,
+                                                                    })
                                                                 }
                                                             >
-                                                                {semesterLabel}
-                                                            </Badge>
+                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                Delete
+                                                            </Button>
                                                         </div>
-
-                                                        <div className="text-xs text-muted-foreground">
-                                                            {termLabel}
-                                                        </div>
-                                                    </div>
-                                                </TableCell>
-
-                                                <TableCell>
-                                                    <div className="text-xs text-muted-foreground">
-                                                        Units:{" "}
-                                                        <span className="font-medium text-foreground">
-                                                            {subject.units}
-                                                        </span>
-                                                    </div>
-                                                    <div className="text-xs text-muted-foreground">
-                                                        Lec {subject.lectureHours} / Lab{" "}
-                                                        {subject.labHours} ={" "}
-                                                        <span className="font-medium text-foreground">
-                                                            {Number.isFinite(
-                                                                Number(subject.totalHours)
-                                                            )
-                                                                ? subject.totalHours
-                                                                : Number(subject.lectureHours ?? 0) +
-                                                                  Number(subject.labHours ?? 0)}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-
-                                                <TableCell className="text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => {
-                                                                vm.setSubjectEditing(subject as any)
-                                                                vm.setSubjectOpen(true)
-                                                            }}
-                                                        >
-                                                            <Pencil className="mr-2 h-4 w-4" />
-                                                            Edit
-                                                        </Button>
-
-                                                        <Button
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            onClick={() =>
-                                                                vm.setDeleteIntent({
-                                                                    type: "subject",
-                                                                    doc: subject as any,
-                                                                })
-                                                            }
-                                                        >
-                                                            <Trash2 className="mr-2 h-4 w-4" />
-                                                            Delete
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        )
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </AccordionContent>
+                        </AccordionItem>
                     ))}
-                </div>
+                </Accordion>
             )}
 
             <Dialog open={bulkLinkOpen} onOpenChange={setBulkLinkOpen}>
@@ -663,6 +832,122 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         >
                             {bulkLinking ? "Linking..." : "Save Term Links"}
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={subjectLinkOpen}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        closeSubjectLinkDialog()
+                        return
+                    }
+                    setSubjectLinkOpen(open)
+                }}
+            >
+                <DialogContent className="sm:max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {resolveSubjectTermId(subjectLinkSubject ?? ({} as LooseSubjectDoc))
+                                ? "Change Subject Term Link"
+                                : "Link Subject to Term"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            Permanently connect this subject to an academic term so it appears under the correct semester when assigning records.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid gap-4 py-2">
+                        <div className="rounded-md border bg-muted/30 p-3">
+                            <div className="text-sm font-medium">
+                                {subjectLinkSubject?.code} — {subjectLinkSubject?.title}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <span>
+                                    {vm.collegeLabel(
+                                        vm.colleges,
+                                        (subjectLinkSubject?.departmentId as string | null) ?? null
+                                    )}
+                                </span>
+                                <Badge variant="outline">
+                                    {subjectLinkSemesterHint || INHERIT_SEMESTER_LABEL}
+                                </Badge>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Academic Term</label>
+                            <Select
+                                value={subjectLinkTermId}
+                                onValueChange={setSubjectLinkTermId}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Term" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {subjectLinkTermOptions.length === 0 ? (
+                                        <SelectItem value="__none__" disabled>
+                                            No academic terms found
+                                        </SelectItem>
+                                    ) : (
+                                        subjectLinkTermOptions.map((term) => (
+                                            <SelectItem key={term.$id} value={term.$id}>
+                                                {vm.termLabel(vm.terms, term.$id)}
+                                                {term.isActive ? " • Active" : ""}
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground">
+                                {subjectLinkSemesterHint
+                                    ? `Matching terms for ${subjectLinkSemesterHint} are shown first.`
+                                    : "Choose the academic term you want this subject to be directly linked to."}
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                            {subjectLinkSubject &&
+                            resolveSubjectTermId(subjectLinkSubject) ? (
+                                <Button
+                                    variant="outline"
+                                    onClick={() =>
+                                        void unlinkSingleSubjectFromTerm(
+                                            subjectLinkSubject,
+                                            true
+                                        )
+                                    }
+                                    disabled={subjectLinkSaving}
+                                >
+                                    <Unlink2 className="mr-2 h-4 w-4" />
+                                    Unlink from Term
+                                </Button>
+                            ) : null}
+                        </div>
+
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                            <Button
+                                variant="outline"
+                                onClick={closeSubjectLinkDialog}
+                                disabled={subjectLinkSaving}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={() => void linkSingleSubjectToTerm()}
+                                disabled={
+                                    subjectLinkSaving ||
+                                    !subjectLinkSubject ||
+                                    !subjectLinkTermId ||
+                                    subjectLinkTermOptions.length === 0
+                                }
+                            >
+                                {subjectLinkSaving ? "Saving..." : "Save Term Link"}
+                            </Button>
+                        </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
