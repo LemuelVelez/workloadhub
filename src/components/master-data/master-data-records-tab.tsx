@@ -5,6 +5,7 @@
 import * as React from "react"
 import { Pencil } from "lucide-react"
 
+import type { AcademicTermDoc, SubjectDoc } from "../../../model/schemaModel"
 import type { MasterDataManagementVM } from "./use-master-data"
 import { RecordMobileCards } from "./master-data-mobile-cards"
 import { RecordsExcelActions } from "./records-excel-actions"
@@ -32,20 +33,121 @@ type Props = {
     onEditRecord: (row: any) => void
 }
 
+type LooseSubjectDoc = SubjectDoc & Record<string, unknown>
+type LooseAcademicTermDoc = AcademicTermDoc & Record<string, unknown>
+
+const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
+const SUBJECT_SEMESTER_KEYS = [
+    "semester",
+    "semesterLabel",
+    "termSemester",
+    "termSem",
+] as const
+
+function readFirstStringValue(
+    source: Record<string, unknown> | null | undefined,
+    keys: readonly string[]
+) {
+    for (const key of keys) {
+        const value = source?.[key]
+        if (typeof value === "string" && value.trim()) {
+            return value.trim()
+        }
+    }
+    return ""
+}
+
+function normalizeSemesterLabel(value: string) {
+    const normalized = value.toLowerCase().replace(/\s+/g, " ").trim()
+    if (!normalized) return ""
+    if (normalized.includes("1st") || normalized.includes("first")) {
+        return "1st Semester"
+    }
+    if (normalized.includes("2nd") || normalized.includes("second")) {
+        return "2nd Semester"
+    }
+    if (normalized.includes("summer")) {
+        return "Summer"
+    }
+    return value.trim()
+}
+
+function getSemesterSortOrder(label: string) {
+    const normalized = normalizeSemesterLabel(label)
+    if (normalized === "1st Semester") return 1
+    if (normalized === "2nd Semester") return 2
+    if (normalized === "Summer") return 3
+    if (normalized === "No Semester") return 99
+    return 50
+}
+
+function resolveSubjectTermId(subject: LooseSubjectDoc) {
+    return readFirstStringValue(subject, SUBJECT_TERM_KEYS)
+}
+
+function resolveTermSemester(
+    termMap: Map<string, LooseAcademicTermDoc>,
+    termId: string
+) {
+    if (!termId) return ""
+    const term = termMap.get(termId)
+    return normalizeSemesterLabel(String(term?.semester ?? ""))
+}
+
+function resolveSubjectSemester(
+    subject: LooseSubjectDoc,
+    termMap: Map<string, LooseAcademicTermDoc>
+) {
+    const linkedTermId = resolveSubjectTermId(subject)
+    const linkedSemester = resolveTermSemester(termMap, linkedTermId)
+    if (linkedSemester) return linkedSemester
+
+    return normalizeSemesterLabel(readFirstStringValue(subject, SUBJECT_SEMESTER_KEYS))
+}
+
 export function MasterDataRecordsTab({
     vm,
     resolveTermLabel,
     onEditRecord,
 }: Props) {
+    const termMap = React.useMemo(() => {
+        const map = new Map<string, LooseAcademicTermDoc>()
+        for (const term of vm.terms as LooseAcademicTermDoc[]) {
+            map.set(String(term.$id), term)
+        }
+        return map
+    }, [vm.terms])
+
+    const sortedSubjects = React.useMemo(() => {
+        return [...(vm.subjects as LooseSubjectDoc[])].sort((a, b) => {
+            const semesterDelta =
+                getSemesterSortOrder(resolveSubjectSemester(a, termMap) || "No Semester") -
+                getSemesterSortOrder(resolveSubjectSemester(b, termMap) || "No Semester")
+
+            if (semesterDelta !== 0) return semesterDelta
+
+            const aCode = String(a.code ?? "").toLowerCase()
+            const bCode = String(b.code ?? "").toLowerCase()
+            if (aCode !== bCode) return aCode.localeCompare(bCode)
+
+            return String(a.title ?? "").localeCompare(String(b.title ?? ""))
+        })
+    }, [termMap, vm.subjects])
+
     const recordSubjectFilterLabel = React.useMemo(() => {
         const v = String((vm as any).recordSubjectFilter ?? "__all__")
         if (!v || v === "__all__") return "All Subjects"
 
-        const subject = (vm.subjects ?? []).find((x: any) => String(x.$id) === v)
+        const subject = (vm.subjects as LooseSubjectDoc[]).find(
+            (item) => String(item.$id) === v
+        )
         if (!subject) return "Selected Subject"
 
-        return `${subject.code} — ${subject.title}`
-    }, [vm])
+        const semesterLabel = resolveSubjectSemester(subject, termMap)
+        const suffix = semesterLabel ? ` • ${semesterLabel}` : " • Inherit selected term"
+
+        return `${subject.code} — ${subject.title}${suffix}`
+    }, [termMap, vm])
 
     const recordUnitFilterLabel = React.useMemo(() => {
         const v = String((vm as any).recordUnitFilter ?? "__all__")
@@ -72,7 +174,8 @@ export function MasterDataRecordsTab({
                     <div className="font-medium">List of Records</div>
                     <div className="text-sm text-muted-foreground">
                         Conflict detection focuses on room + day/time overlap. Same subject
-                        across different faculty is allowed.
+                        across different faculty is allowed, and subject filters are now
+                        labeled by semester.
                     </div>
                 </div>
 
@@ -96,11 +199,17 @@ export function MasterDataRecordsTab({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="__all__">All Subjects</SelectItem>
-                                {vm.subjects.map((s) => (
-                                    <SelectItem key={s.$id} value={s.$id}>
-                                        {s.code} — {s.title}
-                                    </SelectItem>
-                                ))}
+                                {sortedSubjects.map((subject) => {
+                                    const semesterLabel =
+                                        resolveSubjectSemester(subject, termMap) ||
+                                        "Inherit selected term"
+
+                                    return (
+                                        <SelectItem key={subject.$id} value={subject.$id}>
+                                            [{semesterLabel}] {subject.code} — {subject.title}
+                                        </SelectItem>
+                                    )
+                                })}
                             </SelectContent>
                         </Select>
                     </div>

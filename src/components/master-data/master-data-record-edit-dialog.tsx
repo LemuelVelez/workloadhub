@@ -5,6 +5,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 
+import type { AcademicTermDoc, SubjectDoc } from "../../../model/schemaModel"
 import type { MasterDataManagementVM } from "./use-master-data"
 import {
     DAYS,
@@ -35,6 +36,88 @@ type Props = {
     onEditingRowChange: (row: any | null) => void
 }
 
+type LooseSubjectDoc = SubjectDoc & Record<string, unknown>
+type LooseAcademicTermDoc = AcademicTermDoc & Record<string, unknown>
+
+const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
+const SUBJECT_SEMESTER_KEYS = [
+    "semester",
+    "semesterLabel",
+    "termSemester",
+    "termSem",
+] as const
+
+function readFirstStringValue(
+    source: Record<string, unknown> | null | undefined,
+    keys: readonly string[]
+) {
+    for (const key of keys) {
+        const value = source?.[key]
+        if (typeof value === "string" && value.trim()) {
+            return value.trim()
+        }
+    }
+    return ""
+}
+
+function normalizeSemesterLabel(value: string) {
+    const normalized = value.toLowerCase().replace(/\s+/g, " ").trim()
+    if (!normalized) return ""
+    if (normalized.includes("1st") || normalized.includes("first")) {
+        return "1st Semester"
+    }
+    if (normalized.includes("2nd") || normalized.includes("second")) {
+        return "2nd Semester"
+    }
+    if (normalized.includes("summer")) {
+        return "Summer"
+    }
+    return value.trim()
+}
+
+function resolveSubjectTermId(subject: LooseSubjectDoc) {
+    return readFirstStringValue(subject, SUBJECT_TERM_KEYS)
+}
+
+function resolveTermSemester(
+    termMap: Map<string, LooseAcademicTermDoc>,
+    termId: string
+) {
+    if (!termId) return ""
+    const term = termMap.get(termId)
+    return normalizeSemesterLabel(String(term?.semester ?? ""))
+}
+
+function resolveSubjectSemester(
+    subject: LooseSubjectDoc,
+    termMap: Map<string, LooseAcademicTermDoc>
+) {
+    const linkedTermId = resolveSubjectTermId(subject)
+    const linkedSemester = resolveTermSemester(termMap, linkedTermId)
+    if (linkedSemester) return linkedSemester
+
+    return normalizeSemesterLabel(readFirstStringValue(subject, SUBJECT_SEMESTER_KEYS))
+}
+
+function getSubjectSortRank(
+    subject: LooseSubjectDoc,
+    selectedTermId: string,
+    selectedTermSemester: string,
+    termMap: Map<string, LooseAcademicTermDoc>
+) {
+    const subjectTermId = resolveSubjectTermId(subject)
+    if (selectedTermId && subjectTermId === selectedTermId) return 0
+
+    const subjectSemester = resolveSubjectSemester(subject, termMap)
+    if (selectedTermSemester && subjectSemester && subjectSemester === selectedTermSemester) {
+        return 1
+    }
+
+    if (!subjectSemester) return 2
+
+    return 3
+}
+
 export function MasterDataRecordEditDialog({
     vm,
     open,
@@ -62,6 +145,51 @@ export function MasterDataRecordEditDialog({
             ""
         )
     }, [])
+
+    const termMap = React.useMemo(() => {
+        const map = new Map<string, LooseAcademicTermDoc>()
+        for (const term of vm.terms as LooseAcademicTermDoc[]) {
+            map.set(String(term.$id), term)
+        }
+        return map
+    }, [vm.terms])
+
+    const selectedTermSemester = React.useMemo(() => {
+        return resolveTermSemester(termMap, recordTermId.trim())
+    }, [recordTermId, termMap])
+
+    const availableSubjectsForSelectedTerm = React.useMemo(() => {
+        const selectedTermId = recordTermId.trim()
+
+        return [...(vm.subjects as LooseSubjectDoc[])]
+            .filter((subject) => {
+                if (!selectedTermSemester) return true
+
+                const subjectTermId = resolveSubjectTermId(subject)
+                if (selectedTermId && subjectTermId === selectedTermId) return true
+
+                const subjectSemester = resolveSubjectSemester(subject, termMap)
+
+                // No explicit subject semester yet:
+                // allow it, then connect it to the selected term on save.
+                if (!subjectSemester) return true
+
+                return subjectSemester === selectedTermSemester
+            })
+            .sort((a, b) => {
+                const rankDelta =
+                    getSubjectSortRank(a, selectedTermId, selectedTermSemester, termMap) -
+                    getSubjectSortRank(b, selectedTermId, selectedTermSemester, termMap)
+
+                if (rankDelta !== 0) return rankDelta
+
+                const aCode = String(a.code ?? "").toLowerCase()
+                const bCode = String(b.code ?? "").toLowerCase()
+                if (aCode !== bCode) return aCode.localeCompare(bCode)
+
+                return String(a.title ?? "").localeCompare(String(b.title ?? ""))
+            })
+    }, [recordTermId, selectedTermSemester, termMap, vm.subjects])
 
     React.useEffect(() => {
         if (!open || !editingRow) return
@@ -104,6 +232,14 @@ export function MasterDataRecordEditDialog({
         setRecordFacultyValue(String(facultyValue ?? ""))
         setRecordSubjectId(String(subjectId ?? ""))
     }, [open, editingRow])
+
+    React.useEffect(() => {
+        if (!recordSubjectId.trim()) return
+        if (availableSubjectsForSelectedTerm.some((subject) => String(subject.$id) === recordSubjectId.trim())) {
+            return
+        }
+        setRecordSubjectId("")
+    }, [availableSubjectsForSelectedTerm, recordSubjectId])
 
     const closeDialog = React.useCallback(() => {
         onOpenChange(false)
@@ -193,6 +329,28 @@ export function MasterDataRecordEditDialog({
             return
         }
 
+        const selectedSubject =
+            ((vm.subjects as LooseSubjectDoc[]).find(
+                (subject) => String(subject.$id) === recordSubjectId.trim()
+            ) as LooseSubjectDoc | undefined) ?? null
+
+        if (!selectedSubject) {
+            toast.error("Selected subject was not found.")
+            return
+        }
+
+        const selectedSubjectSemester = resolveSubjectSemester(selectedSubject, termMap)
+        if (
+            selectedTermSemester &&
+            selectedSubjectSemester &&
+            selectedSubjectSemester !== selectedTermSemester
+        ) {
+            toast.error(
+                `Selected subject belongs to ${selectedSubjectSemester}. Please choose a ${selectedTermSemester} subject.`
+            )
+            return
+        }
+
         const payload: any = {}
 
         if (hasOwn(editingRow, "termId")) payload.termId = termId
@@ -234,9 +392,7 @@ export function MasterDataRecordEditDialog({
         }
 
         if (hasOwn(editingRow, "units")) {
-            const subject =
-                vm.subjects.find((s: any) => s.$id === recordSubjectId.trim()) ?? null
-            const units = subject?.units
+            const units = selectedSubject?.units
             if (units != null && String(units).trim() !== "") {
                 payload.units = units
             }
@@ -248,7 +404,29 @@ export function MasterDataRecordEditDialog({
         }
 
         setSavingRecord(true)
+        let subjectLinkedToSelectedTerm = false
+
         try {
+            const selectedSubjectTermId = resolveSubjectTermId(selectedSubject)
+
+            if (!selectedSubjectTermId) {
+                try {
+                    await databases.updateDocument(
+                        DATABASE_ID,
+                        COLLECTIONS.SUBJECTS,
+                        String(selectedSubject.$id),
+                        { termId }
+                    )
+                    subjectLinkedToSelectedTerm = true
+                } catch (subjectLinkError: any) {
+                    toast.warning(
+                        subjectLinkError?.message
+                            ? `Record will still be saved, but the subject-term link was not persisted yet: ${subjectLinkError.message}`
+                            : "Record will still be saved, but the subject-term link was not persisted yet."
+                    )
+                }
+            }
+
             await databases.updateDocument(
                 DATABASE_ID,
                 recordsCollectionId,
@@ -256,7 +434,11 @@ export function MasterDataRecordEditDialog({
                 payload
             )
 
-            toast.success("Record updated.")
+            toast.success(
+                subjectLinkedToSelectedTerm
+                    ? "Record updated and subject linked to the selected term."
+                    : "Record updated."
+            )
             closeDialog()
 
             if (typeof (vm as any).refreshAll === "function") {
@@ -277,6 +459,8 @@ export function MasterDataRecordEditDialog({
         recordRoom,
         recordFacultyValue,
         recordSubjectId,
+        selectedTermSemester,
+        termMap,
         vm,
         closeDialog,
     ])
@@ -288,9 +472,9 @@ export function MasterDataRecordEditDialog({
                     <DialogTitle>Edit Record</DialogTitle>
                     <ShadDialogDescription>
                         Update term/day/time/room/faculty/subject for this record.
-                        Changes will reflect in conflict detection after refresh, and
-                        units will sync automatically from the selected subject when the
-                        record schema stores units.
+                        Subject choices are now limited by the selected term semester,
+                        and unlinked subjects can automatically inherit the selected
+                        term when saved.
                     </ShadDialogDescription>
                 </DialogHeader>
 
@@ -316,6 +500,11 @@ export function MasterDataRecordEditDialog({
                                 )}
                             </SelectContent>
                         </Select>
+                        <div className="text-xs text-muted-foreground">
+                            {selectedTermSemester
+                                ? `Showing ${selectedTermSemester} subjects only for this record.`
+                                : "Select a term to automatically segregate subjects by semester."}
+                        </div>
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-3">
@@ -427,21 +616,37 @@ export function MasterDataRecordEditDialog({
                                     <SelectValue placeholder="Select Subject" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {vm.subjects.length === 0 ? (
+                                    {availableSubjectsForSelectedTerm.length === 0 ? (
                                         <SelectItem value="__none__" disabled>
-                                            No subjects found
+                                            No subjects found for the selected semester
                                         </SelectItem>
                                     ) : (
-                                        vm.subjects.map((s: any) => (
-                                            <SelectItem key={s.$id} value={s.$id}>
-                                                {s.code} — {s.title}
-                                            </SelectItem>
-                                        ))
+                                        availableSubjectsForSelectedTerm.map((subject) => {
+                                            const linkedTermId = resolveSubjectTermId(subject)
+                                            const subjectSemester =
+                                                resolveSubjectSemester(subject, termMap) ||
+                                                selectedTermSemester ||
+                                                "No Semester"
+                                            const labelSuffix = linkedTermId
+                                                ? subjectSemester
+                                                : `${subjectSemester} • Inherit selected term`
+
+                                            return (
+                                                <SelectItem
+                                                    key={subject.$id}
+                                                    value={subject.$id}
+                                                >
+                                                    {subject.code} — {subject.title} ({labelSuffix})
+                                                </SelectItem>
+                                            )
+                                        })
                                     )}
                                 </SelectContent>
                             </Select>
                             <div className="text-xs text-muted-foreground">
                                 Units are taken automatically from the selected subject.
+                                Subjects without a direct term link will inherit the
+                                selected term when possible.
                             </div>
                         </div>
                     </div>

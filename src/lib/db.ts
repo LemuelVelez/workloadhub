@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Client, Databases, TablesDB, ID, Query, Account } from "appwrite"
+import { COLLECTIONS } from "../../model/schemaModel"
 import { publicEnv } from "./env"
 
 /**
@@ -12,37 +13,7 @@ export const appwriteClient = new Client()
 
 export const DATABASE_ID = publicEnv.APPWRITE_DATABASE
 
-export const COLLECTIONS = {
-    DEPARTMENTS: "departments",
-    PROGRAMS: "programs",
-    SUBJECTS: "subjects",
-    ROOMS: "rooms",
-    ACADEMIC_TERMS: "academic_terms",
-    TIME_BLOCKS: "time_blocks",
-    SYSTEM_POLICIES: "system_policies",
-    SETTINGS: "settings",
-
-    USER_PROFILES: "user_profiles",
-    FACULTY_PROFILES: "faculty_profiles",
-
-    // ✅ NEW: match schemaModel.ts
-    FIRST_LOGIN_USERS: "first_login_users",
-
-    SECTIONS: "sections",
-    SCHEDULE_VERSIONS: "schedule_versions",
-    CLASSES: "classes",
-    CLASS_MEETINGS: "class_meetings",
-
-    FACULTY_AVAILABILITY: "faculty_availability",
-    CHANGE_REQUESTS: "change_requests",
-
-    NOTIFICATIONS: "notifications",
-    NOTIFICATION_RECIPIENTS: "notification_recipients",
-
-    AUDIT_LOGS: "audit_logs",
-} as const
-
-export { ID, Query }
+export { COLLECTIONS, ID, Query }
 
 /**
  * ✅ Account helper (used to auto-detect the current logged-in user as audit actor)
