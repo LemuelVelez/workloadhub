@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "006_backfill_section_yearlevel_prefixes" as const;
+export const SCHEMA_MIGRATION_ID = "007_add_subject_term_linking" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -116,6 +116,7 @@ export const ATTR = {
         isActive: "isActive",
     },
     SUBJECTS: {
+        termId: "termId",
         departmentId: "departmentId",
         code: "code",
         title: "title",
@@ -305,6 +306,7 @@ export const INDEX = {
     SUBJECTS: {
         codeUnique: "idx_subjects_code_unique",
         departmentId: "idx_subjects_departmentId",
+        termId: "idx_subjects_termId",
         titleFulltext: "idx_subjects_title_fulltext",
     },
     ROOMS: {
@@ -432,6 +434,7 @@ export type Program = {
 };
 
 export type Subject = {
+    termId?: string | null;
     departmentId?: string | null;
     code: string;
     title: string;
