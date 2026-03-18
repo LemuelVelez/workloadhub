@@ -512,6 +512,51 @@ export function useMasterDataManagement() {
         }
     }
 
+    async function setSubjectTermLink(subjectIdInput: string, termIdInput?: string | null) {
+        const subjectId = str(subjectIdInput)
+        const termId = str(termIdInput)
+
+        if (!subjectId) {
+            toast.error("Missing subject id.")
+            return false
+        }
+
+        const currentSubject = subjects.find((subject) => subject.$id === subjectId)
+        if (!currentSubject) {
+            toast.error("Subject not found.")
+            return false
+        }
+
+        try {
+            await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.SUBJECTS,
+                subjectId,
+                { termId: termId || null }
+            )
+
+            await refreshAll()
+
+            if (termId) {
+                toast.success(
+                    `${currentSubject.code} linked to ${termLabel(terms, termId)}.`
+                )
+            } else {
+                toast.success(`${currentSubject.code} unlinked from academic term.`)
+            }
+
+            return true
+        } catch (e: any) {
+            toast.error(
+                e?.message ||
+                    (termId
+                        ? "Failed to link subject to term."
+                        : "Failed to unlink subject from term.")
+            )
+            return false
+        }
+    }
+
     async function bulkLinkSubjectsToTerm(subjectIds: string[], termIdInput: string) {
         const termId = str(termIdInput)
         const normalizedIds = Array.from(new Set(subjectIds.map((id) => str(id)).filter(Boolean)))
@@ -1170,6 +1215,7 @@ export function useMasterDataManagement() {
         subjectActive,
         setSubjectActive,
         saveSubject,
+        setSubjectTermLink,
         bulkLinkSubjectsToTerm,
 
         // faculty dialog
