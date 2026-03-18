@@ -364,8 +364,15 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             (event: React.MouseEvent<HTMLButtonElement>) => {
                 event.preventDefault()
                 event.stopPropagation()
-                void action()
+                void Promise.resolve(action())
             },
+        []
+    )
+
+    const stopActionAreaInteraction = React.useCallback(
+        (event: React.SyntheticEvent) => {
+            event.stopPropagation()
+        },
         []
     )
 
@@ -480,153 +487,160 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                     Drag horizontally on the table to view more columns.
                                 </div>
 
-                                <Table dragScroll className="min-w-max">
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-40">Code</TableHead>
-                                            <TableHead>Title</TableHead>
-                                            <TableHead className="w-72">College</TableHead>
-                                            <TableHead className="w-60">Semester / Term</TableHead>
-                                            <TableHead className="w-44">Units / Hours</TableHead>
-                                            <TableHead className="w-32 text-right">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
+                                <div className="overflow-x-auto">
+                                    <Table className="min-w-max">
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="w-40">Code</TableHead>
+                                                <TableHead>Title</TableHead>
+                                                <TableHead className="w-72">College</TableHead>
+                                                <TableHead className="w-60">Semester / Term</TableHead>
+                                                <TableHead className="w-44">Units / Hours</TableHead>
+                                                <TableHead className="w-32 text-right">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
 
-                                    <TableBody>
-                                        {group.subjects.map((subject) => {
-                                            const linkedTermId = resolveSubjectTermId(subject)
-                                            const semesterLabel =
-                                                resolveSubjectSemester(subject, termMap) ||
-                                                INHERIT_SEMESTER_LABEL
+                                        <TableBody>
+                                            {group.subjects.map((subject) => {
+                                                const linkedTermId = resolveSubjectTermId(subject)
+                                                const semesterLabel =
+                                                    resolveSubjectSemester(subject, termMap) ||
+                                                    INHERIT_SEMESTER_LABEL
 
-                                            const termLabel = linkedTermId
-                                                ? vm.termLabel(vm.terms, linkedTermId)
-                                                : "Not yet linked. Use Link to Term to permanently connect."
+                                                const termLabel = linkedTermId
+                                                    ? vm.termLabel(vm.terms, linkedTermId)
+                                                    : "Not yet linked. Use Link to Term to permanently connect."
 
-                                            return (
-                                                <TableRow key={subject.$id}>
-                                                    <TableCell className="font-medium">
-                                                        {subject.code}
-                                                    </TableCell>
+                                                return (
+                                                    <TableRow key={subject.$id}>
+                                                        <TableCell className="font-medium">
+                                                            {subject.code}
+                                                        </TableCell>
 
-                                                    <TableCell>{subject.title}</TableCell>
+                                                        <TableCell>{subject.title}</TableCell>
 
-                                                    <TableCell className="text-muted-foreground">
-                                                        {vm.collegeLabel(
-                                                            vm.colleges,
-                                                            (subject.departmentId as string | null) ??
-                                                                null
-                                                        )}
-                                                    </TableCell>
-
-                                                    <TableCell>
-                                                        <div className="flex flex-col gap-1">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <Badge
-                                                                    variant={
-                                                                        linkedTermId
-                                                                            ? "secondary"
-                                                                            : "outline"
-                                                                    }
-                                                                >
-                                                                    {semesterLabel}
-                                                                </Badge>
-                                                            </div>
-
-                                                            <div className="text-xs text-muted-foreground">
-                                                                {termLabel}
-                                                            </div>
-                                                        </div>
-                                                    </TableCell>
-
-                                                    <TableCell>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Units:{" "}
-                                                            <span className="font-medium text-foreground">
-                                                                {subject.units}
-                                                            </span>
-                                                        </div>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Lec {subject.lectureHours} / Lab{" "}
-                                                            {subject.labHours} ={" "}
-                                                            <span className="font-medium text-foreground">
-                                                                {Number.isFinite(
-                                                                    Number(subject.totalHours)
-                                                                )
-                                                                    ? subject.totalHours
-                                                                    : Number(subject.lectureHours ?? 0) +
-                                                                      Number(subject.labHours ?? 0)}
-                                                            </span>
-                                                        </div>
-                                                    </TableCell>
-
-                                                    <TableCell className="text-right">
-                                                        <div className="flex flex-wrap justify-end gap-2">
-                                                            {linkedTermId ? (
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={handleTableActionClick(() =>
-                                                                        vm.setSubjectTermLink(
-                                                                            String(subject.$id),
-                                                                            null
-                                                                        )
-                                                                    )}
-                                                                >
-                                                                    <Unlink2 className="mr-2 h-4 w-4" />
-                                                                    Unlink Term
-                                                                </Button>
-                                                            ) : (
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={handleTableActionClick(() =>
-                                                                        openSingleSubjectLinkDialog(
-                                                                            subject
-                                                                        )
-                                                                    )}
-                                                                >
-                                                                    <Link2 className="mr-2 h-4 w-4" />
-                                                                    Link to Term
-                                                                </Button>
+                                                        <TableCell className="text-muted-foreground">
+                                                            {vm.collegeLabel(
+                                                                vm.colleges,
+                                                                (subject.departmentId as string | null) ??
+                                                                    null
                                                             )}
+                                                        </TableCell>
 
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={handleTableActionClick(() => {
-                                                                    vm.setSubjectEditing(subject as any)
-                                                                    vm.setSubjectOpen(true)
-                                                                })}
+                                                        <TableCell>
+                                                            <div className="flex flex-col gap-1">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <Badge
+                                                                        variant={
+                                                                            linkedTermId
+                                                                                ? "secondary"
+                                                                                : "outline"
+                                                                        }
+                                                                    >
+                                                                        {semesterLabel}
+                                                                    </Badge>
+                                                                </div>
+
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    {termLabel}
+                                                                </div>
+                                                            </div>
+                                                        </TableCell>
+
+                                                        <TableCell>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                Units:{" "}
+                                                                <span className="font-medium text-foreground">
+                                                                    {subject.units}
+                                                                </span>
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                Lec {subject.lectureHours} / Lab{" "}
+                                                                {subject.labHours} ={" "}
+                                                                <span className="font-medium text-foreground">
+                                                                    {Number.isFinite(
+                                                                        Number(subject.totalHours)
+                                                                    )
+                                                                        ? subject.totalHours
+                                                                        : Number(subject.lectureHours ?? 0) +
+                                                                          Number(subject.labHours ?? 0)}
+                                                                </span>
+                                                            </div>
+                                                        </TableCell>
+
+                                                        <TableCell className="text-right">
+                                                            <div
+                                                                className="flex flex-wrap justify-end gap-2"
+                                                                onPointerDown={stopActionAreaInteraction}
+                                                                onMouseDown={stopActionAreaInteraction}
+                                                                onTouchStart={stopActionAreaInteraction}
                                                             >
-                                                                <Pencil className="mr-2 h-4 w-4" />
-                                                                Edit
-                                                            </Button>
-
-                                                            <Button
-                                                                type="button"
-                                                                variant="destructive"
-                                                                size="sm"
-                                                                onClick={handleTableActionClick(() =>
-                                                                    vm.setDeleteIntent({
-                                                                        type: "subject",
-                                                                        doc: subject as any,
-                                                                    })
+                                                                {linkedTermId ? (
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={handleTableActionClick(() =>
+                                                                            vm.setSubjectTermLink(
+                                                                                String(subject.$id),
+                                                                                null
+                                                                            )
+                                                                        )}
+                                                                    >
+                                                                        <Unlink2 className="mr-2 h-4 w-4" />
+                                                                        Unlink Term
+                                                                    </Button>
+                                                                ) : (
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={handleTableActionClick(() =>
+                                                                            openSingleSubjectLinkDialog(
+                                                                                subject
+                                                                            )
+                                                                        )}
+                                                                    >
+                                                                        <Link2 className="mr-2 h-4 w-4" />
+                                                                        Link to Term
+                                                                    </Button>
                                                                 )}
-                                                            >
-                                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                                Delete
-                                                            </Button>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            )
-                                        })}
-                                    </TableBody>
-                                </Table>
+
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={handleTableActionClick(() => {
+                                                                        vm.setSubjectEditing(subject as any)
+                                                                        vm.setSubjectOpen(true)
+                                                                    })}
+                                                                >
+                                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                                    Edit
+                                                                </Button>
+
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="destructive"
+                                                                    size="sm"
+                                                                    onClick={handleTableActionClick(() =>
+                                                                        vm.setDeleteIntent({
+                                                                            type: "subject",
+                                                                            doc: subject as any,
+                                                                        })
+                                                                    )}
+                                                                >
+                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                    Delete
+                                                                </Button>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             </AccordionContent>
                         </AccordionItem>
                     ))}
