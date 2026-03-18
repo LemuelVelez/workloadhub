@@ -359,6 +359,16 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         }
     }, [bulkLinkSubjectIds, bulkLinkTermId, vm])
 
+    const handleTableActionClick = React.useCallback(
+        (action: () => void | Promise<unknown>) =>
+            (event: React.MouseEvent<HTMLButtonElement>) => {
+                event.preventDefault()
+                event.stopPropagation()
+                void action()
+            },
+        []
+    )
+
     const isSingleSubjectLinkMode = bulkLinkLockedSubjectIds.length === 1
 
     return (
@@ -373,6 +383,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button
+                        type="button"
                         variant="outline"
                         size="sm"
                         disabled={allUnlinkedSubjects.length === 0}
@@ -383,6 +394,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     </Button>
 
                     <Button
+                        type="button"
                         size="sm"
                         onClick={() => {
                             vm.setSubjectEditing(null)
@@ -416,9 +428,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             value={group.semesterLabel}
                             className="overflow-hidden rounded-lg border"
                         >
-                            <div className="flex flex-col gap-2 border-b bg-muted/30 px-4 sm:flex-row sm:items-center sm:justify-between">
-                                <AccordionTrigger className="py-3 text-left hover:no-underline sm:flex-1 sm:py-4">
-                                    <div className="space-y-1">
+                            <div className="border-b bg-muted/30">
+                                <AccordionTrigger className="px-4 py-3 text-left hover:no-underline sm:py-4">
+                                    <div className="space-y-1 pr-4">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <div className="font-medium">
                                                 {group.semesterLabel}
@@ -438,30 +450,29 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                     </div>
                                 </AccordionTrigger>
 
-                                <div className="flex flex-wrap items-center gap-2 pb-3 sm:pb-0 sm:pl-4">
-                                    {group.inheritedCount > 0 ? (
+                                {group.inheritedCount > 0 ? (
+                                    <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
                                         <Button
+                                            type="button"
                                             variant="outline"
                                             size="sm"
-                                            onClick={() =>
+                                            onClick={handleTableActionClick(() =>
                                                 openBulkLinkDialog(
                                                     group.semesterLabel === INHERIT_SEMESTER_LABEL
                                                         ? ""
                                                         : group.semesterLabel
                                                 )
-                                            }
+                                            )}
                                         >
                                             <Link2 className="mr-2 h-4 w-4" />
                                             Link Existing to Term
                                         </Button>
-                                    ) : null}
 
-                                    {group.inheritedCount > 0 ? (
                                         <Badge variant="outline">
                                             Unlinked subjects can be linked directly from here
                                         </Badge>
-                                    ) : null}
-                                </div>
+                                    </div>
+                                ) : null}
                             </div>
 
                             <AccordionContent className="pb-0">
@@ -553,27 +564,29 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                         <div className="flex flex-wrap justify-end gap-2">
                                                             {linkedTermId ? (
                                                                 <Button
+                                                                    type="button"
                                                                     variant="outline"
                                                                     size="sm"
-                                                                    onClick={() =>
-                                                                        void vm.setSubjectTermLink(
+                                                                    onClick={handleTableActionClick(() =>
+                                                                        vm.setSubjectTermLink(
                                                                             String(subject.$id),
                                                                             null
                                                                         )
-                                                                    }
+                                                                    )}
                                                                 >
                                                                     <Unlink2 className="mr-2 h-4 w-4" />
                                                                     Unlink Term
                                                                 </Button>
                                                             ) : (
                                                                 <Button
+                                                                    type="button"
                                                                     variant="outline"
                                                                     size="sm"
-                                                                    onClick={() =>
+                                                                    onClick={handleTableActionClick(() =>
                                                                         openSingleSubjectLinkDialog(
                                                                             subject
                                                                         )
-                                                                    }
+                                                                    )}
                                                                 >
                                                                     <Link2 className="mr-2 h-4 w-4" />
                                                                     Link to Term
@@ -581,26 +594,28 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             )}
 
                                                             <Button
+                                                                type="button"
                                                                 variant="outline"
                                                                 size="sm"
-                                                                onClick={() => {
+                                                                onClick={handleTableActionClick(() => {
                                                                     vm.setSubjectEditing(subject as any)
                                                                     vm.setSubjectOpen(true)
-                                                                }}
+                                                                })}
                                                             >
                                                                 <Pencil className="mr-2 h-4 w-4" />
                                                                 Edit
                                                             </Button>
 
                                                             <Button
+                                                                type="button"
                                                                 variant="destructive"
                                                                 size="sm"
-                                                                onClick={() =>
+                                                                onClick={handleTableActionClick(() =>
                                                                     vm.setDeleteIntent({
                                                                         type: "subject",
                                                                         doc: subject as any,
                                                                     })
-                                                                }
+                                                                )}
                                                             >
                                                                 <Trash2 className="mr-2 h-4 w-4" />
                                                                 Delete
@@ -768,6 +783,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
                     <DialogFooter>
                         <Button
+                            type="button"
                             variant="outline"
                             onClick={() => handleBulkLinkOpenChange(false)}
                             disabled={bulkLinking}
@@ -775,6 +791,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             Cancel
                         </Button>
                         <Button
+                            type="button"
                             onClick={() => void linkSelectedSubjectsToTerm()}
                             disabled={bulkLinking || !bulkLinkTermId}
                         >

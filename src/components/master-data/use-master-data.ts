@@ -55,6 +55,24 @@ function readFirstStringValue(
     return ""
 }
 
+function hasOwnKey(source: Record<string, unknown> | null | undefined, key: string) {
+    return Boolean(source) && Object.prototype.hasOwnProperty.call(source, key)
+}
+
+function buildSubjectTermPayload(
+    source: Record<string, unknown> | null | undefined,
+    termIdInput?: string | null
+) {
+    const nextValue = str(termIdInput) || null
+    const existingKeys = SUBJECT_TERM_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["termId"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
 function normalizeSectionYearLevelValue(value?: string | number | null) {
     return String(value ?? "")
         .trim()
@@ -174,6 +192,7 @@ export function useMasterDataManagement() {
 
             setSubjects(
                 subjectDocs.map((s: any) => ({
+                    ...s,
                     $id: s.$id,
                     termId: readFirstStringValue(s, SUBJECT_TERM_KEYS) || null,
                     departmentId: s.departmentId ? str(s.departmentId) : null,
@@ -485,7 +504,9 @@ export function useMasterDataManagement() {
             labHours: lab,
             totalHours: total,
             isActive: Boolean(subjectActive),
-            termId: termId || null,
+            ...(subjectEditing
+                ? buildSubjectTermPayload(subjectEditing as any, termId)
+                : { termId: termId || null }),
         }
 
         const collegeId = str(subjectCollegeId)
@@ -532,7 +553,7 @@ export function useMasterDataManagement() {
                 DATABASE_ID,
                 COLLECTIONS.SUBJECTS,
                 subjectId,
-                { termId: termId || null }
+                buildSubjectTermPayload(currentSubject as any, termId)
             )
 
             await refreshAll()
@@ -577,11 +598,12 @@ export function useMasterDataManagement() {
 
         for (const subjectId of normalizedIds) {
             try {
+                const currentSubject = subjectById.get(subjectId)
                 await databases.updateDocument(
                     DATABASE_ID,
                     COLLECTIONS.SUBJECTS,
                     subjectId,
-                    { termId }
+                    buildSubjectTermPayload(currentSubject as any, termId)
                 )
                 updated += 1
             } catch {
