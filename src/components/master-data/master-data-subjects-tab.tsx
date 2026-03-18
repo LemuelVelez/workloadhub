@@ -3,13 +3,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as React from "react"
-import { Plus, Pencil, Trash2 } from "lucide-react"
+import { Plus, Pencil, Trash2, Link2 } from "lucide-react"
 
 import type { AcademicTermDoc, SubjectDoc } from "../../../model/schemaModel"
 import type { MasterDataManagementVM } from "./use-master-data"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { TabsContent } from "@/components/ui/tabs"
@@ -28,6 +39,8 @@ const SUBJECT_SEMESTER_KEYS = [
     "termSemester",
     "termSem",
 ] as const
+
+const INHERIT_SEMESTER_LABEL = "No Semester / Inherit from Selected Term"
 
 function readFirstStringValue(
     source: Record<string, unknown> | null | undefined,
@@ -62,7 +75,7 @@ function getSemesterSortOrder(label: string) {
     if (normalized === "1st Semester") return 1
     if (normalized === "2nd Semester") return 2
     if (normalized === "Summer") return 3
-    if (normalized === "No Semester / Inherit from Selected Term") return 99
+    if (normalized === INHERIT_SEMESTER_LABEL) return 99
     return 50
 }
 
@@ -91,6 +104,12 @@ function resolveSubjectSemester(
 }
 
 export function MasterDataSubjectsTab({ vm }: Props) {
+    const [bulkLinkOpen, setBulkLinkOpen] = React.useState(false)
+    const [bulkLinkTermId, setBulkLinkTermId] = React.useState("")
+    const [bulkLinkSemesterHint, setBulkLinkSemesterHint] = React.useState("")
+    const [bulkLinkSubjectIds, setBulkLinkSubjectIds] = React.useState<string[]>([])
+    const [bulkLinking, setBulkLinking] = React.useState(false)
+
     const termMap = React.useMemo(() => {
         const map = new Map<string, LooseAcademicTermDoc>()
         for (const term of vm.terms as LooseAcademicTermDoc[]) {
@@ -98,6 +117,12 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         }
         return map
     }, [vm.terms])
+
+    const allUnlinkedSubjects = React.useMemo(() => {
+        return (vm.subjects as LooseSubjectDoc[]).filter(
+            (subject) => !resolveSubjectTermId(subject)
+        )
+    }, [vm.subjects])
 
     const groupedSubjects = React.useMemo(() => {
         const groups = new Map<
@@ -114,7 +139,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             const linkedTermId = resolveSubjectTermId(subject)
             const semesterLabel =
                 resolveSubjectSemester(subject, termMap) ||
-                "No Semester / Inherit from Selected Term"
+                INHERIT_SEMESTER_LABEL
 
             const existing = groups.get(semesterLabel) ?? {
                 semesterLabel,
@@ -155,6 +180,120 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             }))
     }, [termMap, vm.filteredSubjects])
 
+    const normalizedBulkLinkSemesterHint = React.useMemo(() => {
+        const normalized = normalizeSemesterLabel(bulkLinkSemesterHint)
+        if (normalized === normalizeSemesterLabel(INHERIT_SEMESTER_LABEL)) return ""
+        return normalized
+    }, [bulkLinkSemesterHint])
+
+    const bulkLinkTermOptions = React.useMemo(() => {
+        const terms = [...(vm.terms as LooseAcademicTermDoc[])]
+
+        if (!normalizedBulkLinkSemesterHint) {
+            return terms
+        }
+
+        return terms.filter((term) => {
+            const semester = normalizeSemesterLabel(String(term.semester ?? ""))
+            return semester === normalizedBulkLinkSemesterHint
+        })
+    }, [normalizedBulkLinkSemesterHint, vm.terms])
+
+    const selectedBulkLinkSemester = React.useMemo(() => {
+        return resolveTermSemester(termMap, bulkLinkTermId.trim())
+    }, [bulkLinkTermId, termMap])
+
+    const bulkLinkEligibleSubjects = React.useMemo(() => {
+        return allUnlinkedSubjects
+            .filter((subject) => {
+                const subjectSemester = resolveSubjectSemester(subject, termMap)
+
+                if (normalizedBulkLinkSemesterHint && subjectSemester) {
+                    return subjectSemester === normalizedBulkLinkSemesterHint
+                }
+
+                if (selectedBulkLinkSemester && subjectSemester) {
+                    return subjectSemester === selectedBulkLinkSemester
+                }
+
+                return true
+            })
+            .sort((a, b) => {
+                const aCode = String(a.code ?? "").toLowerCase()
+                const bCode = String(b.code ?? "").toLowerCase()
+                if (aCode !== bCode) return aCode.localeCompare(bCode)
+
+                return String(a.title ?? "").localeCompare(String(b.title ?? ""))
+            })
+    }, [
+        allUnlinkedSubjects,
+        normalizedBulkLinkSemesterHint,
+        selectedBulkLinkSemester,
+        termMap,
+    ])
+
+    React.useEffect(() => {
+        if (!bulkLinkOpen) return
+
+        const hasCurrentTerm = bulkLinkTermOptions.some(
+            (term) => String(term.$id) === bulkLinkTermId
+        )
+
+        if (hasCurrentTerm) return
+
+        const nextTerm =
+            bulkLinkTermOptions.find((term) => Boolean(term.isActive)) ??
+            bulkLinkTermOptions[0] ??
+            null
+
+        setBulkLinkTermId(nextTerm ? String(nextTerm.$id) : "")
+    }, [bulkLinkOpen, bulkLinkTermId, bulkLinkTermOptions])
+
+    React.useEffect(() => {
+        if (!bulkLinkOpen) return
+
+        setBulkLinkSubjectIds(
+            bulkLinkEligibleSubjects.map((subject) => String(subject.$id))
+        )
+    }, [bulkLinkOpen, bulkLinkEligibleSubjects])
+
+    const openBulkLinkDialog = React.useCallback((semesterHint = "") => {
+        setBulkLinkSemesterHint(semesterHint)
+        setBulkLinkTermId("")
+        setBulkLinkSubjectIds([])
+        setBulkLinkOpen(true)
+    }, [])
+
+    const toggleBulkLinkSubject = React.useCallback(
+        (subjectId: string, checked: boolean) => {
+            setBulkLinkSubjectIds((current) => {
+                if (checked) {
+                    if (current.includes(subjectId)) return current
+                    return [...current, subjectId]
+                }
+                return current.filter((id) => id !== subjectId)
+            })
+        },
+        []
+    )
+
+    const linkSelectedSubjectsToTerm = React.useCallback(async () => {
+        setBulkLinking(true)
+        try {
+            const result = await vm.bulkLinkSubjectsToTerm(
+                bulkLinkSubjectIds,
+                bulkLinkTermId
+            )
+
+            if (result.updated > 0 && result.failed.length === 0) {
+                setBulkLinkOpen(false)
+                setBulkLinkSubjectIds([])
+            }
+        } finally {
+            setBulkLinking(false)
+        }
+    }, [bulkLinkSubjectIds, bulkLinkTermId, vm])
+
     return (
         <TabsContent value="subjects" className="space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -165,16 +304,28 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     </div>
                 </div>
 
-                <Button
-                    size="sm"
-                    onClick={() => {
-                        vm.setSubjectEditing(null)
-                        vm.setSubjectOpen(true)
-                    }}
-                >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Subject
-                </Button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={allUnlinkedSubjects.length === 0}
+                        onClick={() => openBulkLinkDialog()}
+                    >
+                        <Link2 className="mr-2 h-4 w-4" />
+                        Edit All Link to Term
+                    </Button>
+
+                    <Button
+                        size="sm"
+                        onClick={() => {
+                            vm.setSubjectEditing(null)
+                            vm.setSubjectOpen(true)
+                        }}
+                    >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Subject
+                    </Button>
+                </div>
             </div>
 
             {vm.loading ? (
@@ -212,11 +363,30 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                     </div>
                                 </div>
 
-                                {group.inheritedCount > 0 ? (
-                                    <Badge variant="outline">
-                                        Unlinked subjects inherit selected term when used
-                                    </Badge>
-                                ) : null}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {group.inheritedCount > 0 ? (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() =>
+                                                openBulkLinkDialog(
+                                                    group.semesterLabel === INHERIT_SEMESTER_LABEL
+                                                        ? ""
+                                                        : group.semesterLabel
+                                                )
+                                            }
+                                        >
+                                            <Link2 className="mr-2 h-4 w-4" />
+                                            Link Existing to Term
+                                        </Button>
+                                    ) : null}
+
+                                    {group.inheritedCount > 0 ? (
+                                        <Badge variant="outline">
+                                            Unlinked subjects can now be bulk linked to a term
+                                        </Badge>
+                                    ) : null}
+                                </div>
                             </div>
 
                             <Table>
@@ -236,11 +406,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         const linkedTermId = resolveSubjectTermId(subject)
                                         const semesterLabel =
                                             resolveSubjectSemester(subject, termMap) ||
-                                            "No Semester / Inherit from Selected Term"
+                                            INHERIT_SEMESTER_LABEL
 
                                         const termLabel = linkedTermId
                                             ? vm.termLabel(vm.terms, linkedTermId)
-                                            : "Will inherit from selected term when used in records"
+                                            : "Not yet linked. Use Edit All Link to Term to permanently connect."
 
                                         return (
                                             <TableRow key={subject.$id}>
@@ -305,7 +475,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             variant="outline"
                                                             size="sm"
                                                             onClick={() => {
-                                                                vm.setSubjectEditing(subject)
+                                                                vm.setSubjectEditing(subject as any)
                                                                 vm.setSubjectOpen(true)
                                                             }}
                                                         >
@@ -319,7 +489,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             onClick={() =>
                                                                 vm.setDeleteIntent({
                                                                     type: "subject",
-                                                                    doc: subject,
+                                                                    doc: subject as any,
                                                                 })
                                                             }
                                                         >
@@ -337,6 +507,165 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     ))}
                 </div>
             )}
+
+            <Dialog open={bulkLinkOpen} onOpenChange={setBulkLinkOpen}>
+                <DialogContent className="sm:max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Link Existing Subjects to Term</DialogTitle>
+                        <DialogDescription>
+                            Bulk edit already-added subjects and permanently connect them
+                            to an academic term for proper semester segregation.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid gap-4 py-2">
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Academic Term</label>
+                            <Select
+                                value={bulkLinkTermId}
+                                onValueChange={setBulkLinkTermId}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Term" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {bulkLinkTermOptions.length === 0 ? (
+                                        <SelectItem value="__none__" disabled>
+                                            No matching academic terms found
+                                        </SelectItem>
+                                    ) : (
+                                        bulkLinkTermOptions.map((term) => (
+                                            <SelectItem key={term.$id} value={term.$id}>
+                                                {vm.termLabel(vm.terms, term.$id)}
+                                                {term.isActive ? " • Active" : ""}
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground">
+                                {normalizedBulkLinkSemesterHint
+                                    ? `Filtered for ${normalizedBulkLinkSemesterHint} subjects.`
+                                    : "Choose the target term for the selected existing subjects."}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                            <div className="text-muted-foreground">
+                                Eligible existing subjects:{" "}
+                                <span className="font-medium text-foreground">
+                                    {bulkLinkEligibleSubjects.length}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                        setBulkLinkSubjectIds(
+                                            bulkLinkEligibleSubjects.map((subject) =>
+                                                String(subject.$id)
+                                            )
+                                        )
+                                    }
+                                    disabled={bulkLinkEligibleSubjects.length === 0}
+                                >
+                                    Select All
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setBulkLinkSubjectIds([])}
+                                    disabled={bulkLinkSubjectIds.length === 0}
+                                >
+                                    Clear
+                                </Button>
+                            </div>
+                        </div>
+
+                        <ScrollArea className="h-80 rounded-md border">
+                            <div className="space-y-2 p-3">
+                                {bulkLinkEligibleSubjects.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground">
+                                        No existing unlinked subjects match the selected term
+                                        or semester filter.
+                                    </div>
+                                ) : (
+                                    bulkLinkEligibleSubjects.map((subject) => {
+                                        const subjectId = String(subject.$id)
+                                        const subjectSemester =
+                                            resolveSubjectSemester(subject, termMap) ||
+                                            INHERIT_SEMESTER_LABEL
+                                        const checked = bulkLinkSubjectIds.includes(subjectId)
+
+                                        return (
+                                            <label
+                                                key={subjectId}
+                                                htmlFor={`bulk-link-subject-${subjectId}`}
+                                                className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                            >
+                                                <Checkbox
+                                                    id={`bulk-link-subject-${subjectId}`}
+                                                    checked={checked}
+                                                    onCheckedChange={(value) =>
+                                                        toggleBulkLinkSubject(
+                                                            subjectId,
+                                                            Boolean(value)
+                                                        )
+                                                    }
+                                                />
+
+                                                <div className="min-w-0 flex-1 space-y-1">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="font-medium">
+                                                            {subject.code}
+                                                        </span>
+                                                        <Badge variant="outline">
+                                                            {subjectSemester}
+                                                        </Badge>
+                                                    </div>
+
+                                                    <div className="text-sm text-foreground">
+                                                        {subject.title}
+                                                    </div>
+
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {vm.collegeLabel(
+                                                            vm.colleges,
+                                                            (subject.departmentId as string | null) ??
+                                                                null
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        )
+                                    })
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setBulkLinkOpen(false)}
+                            disabled={bulkLinking}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={() => void linkSelectedSubjectsToTerm()}
+                            disabled={bulkLinking || !bulkLinkTermId}
+                        >
+                            {bulkLinking ? "Linking..." : "Save Term Links"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </TabsContent>
     )
 }

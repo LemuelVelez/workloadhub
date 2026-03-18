@@ -35,9 +35,24 @@ import type {
     UserProfileDoc,
 } from "./types"
 
+const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
+
 async function listDocs(collectionId: string, queries: any[] = []) {
     const res = await databases.listDocuments(DATABASE_ID, collectionId, queries)
     return (res?.documents ?? []) as any[]
+}
+
+function readFirstStringValue(
+    source: Record<string, unknown> | null | undefined,
+    keys: readonly string[]
+) {
+    for (const key of keys) {
+        const value = source?.[key]
+        if (typeof value === "string" && value.trim()) {
+            return value.trim()
+        }
+    }
+    return ""
 }
 
 function normalizeSectionYearLevelValue(value?: string | number | null) {
@@ -160,6 +175,7 @@ export function useMasterDataManagement() {
             setSubjects(
                 subjectDocs.map((s: any) => ({
                     $id: s.$id,
+                    termId: readFirstStringValue(s, SUBJECT_TERM_KEYS) || null,
                     departmentId: s.departmentId ? str(s.departmentId) : null,
                     code: str(s.code),
                     title: str(s.title),
@@ -422,6 +438,7 @@ export function useMasterDataManagement() {
     const [subjectEditing, setSubjectEditing] = React.useState<SubjectDoc | null>(null)
 
     const [subjectCollegeId, setSubjectCollegeId] = React.useState("")
+    const [subjectTermId, setSubjectTermId] = React.useState("")
     const [subjectCode, setSubjectCode] = React.useState("")
     const [subjectTitle, setSubjectTitle] = React.useState("")
     const [subjectUnits, setSubjectUnits] = React.useState("3")
@@ -433,6 +450,7 @@ export function useMasterDataManagement() {
         if (!subjectOpen) return
         if (!subjectEditing) {
             setSubjectCollegeId(defaultCollegeId)
+            setSubjectTermId(str(selectedTermId))
             setSubjectCode("")
             setSubjectTitle("")
             setSubjectUnits("3")
@@ -443,19 +461,21 @@ export function useMasterDataManagement() {
         }
 
         setSubjectCollegeId(String(subjectEditing.departmentId ?? ""))
+        setSubjectTermId(readFirstStringValue(subjectEditing as any, SUBJECT_TERM_KEYS))
         setSubjectCode(subjectEditing.code)
         setSubjectTitle(subjectEditing.title)
         setSubjectUnits(String(subjectEditing.units ?? 0))
         setSubjectLec(String(subjectEditing.lectureHours ?? 0))
         setSubjectLab(String(subjectEditing.labHours ?? 0))
         setSubjectActive(Boolean(subjectEditing.isActive))
-    }, [subjectOpen, subjectEditing, defaultCollegeId])
+    }, [subjectOpen, subjectEditing, defaultCollegeId, selectedTermId])
 
     async function saveSubject() {
         const units = num(subjectUnits, 0)
         const lec = num(subjectLec, 0)
         const lab = num(subjectLab, 0)
         const total = lec + lab
+        const termId = str(subjectTermId)
 
         const payload: any = {
             code: str(subjectCode),
@@ -465,6 +485,7 @@ export function useMasterDataManagement() {
             labHours: lab,
             totalHours: total,
             isActive: Boolean(subjectActive),
+            termId: termId || null,
         }
 
         const collegeId = str(subjectCollegeId)
@@ -489,6 +510,60 @@ export function useMasterDataManagement() {
         } catch (e: any) {
             toast.error(e?.message || "Failed to save subject.")
         }
+    }
+
+    async function bulkLinkSubjectsToTerm(subjectIds: string[], termIdInput: string) {
+        const termId = str(termIdInput)
+        const normalizedIds = Array.from(new Set(subjectIds.map((id) => str(id)).filter(Boolean)))
+
+        if (!termId) {
+            toast.error("Please select a term.")
+            return { updated: 0, failed: [] as string[] }
+        }
+
+        if (normalizedIds.length === 0) {
+            toast.error("Please select at least one subject.")
+            return { updated: 0, failed: [] as string[] }
+        }
+
+        const subjectById = new Map(subjects.map((subject) => [subject.$id, subject]))
+        let updated = 0
+        const failed: string[] = []
+
+        for (const subjectId of normalizedIds) {
+            try {
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.SUBJECTS,
+                    subjectId,
+                    { termId }
+                )
+                updated += 1
+            } catch {
+                const subject = subjectById.get(subjectId)
+                failed.push(str((subject as any)?.code) || subjectId)
+            }
+        }
+
+        if (updated > 0) {
+            await refreshAll()
+        }
+
+        const linkedTermLabel = termLabel(terms, termId)
+
+        if (updated > 0 && failed.length === 0) {
+            toast.success(
+                `${updated} subject${updated === 1 ? "" : "s"} linked to ${linkedTermLabel}.`
+            )
+        } else if (updated > 0 && failed.length > 0) {
+            toast.error(
+                `Linked ${updated} subject${updated === 1 ? "" : "s"} to ${linkedTermLabel}, but failed for: ${failed.join(", ")}`
+            )
+        } else {
+            toast.error("No subjects were linked to term.")
+        }
+
+        return { updated, failed }
     }
 
     // -----------------------------
@@ -840,7 +915,10 @@ export function useMasterDataManagement() {
 
     const filteredSubjects = React.useMemo(() => {
         if (!q) return subjects
-        return subjects.filter((s) => `${s.code} ${s.title}`.toLowerCase().includes(q))
+        return subjects.filter((s: any) => {
+            const linkedTermText = readFirstStringValue(s, SUBJECT_TERM_KEYS)
+            return `${s.code} ${s.title} ${linkedTermText}`.toLowerCase().includes(q)
+        })
     }, [subjects, q])
 
     const filteredFaculty = React.useMemo(() => {
@@ -905,7 +983,7 @@ export function useMasterDataManagement() {
                 endTime: str(meeting.endTime) || "—",
                 roomId: meeting.roomId ? str(meeting.roomId) : null,
                 roomLabel: room ? `${str(room.code)}${str(room.name) ? ` — ${str(room.name)}` : ""}` : "TBA Room",
-                facultyUserId: cls?.facultyUserId ? str(cls.facultyUserId) : null,
+                facultyUserId: cls?.facultyUserId ? str(cls?.facultyUserId) : null,
                 facultyLabel: faculty ? facultyDisplay(faculty) : "TBA Faculty",
                 subjectId: cls?.subjectId ? str(cls.subjectId) : null,
                 subjectCode: str(subject?.code) || "TBA",
@@ -1077,6 +1155,8 @@ export function useMasterDataManagement() {
         setSubjectEditing,
         subjectCollegeId,
         setSubjectCollegeId,
+        subjectTermId,
+        setSubjectTermId,
         subjectCode,
         setSubjectCode,
         subjectTitle,
@@ -1090,6 +1170,7 @@ export function useMasterDataManagement() {
         subjectActive,
         setSubjectActive,
         saveSubject,
+        bulkLinkSubjectsToTerm,
 
         // faculty dialog
         facultyOpen,

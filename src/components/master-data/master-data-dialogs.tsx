@@ -334,7 +334,9 @@ export function MasterDataDialogs({ vm }: Props) {
                 <DialogContent className={DIALOG_CONTENT_CLASS}>
                     <DialogHeader>
                         <DialogTitle>{vm.subjectEditing ? "Edit Subject" : "Add Subject"}</DialogTitle>
-                        <DialogDescription>Subjects include units and lecture/lab hour breakdown.</DialogDescription>
+                        <DialogDescription>
+                            Subjects include units, lecture/lab hour breakdown, and an optional academic term link for proper semester segregation.
+                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
@@ -356,6 +358,30 @@ export function MasterDataDialogs({ vm }: Props) {
                                     ))}
                                 </SelectContent>
                             </Select>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label>Academic Term (optional)</Label>
+                            <Select
+                                value={vm.subjectTermId || "__none__"}
+                                onValueChange={(v) => vm.setSubjectTermId(v === "__none__" ? "" : v)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="No Term Link" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="__none__">No Term Link</SelectItem>
+                                    {vm.terms.map((t) => (
+                                        <SelectItem key={t.$id} value={t.$id}>
+                                            {vm.termLabel(vm.terms, t.$id)}
+                                            {t.isActive ? " • Active" : ""}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground">
+                                Link the subject directly to a term so only matching semester subjects appear when selecting records.
+                            </div>
                         </div>
 
                         <div className="grid gap-2">
