@@ -10,6 +10,8 @@ import {
     Trash2,
     DoorOpen,
     Printer,
+    AlertTriangle,
+    ShieldCheck,
 } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
@@ -142,6 +144,17 @@ type UserProfileLite = {
 }
 
 type RoomTypeFilter = "ALL" | "LECTURE" | "LAB" | "OTHER"
+
+type RoomScheduleConflictType = "INVALID_TIME" | "DUPLICATE" | "OVERLAP"
+
+type RoomScheduleConflict = {
+    id: string
+    type: RoomScheduleConflictType
+    dayOfWeek: string
+    displayTime: string
+    keptItem: RoomSchedulePrintItem | null
+    conflictingItems: RoomSchedulePrintItem[]
+}
 
 const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
 const PRINT_FILTER_TRIGGER_CLASS = "w-full max-w-none"
@@ -357,6 +370,188 @@ function buildPrintableTimeText(item: RoomSchedulePrintItem) {
 
     if (start && end) return `${start} - ${end}`
     return `${str(item.startTime)} - ${str(item.endTime)}`
+}
+
+function buildPrintableItemIdentity(item: RoomSchedulePrintItem) {
+    return (
+        str(item.id) ||
+        [
+            normalizeDayLabel(item.dayOfWeek),
+            str(item.startTime),
+            str(item.endTime),
+            str(item.subjectCode),
+            str(item.subjectTitle),
+            str(item.sectionLabel),
+            str(item.facultyName),
+            str(item.notes),
+        ].join("|")
+    )
+}
+
+function buildPrintableDuplicateKey(item: RoomSchedulePrintItem) {
+    return [
+        normalizeDayLabel(item.dayOfWeek).toLowerCase(),
+        str(item.startTime),
+        str(item.endTime),
+        str(item.subjectCode).toLowerCase(),
+        str(item.subjectTitle).toLowerCase(),
+        str(item.sectionLabel).toLowerCase(),
+        str(item.facultyName).toLowerCase(),
+    ].join("|")
+}
+
+function comparePrintableItems(a: RoomSchedulePrintItem, b: RoomSchedulePrintItem) {
+    const dayDiff =
+        DAY_ORDER.indexOf(normalizeDayLabel(a.dayOfWeek) as (typeof DAY_ORDER)[number]) -
+        DAY_ORDER.indexOf(normalizeDayLabel(b.dayOfWeek) as (typeof DAY_ORDER)[number])
+
+    if (dayDiff !== 0) return dayDiff
+
+    const startDiff = parseClockMinutes(a.startTime) - parseClockMinutes(b.startTime)
+    if (startDiff !== 0) return startDiff
+
+    const endDiff = parseClockMinutes(a.endTime) - parseClockMinutes(b.endTime)
+    if (endDiff !== 0) return endDiff
+
+    const subjectDiff = buildPrintableSubjectLabel(a).localeCompare(buildPrintableSubjectLabel(b))
+    if (subjectDiff !== 0) return subjectDiff
+
+    const sectionDiff = buildPrintableSectionText(a).localeCompare(buildPrintableSectionText(b))
+    if (sectionDiff !== 0) return sectionDiff
+
+    return buildPrintableItemIdentity(a).localeCompare(buildPrintableItemIdentity(b))
+}
+
+function isValidPrintableTimeRange(item: RoomSchedulePrintItem) {
+    const start = parseClockMinutes(item.startTime)
+    const end = parseClockMinutes(item.endTime)
+    return Number.isFinite(start) && Number.isFinite(end) && end > start
+}
+
+function doPrintableItemsOverlap(a: RoomSchedulePrintItem, b: RoomSchedulePrintItem) {
+    if (normalizeDayLabel(a.dayOfWeek) !== normalizeDayLabel(b.dayOfWeek)) return false
+
+    const aStart = parseClockMinutes(a.startTime)
+    const aEnd = parseClockMinutes(a.endTime)
+    const bStart = parseClockMinutes(b.startTime)
+    const bEnd = parseClockMinutes(b.endTime)
+
+    if (![aStart, aEnd, bStart, bEnd].every(Number.isFinite)) return false
+    return aStart < bEnd && bStart < aEnd
+}
+
+function buildPrintableConflictTitle(item: RoomSchedulePrintItem) {
+    const subject = buildPrintableSubjectLabel(item)
+    const section = buildPrintableSectionText(item)
+    const instructor = buildPrintableInstructorText(item)
+
+    return `${subject} • ${section} • ${instructor}`
+}
+
+function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
+    const sorted = [...items].sort(comparePrintableItems)
+    const sanitizedItems: RoomSchedulePrintItem[] = []
+    const conflicts: RoomScheduleConflict[] = []
+    const removedIds = new Set<string>()
+
+    const itemsByDay = new Map<string, RoomSchedulePrintItem[]>()
+    for (const item of sorted) {
+        const day = normalizeDayLabel(item.dayOfWeek)
+        if (!itemsByDay.has(day)) {
+            itemsByDay.set(day, [])
+        }
+        itemsByDay.get(day)?.push(item)
+    }
+
+    for (const [day, dayItems] of itemsByDay.entries()) {
+        const validItems: RoomSchedulePrintItem[] = []
+
+        for (const item of dayItems) {
+            if (isValidPrintableTimeRange(item)) {
+                validItems.push(item)
+                continue
+            }
+
+            removedIds.add(buildPrintableItemIdentity(item))
+            conflicts.push({
+                id: `invalid-${buildPrintableItemIdentity(item)}`,
+                type: "INVALID_TIME",
+                dayOfWeek: day,
+                displayTime: buildPrintableTimeText(item),
+                keptItem: null,
+                conflictingItems: [item],
+            })
+        }
+
+        const duplicateBuckets = new Map<string, RoomSchedulePrintItem[]>()
+        for (const item of validItems) {
+            const key = buildPrintableDuplicateKey(item)
+            if (!duplicateBuckets.has(key)) {
+                duplicateBuckets.set(key, [])
+            }
+            duplicateBuckets.get(key)?.push(item)
+        }
+
+        const dedupedItems: RoomSchedulePrintItem[] = []
+        for (const bucket of duplicateBuckets.values()) {
+            const [keptItem, ...duplicateItems] = bucket
+            if (!keptItem) continue
+
+            dedupedItems.push(keptItem)
+
+            if (duplicateItems.length === 0) continue
+
+            for (const item of duplicateItems) {
+                removedIds.add(buildPrintableItemIdentity(item))
+            }
+
+            conflicts.push({
+                id: `duplicate-${buildPrintableItemIdentity(keptItem)}`,
+                type: "DUPLICATE",
+                dayOfWeek: day,
+                displayTime: buildPrintableTimeText(keptItem),
+                keptItem,
+                conflictingItems: duplicateItems,
+            })
+        }
+
+        dedupedItems.sort(comparePrintableItems)
+
+        const keepers: RoomSchedulePrintItem[] = []
+        for (const item of dedupedItems) {
+            const overlappedKeeper = keepers.find((keeper) => doPrintableItemsOverlap(keeper, item))
+
+            if (!overlappedKeeper) {
+                keepers.push(item)
+                continue
+            }
+
+            removedIds.add(buildPrintableItemIdentity(item))
+            conflicts.push({
+                id: `overlap-${buildPrintableItemIdentity(overlappedKeeper)}-${buildPrintableItemIdentity(item)}`,
+                type: "OVERLAP",
+                dayOfWeek: day,
+                displayTime: `${buildPrintableTimeText(overlappedKeeper)} / ${buildPrintableTimeText(item)}`,
+                keptItem: overlappedKeeper,
+                conflictingItems: [item],
+            })
+        }
+
+        sanitizedItems.push(...keepers)
+    }
+
+    sanitizedItems.sort(comparePrintableItems)
+
+    const removedItems = sorted.filter((item) => removedIds.has(buildPrintableItemIdentity(item)))
+
+    return {
+        sanitizedItems,
+        conflicts,
+        removedItems,
+        totalConflicts: conflicts.length,
+        totalRemoved: removedItems.length,
+        hasConflicts: conflicts.length > 0,
+    }
 }
 
 function choosePreferredVersions(versions: ScheduleVersionLite[]) {
@@ -600,14 +795,7 @@ async function fetchRoomPrintableSchedule(params: {
         } as RoomSchedulePrintItem
     })
 
-    printableItems.sort((a, b) => {
-        const dayDiff =
-            DAY_ORDER.indexOf(normalizeDayLabel(a.dayOfWeek) as (typeof DAY_ORDER)[number]) -
-            DAY_ORDER.indexOf(normalizeDayLabel(b.dayOfWeek) as (typeof DAY_ORDER)[number])
-
-        if (dayDiff !== 0) return dayDiff
-        return parseClockMinutes(a.startTime) - parseClockMinutes(b.startTime)
-    })
+    printableItems.sort(comparePrintableItems)
 
     return printableItems
 }
@@ -640,6 +828,7 @@ export default function AdminRoomsAndFacilitiesPage() {
     const [printScope, setPrintScope] = React.useState<RoomScheduleScope>("BOTH")
     const [scheduleBusy, setScheduleBusy] = React.useState(false)
     const [printItems, setPrintItems] = React.useState<RoomSchedulePrintItem[]>([])
+    const [conflictFixEnabled, setConflictFixEnabled] = React.useState(true)
 
     const refreshRooms = React.useCallback(async () => {
         setLoading(true)
@@ -812,9 +1001,22 @@ export default function AdminRoomsAndFacilitiesPage() {
         [terms, printTermId]
     )
 
+    const printableScheduleAnalysis = React.useMemo(
+        () => analyzePrintableScheduleConflicts(printItems),
+        [printItems]
+    )
+
+    const previewPrintItems = React.useMemo(
+        () =>
+            conflictFixEnabled
+                ? printableScheduleAnalysis.sanitizedItems
+                : [...printItems].sort(comparePrintableItems),
+        [conflictFixEnabled, printItems, printableScheduleAnalysis.sanitizedItems]
+    )
+
     const filteredPrintItems = React.useMemo(
-        () => printItems.filter((item) => matchesRoomScheduleScope(item, printScope)),
-        [printItems, printScope]
+        () => previewPrintItems.filter((item) => matchesRoomScheduleScope(item, printScope)),
+        [previewPrintItems, printScope]
     )
 
     const uniquePrintInstructors = React.useMemo(
@@ -835,6 +1037,22 @@ export default function AdminRoomsAndFacilitiesPage() {
                 new Set(filteredPrintItems.map((item) => buildPrintablePeriodText(item)).filter(Boolean))
             ),
         [filteredPrintItems]
+    )
+
+    const visibleConflicts = React.useMemo(
+        () =>
+            printableScheduleAnalysis.conflicts.filter((conflict) => {
+                const itemsToCheck = conflict.keptItem
+                    ? [conflict.keptItem, ...conflict.conflictingItems]
+                    : conflict.conflictingItems
+
+                return itemsToCheck.some((item) => {
+                    const scope = resolveRoomScheduleScope(item)
+                    if (!scope && conflict.type === "INVALID_TIME") return true
+                    return matchesRoomScheduleScope(item, printScope)
+                })
+            }),
+        [printScope, printableScheduleAnalysis.conflicts]
     )
 
     const q = search.trim().toLowerCase()
@@ -866,7 +1084,7 @@ export default function AdminRoomsAndFacilitiesPage() {
     return (
         <DashboardLayout
             title="Rooms & Facilities"
-            subtitle="Add or update rooms, manage availability, and export the official room monitoring sheet."
+            subtitle="Add or update rooms, manage availability, detect schedule conflicts, and export the official room monitoring sheet."
             actions={
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => void refreshRooms()}>
@@ -1038,6 +1256,19 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         {uniquePrintInstructors.length} instructor
                                         {uniquePrintInstructors.length === 1 ? "" : "s"}
                                     </Badge>
+                                    <Badge
+                                        variant={
+                                            visibleConflicts.length > 0 ? "destructive" : "outline"
+                                        }
+                                    >
+                                        {visibleConflicts.length} conflict
+                                        {visibleConflicts.length === 1 ? "" : "s"}
+                                    </Badge>
+                                    {conflictFixEnabled ? (
+                                        <Badge variant="default">
+                                            {printableScheduleAnalysis.totalRemoved} fixed for preview/export
+                                        </Badge>
+                                    ) : null}
                                     {uniquePrintPeriods.length > 0 ? (
                                         <Badge variant="outline">
                                             {uniquePrintPeriods.join(" • ")}
@@ -1050,8 +1281,7 @@ export default function AdminRoomsAndFacilitiesPage() {
 
                     <CardContent className="space-y-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -1062,9 +1292,22 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     Refresh Schedule Data
                                 </Button>
 
+                                <div className="flex items-center gap-2 rounded-md border px-3 py-2">
+                                    <Checkbox
+                                        checked={conflictFixEnabled}
+                                        onCheckedChange={(checked) =>
+                                            setConflictFixEnabled(Boolean(checked))
+                                        }
+                                        id="apply-conflict-fixer"
+                                    />
+                                    <Label htmlFor="apply-conflict-fixer" className="text-sm">
+                                        Apply conflict fixer to preview and export
+                                    </Label>
+                                </div>
+
                                 <RoomSchedulePrintSheet
                                     roomLabel={displayRoomLabel(selectedPrintRoom)}
-                                    items={printItems}
+                                    items={previewPrintItems}
                                     schoolYear={selectedPrintTerm?.schoolYear ?? ""}
                                     semester={selectedPrintTerm?.semester ?? ""}
                                     timeSlots={[...DEFAULT_PRINT_TIME_SLOTS]}
@@ -1080,7 +1323,126 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 <Skeleton className="h-24 w-full" />
                             </div>
                         ) : (
-                            <div className="rounded-md border bg-muted/20 p-4">
+                            <div className="space-y-4 rounded-md border bg-muted/20 p-4">
+                                {visibleConflicts.length > 0 ? (
+                                    <Alert>
+                                        <AlertTitle className="flex items-center gap-2">
+                                            {conflictFixEnabled ? (
+                                                <ShieldCheck className="h-4 w-4" />
+                                            ) : (
+                                                <AlertTriangle className="h-4 w-4" />
+                                            )}
+                                            Room schedule conflicts detected
+                                        </AlertTitle>
+                                        <AlertDescription>
+                                            {conflictFixEnabled
+                                                ? `Found ${visibleConflicts.length} conflict${visibleConflicts.length === 1 ? "" : "s"}. The conflict fixer removed ${printableScheduleAnalysis.totalRemoved} invalid, duplicate, or overlapping schedule block${printableScheduleAnalysis.totalRemoved === 1 ? "" : "s"} from preview and export so the print sheet stays clean.`
+                                                : `Found ${visibleConflicts.length} conflict${visibleConflicts.length === 1 ? "" : "s"}. Turn on the conflict fixer to automatically remove invalid, duplicate, or overlapping schedule blocks from preview and export.`}
+                                        </AlertDescription>
+                                    </Alert>
+                                ) : (
+                                    <Alert>
+                                        <AlertTitle className="flex items-center gap-2">
+                                            <ShieldCheck className="h-4 w-4" />
+                                            No room schedule conflicts detected
+                                        </AlertTitle>
+                                        <AlertDescription>
+                                            The selected room schedule has no invalid, duplicate, or
+                                            overlapping schedule blocks for the current filter.
+                                        </AlertDescription>
+                                    </Alert>
+                                )}
+
+                                {visibleConflicts.length > 0 ? (
+                                    <div className="space-y-3">
+                                        <div className="text-sm font-medium">
+                                            Conflict detector results
+                                        </div>
+                                        <div className="overflow-x-auto rounded-md border bg-background">
+                                            <Table className="min-w-245 table-fixed">
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead className="w-28">Type</TableHead>
+                                                        <TableHead className="w-32">Day</TableHead>
+                                                        <TableHead className="w-52">Time</TableHead>
+                                                        <TableHead>Kept Entry</TableHead>
+                                                        <TableHead>Removed / Conflicting Entries</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {visibleConflicts.map((conflict) => (
+                                                        <TableRow key={conflict.id}>
+                                                            <TableCell className="align-top">
+                                                                <Badge
+                                                                    variant={
+                                                                        conflict.type === "OVERLAP"
+                                                                            ? "destructive"
+                                                                            : conflict.type ===
+                                                                                "DUPLICATE"
+                                                                              ? "secondary"
+                                                                              : "outline"
+                                                                    }
+                                                                >
+                                                                    {conflict.type === "INVALID_TIME"
+                                                                        ? "Invalid Time"
+                                                                        : conflict.type === "DUPLICATE"
+                                                                          ? "Duplicate"
+                                                                          : "Overlap"}
+                                                                </Badge>
+                                                            </TableCell>
+                                                            <TableCell className="align-top font-medium">
+                                                                {conflict.dayOfWeek}
+                                                            </TableCell>
+                                                            <TableCell className="align-top text-muted-foreground">
+                                                                <div className="wrap-break-word leading-tight">
+                                                                    {conflict.displayTime}
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell className="align-top">
+                                                                {conflict.keptItem ? (
+                                                                    <div className="space-y-1">
+                                                                        <div className="wrap-break-word font-medium leading-tight">
+                                                                            {buildPrintableConflictTitle(
+                                                                                conflict.keptItem
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-xs text-muted-foreground">
+                                                                            {buildPrintableTimeText(
+                                                                                conflict.keptItem
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-sm text-muted-foreground">
+                                                                        No printable entry kept
+                                                                    </div>
+                                                                )}
+                                                            </TableCell>
+                                                            <TableCell className="align-top">
+                                                                <div className="space-y-2">
+                                                                    {conflict.conflictingItems.map((item) => (
+                                                                        <div
+                                                                            key={buildPrintableItemIdentity(item)}
+                                                                            className="rounded-md border bg-muted/30 p-2"
+                                                                        >
+                                                                            <div className="wrap-break-word text-sm font-medium leading-tight">
+                                                                                {buildPrintableConflictTitle(item)}
+                                                                            </div>
+                                                                            <div className="text-xs text-muted-foreground">
+                                                                                {buildPrintableTimeText(item)}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    </div>
+                                ) : null}
+
                                 {filteredPrintItems.length > 0 ? (
                                     <div className="space-y-3">
                                         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -1120,29 +1482,29 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                 {normalizeDayLabel(item.dayOfWeek)}
                                                             </TableCell>
                                                             <TableCell className="align-top">
-                                                                <div className="whitespace-normal leading-tight">
+                                                                <div className="wrap-break-word whitespace-normal leading-tight">
                                                                     {buildPrintableTimeText(item)}
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="align-top">
                                                                 <div className="space-y-1">
-                                                                    <div className="whitespace-normal wrap-break-word font-medium leading-tight">
+                                                                    <div className="wrap-break-word whitespace-normal font-medium leading-tight">
                                                                         {buildPrintableInstructorText(item)}
                                                                     </div>
                                                                     {str(item.notes) ? (
-                                                                        <div className="whitespace-normal wrap-break-word text-xs leading-tight text-muted-foreground">
+                                                                        <div className="wrap-break-word whitespace-normal text-xs leading-tight text-muted-foreground">
                                                                             {str(item.notes)}
                                                                         </div>
                                                                     ) : null}
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="align-top text-muted-foreground">
-                                                                <div className="whitespace-normal wrap-break-word leading-tight">
+                                                                <div className="wrap-break-word whitespace-normal leading-tight">
                                                                     {buildPrintableSubjectLabel(item)}
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="align-top text-muted-foreground">
-                                                                <div className="whitespace-normal wrap-break-word leading-tight">
+                                                                <div className="wrap-break-word whitespace-normal leading-tight">
                                                                     {buildPrintableSectionText(item)}
                                                                 </div>
                                                             </TableCell>

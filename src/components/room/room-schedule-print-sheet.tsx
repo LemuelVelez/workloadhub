@@ -96,6 +96,13 @@ const HEADER_TOTAL_HEIGHT = HEADER_ROW_HEIGHT + HEADER_SUB_ROW_HEIGHT
 const GRID_WIDTH = TIME_COL_WIDTH + DAYS.length * (DAY_COL_WIDTH + SIGN_COL_WIDTH)
 const VERTICAL_SIGN_TEXT = "S\ni\ng\nn"
 
+const BLOCK_PADDING_X = 3
+const BLOCK_PADDING_Y = 2
+const BLOCK_MIN_FONT_SIZE = 4.1
+const BLOCK_MAX_FONT_SIZE = 7.2
+const BLOCK_FONT_STEP = 0.2
+const BLOCK_LINE_HEIGHT_RATIO = 1.08
+
 const LEFT_LOGO_PATH = "/logo.png"
 const RIGHT_LOGO_PATH = "/CCS.png"
 
@@ -328,30 +335,75 @@ function resolveBlockTextColor(item: RoomSchedulePrintItem) {
     return normalizeText(item.textColor) || "#334155"
 }
 
-function resolveContentLines(item: RoomSchedulePrintItem) {
-    const explicit = (item.contentLines ?? [])
-        .map((line) => normalizeText(line))
-        .filter(Boolean)
-
-    if (explicit.length > 0) return explicit.slice(0, 4)
-
-    const scheduleLabel = resolveItemScheduleLabel(item)
-
-    const oneLine = normalizeText(item.displayLabel)
-    if (oneLine) return [scheduleLabel, oneLine].filter(Boolean).slice(0, 4)
-
-    const line1 = normalizeText(item.facultyName)
-    const line2 = [normalizeText(item.subjectCode), normalizeText(item.sectionLabel)]
-        .filter(Boolean)
-        .join(" / ")
-    const line3 = normalizeText(item.subjectTitle)
-    const line4 = normalizeText(item.notes)
-
-    return [scheduleLabel, line1, line2, line3 || line4].filter(Boolean).slice(0, 4)
-}
-
 function collapseLineText(value: string) {
     return normalizeText(value).replace(/\s+/g, " ")
+}
+
+function normalizeScheduleMarkerText(value: string) {
+    return collapseLineText(value)
+        .toLowerCase()
+        .replace(/&/g, " and ")
+        .replace(/[|/,-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+}
+
+function isStandaloneScheduleMarker(value: string) {
+    const normalized = normalizeScheduleMarkerText(value)
+    return (
+        normalized === "morning" ||
+        normalized === "afternoon" ||
+        normalized === "both" ||
+        normalized === "combined" ||
+        normalized === "morning and afternoon" ||
+        normalized === "afternoon and morning"
+    )
+}
+
+function stripSchedulePrefix(value: string) {
+    const normalized = collapseLineText(value)
+    if (!normalized) return ""
+
+    const stripped = normalized
+        .replace(/^\(?\s*(morning|afternoon)\s*\)?\s*[:\-–|/]*\s*/i, "")
+        .trim()
+
+    if (!stripped) return ""
+    if (isStandaloneScheduleMarker(stripped)) return ""
+
+    return stripped
+}
+
+function sanitizeBlockLine(value: string) {
+    const stripped = stripSchedulePrefix(value)
+    if (isStandaloneScheduleMarker(stripped)) return ""
+    return stripped
+}
+
+function sanitizeBlockLines(values: string[]) {
+    return values
+        .map((value) => sanitizeBlockLine(value))
+        .filter(Boolean)
+}
+
+function resolveContentLines(item: RoomSchedulePrintItem) {
+    const explicit = sanitizeBlockLines((item.contentLines ?? []).map((line) => String(line ?? "")))
+    if (explicit.length > 0) return explicit.slice(0, 4)
+
+    const oneLine = sanitizeBlockLine(normalizeText(item.displayLabel))
+    if (oneLine) return [oneLine].slice(0, 4)
+
+    const line1 = sanitizeBlockLine(normalizeText(item.facultyName))
+    const line2 = [
+        sanitizeBlockLine(normalizeText(item.subjectCode)),
+        sanitizeBlockLine(normalizeText(item.sectionLabel)),
+    ]
+        .filter(Boolean)
+        .join(" / ")
+    const line3 = sanitizeBlockLine(normalizeText(item.subjectTitle))
+    const line4 = sanitizeBlockLine(normalizeText(item.notes))
+
+    return [line1, line2, line3 || line4].filter(Boolean).slice(0, 4)
 }
 
 function clampLineText(value: string, maxLength: number) {
@@ -402,40 +454,73 @@ function wrapLineText(value: string, maxCharsPerLine: number) {
     return lines
 }
 
-function resolveScaledBlockContent(
-    item: RoomSchedulePrintItem,
-    rowSpan: number,
-    width: number
-) {
-    const baseLines = resolveContentLines(item).map(collapseLineText).filter(Boolean)
-    const fontSize =
-        rowSpan >= 5 ? 7.4 : rowSpan >= 4 ? 7.1 : rowSpan >= 3 ? 6.8 : rowSpan >= 2 ? 6.3 : 5.9
-    const maxLines =
-        rowSpan >= 5 ? 8 : rowSpan >= 4 ? 7 : rowSpan >= 3 ? 6 : rowSpan >= 2 ? 5 : 4
-    const usableWidth = Math.max(width - 10, 48)
+function buildWrappedLayout(lines: string[], width: number, height: number, fontSize: number) {
+    const usableWidth = Math.max(width - BLOCK_PADDING_X * 2 - 2, 38)
+    const usableHeight = Math.max(height - BLOCK_PADDING_Y * 2 - 2, fontSize)
+
     const maxCharsPerLine = Math.max(
-        12,
-        Math.floor(usableWidth / Math.max(fontSize * 0.72, 1))
+        7,
+        Math.floor(usableWidth / Math.max(fontSize * 0.6, 1))
     )
 
-    const wrapped = baseLines.flatMap((line) => wrapLineText(line, maxCharsPerLine))
-    if (wrapped.length <= maxLines) {
+    const wrapped = lines.flatMap((line) => wrapLineText(line, maxCharsPerLine))
+    const maxLines = Math.max(
+        1,
+        Math.floor(usableHeight / Math.max(fontSize * BLOCK_LINE_HEIGHT_RATIO, 1))
+    )
+
+    return {
+        wrapped,
+        maxCharsPerLine,
+        maxLines,
+    }
+}
+
+function resolveScaledBlockContent(
+    item: RoomSchedulePrintItem,
+    width: number,
+    height: number
+) {
+    const baseLines = resolveContentLines(item).map(collapseLineText).filter(Boolean)
+
+    if (baseLines.length === 0) {
         return {
-            lines: wrapped,
-            fontSize,
+            lines: [] as string[],
+            fontSize: BLOCK_MIN_FONT_SIZE,
         }
     }
 
-    const clipped = wrapped.slice(0, maxLines)
-    clipped[maxLines - 1] = clampLineText(clipped[maxLines - 1], Math.max(8, maxCharsPerLine - 1))
+    for (
+        let fontSize = BLOCK_MAX_FONT_SIZE;
+        fontSize >= BLOCK_MIN_FONT_SIZE;
+        fontSize = Number((fontSize - BLOCK_FONT_STEP).toFixed(2))
+    ) {
+        const layout = buildWrappedLayout(baseLines, width, height, fontSize)
+        if (layout.wrapped.length <= layout.maxLines) {
+            return {
+                lines: layout.wrapped,
+                fontSize,
+            }
+        }
+    }
 
-    if (!clipped[maxLines - 1].endsWith("…")) {
-        clipped[maxLines - 1] = `${clipped[maxLines - 1].replace(/[.…]+$/g, "")}…`
+    const fallbackLayout = buildWrappedLayout(baseLines, width, height, BLOCK_MIN_FONT_SIZE)
+    const clipped = fallbackLayout.wrapped.slice(0, fallbackLayout.maxLines)
+
+    if (clipped.length > 0) {
+        clipped[clipped.length - 1] = clampLineText(
+            clipped[clipped.length - 1],
+            Math.max(6, fallbackLayout.maxCharsPerLine - 1)
+        )
+
+        if (!clipped[clipped.length - 1].endsWith("…")) {
+            clipped[clipped.length - 1] = `${clipped[clipped.length - 1].replace(/[.…]+$/g, "")}…`
+        }
     }
 
     return {
         lines: clipped,
-        fontSize,
+        fontSize: BLOCK_MIN_FONT_SIZE,
     }
 }
 
@@ -489,7 +574,7 @@ function buildMeetingBlocks(
         const top = rowIndex * ROW_HEIGHT
         const width = DAY_COL_WIDTH
         const height = Math.max(rowSpan * ROW_HEIGHT - 1, ROW_HEIGHT)
-        const blockContent = resolveScaledBlockContent(item, rowSpan, width)
+        const blockContent = resolveScaledBlockContent(item, width, height)
 
         blocks.push({
             id: normalizeText(item.id) || `${day}-${item.startTime}-${item.endTime}-${index}`,
@@ -913,13 +998,13 @@ export function RoomSchedulePrintSheet({
                 position: "absolute",
                 borderWidth: 0.8,
                 borderColor: "#94A3B8",
-                paddingVertical: 3,
-                paddingHorizontal: 4,
+                paddingVertical: BLOCK_PADDING_Y,
+                paddingHorizontal: BLOCK_PADDING_X,
                 alignItems: "center",
                 justifyContent: "center",
             },
             meetingText: {
-                lineHeight: 1.12,
+                lineHeight: BLOCK_LINE_HEIGHT_RATIO,
                 textAlign: "center",
             },
 
@@ -1077,10 +1162,7 @@ export function RoomSchedulePrintSheet({
                                                         styles.meetingText,
                                                         {
                                                             color: block.textColor,
-                                                            fontSize:
-                                                                lineIndex === 0
-                                                                    ? block.fontSize + 0.3
-                                                                    : block.fontSize,
+                                                            fontSize: block.fontSize,
                                                             fontWeight:
                                                                 lineIndex === 0 ? "bold" : "normal",
                                                         },
@@ -1232,8 +1314,7 @@ export function RoomSchedulePrintSheet({
                         </DialogTitle>
                         <DialogDescription>
                             A4 landscape room monitoring sheet filtered to the selected schedule with
-                            visible instructor assignments, wrapped schedule blocks, and clear morning,
-                            afternoon, or combined labels.
+                            adaptive text fitting and cleaner cell content.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1276,8 +1357,7 @@ export function RoomSchedulePrintSheet({
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             Includes the official PNG logo, aligned upper-right CCS mark, corrected header
-                            structure, visible instructor names, adaptive text scaling, and the selected
-                            room schedule view.
+                            structure, tighter cell padding, and auto-scaled schedule block text.
                         </div>
 
                         <div className="flex items-center gap-2">
