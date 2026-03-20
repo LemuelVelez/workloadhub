@@ -3,16 +3,15 @@
 "use client"
 
 import * as React from "react"
+import { useNavigate } from "react-router-dom"
 import {
     AlertTriangle,
+    ArrowRight,
     CalendarDays,
     Eye,
     FlaskConical,
-    MoreHorizontal,
-    Pencil,
     Plus,
     RefreshCcw,
-    Trash2,
     UserCircle2,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -21,16 +20,6 @@ import { Document, Image, Page, PDFViewer, StyleSheet, Text, View, pdf } from "@
 import { cn } from "@/lib/utils"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -43,14 +32,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -94,7 +75,6 @@ type Props = {
 
     onReloadEntries: () => void
     onOpenCreateEntry: () => void
-    onOpenEditEntry: (row: ScheduleRow) => void
 
     plannerStats: PlannerStats
     visibleRows: ScheduleRow[]
@@ -107,8 +87,6 @@ type Props = {
 
     entryDialogOpen: boolean
     setEntryDialogOpen: (v: boolean) => void
-    editingRow: ScheduleRow | null
-    setEditingRow: (v: ScheduleRow | null) => void
 
     formSectionId: string
     setFormSectionId: (v: string) => void
@@ -147,17 +125,13 @@ type Props = {
     rooms: RoomDoc[]
 
     onSaveEntry: () => Promise<void> | void
-
-    deleteTarget: ScheduleRow | null
-    setDeleteTarget: (v: ScheduleRow | null) => void
-    deleting: boolean
-    onConfirmDeleteEntry: () => Promise<void> | void
 }
 
 type SectionDisplayLookup = Record<string, string>
 
 const PDF_LEFT_LOGO_SRC = "/logo.png"
 const PDF_RIGHT_LOGO_SRC = "/CCS.png"
+const ROOMS_AND_FACILITIES_ROUTE = "/dashboard/admin/rooms-and-facilities"
 
 function getPdfAssetUrl(path: string) {
     if (!path) return ""
@@ -880,7 +854,6 @@ export function PlannerManagementSection({
     entrySaving,
     onReloadEntries,
     onOpenCreateEntry,
-    onOpenEditEntry,
     plannerStats,
     visibleRows,
     laboratoryRows,
@@ -890,8 +863,6 @@ export function PlannerManagementSection({
     selectedDeptLabel,
     entryDialogOpen,
     setEntryDialogOpen,
-    editingRow,
-    setEditingRow,
     formSectionId,
     setFormSectionId,
     formSubjectId,
@@ -926,13 +897,9 @@ export function PlannerManagementSection({
     facultyProfiles,
     rooms,
     onSaveEntry,
-    deleteTarget,
-    setDeleteTarget,
-    deleting,
-    onConfirmDeleteEntry,
 }: Props) {
+    const navigate = useNavigate()
     const [pdfPreviewOpen, setPdfPreviewOpen] = React.useState(false)
-    const [actionMenuMeetingId, setActionMenuMeetingId] = React.useState<string | null>(null)
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
@@ -946,24 +913,13 @@ export function PlannerManagementSection({
         return sectionDisplayLookup[selectedSection.$id] || "—"
     }, [selectedSection, sectionDisplayLookup])
 
-    const queueRowAction = React.useCallback((action: () => void) => {
-        setActionMenuMeetingId(null)
-        window.setTimeout(action, 0)
+    const hasConflict = React.useCallback((flags?: ConflictFlags) => {
+        return Boolean(flags?.room || flags?.faculty || flags?.section)
     }, [])
 
-    const handleEditEntrySelect = React.useCallback(
-        (row: ScheduleRow) => {
-            queueRowAction(() => onOpenEditEntry(row))
-        },
-        [onOpenEditEntry, queueRowAction]
-    )
-
-    const handleDeleteEntrySelect = React.useCallback(
-        (row: ScheduleRow) => {
-            queueRowAction(() => setDeleteTarget(row))
-        },
-        [queueRowAction, setDeleteTarget]
-    )
+    const goToRoomsAndFacilities = React.useCallback(() => {
+        navigate(ROOMS_AND_FACILITIES_ROUTE)
+    }, [navigate])
 
     const renderConflictBadges = (flags?: ConflictFlags) => {
         if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
@@ -1148,6 +1104,30 @@ export function PlannerManagementSection({
                         </div>
                     ) : null}
 
+                    {selectedVersion && plannerStats.conflicts > 0 ? (
+                        <Alert variant="destructive">
+                            <AlertTitle className="flex items-center gap-2">
+                                <AlertTriangle className="size-4" />
+                                Conflicts detected
+                            </AlertTitle>
+                            <AlertDescription className="space-y-3">
+                                <div>
+                                    There are <span className="font-semibold">{plannerStats.conflicts}</span> conflicting schedule
+                                    entr{plannerStats.conflicts === 1 ? "y" : "ies"} in this version.
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="rounded-xl"
+                                    onClick={goToRoomsAndFacilities}
+                                >
+                                    <ArrowRight className="mr-2 size-4" />
+                                    Go to Rooms & Facilities
+                                </Button>
+                            </AlertDescription>
+                        </Alert>
+                    ) : null}
+
                     <Separator />
 
                     {!selectedVersion ? (
@@ -1197,13 +1177,13 @@ export function PlannerManagementSection({
                                         <TableHead className="w-56 whitespace-normal wrap-break-word align-top">Faculty</TableHead>
                                         <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Room</TableHead>
                                         <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Type</TableHead>
-                                        <TableHead className="w-44 whitespace-normal wrap-break-word align-top">Conflicts</TableHead>
-                                        <TableHead className="w-20 text-right whitespace-normal wrap-break-word align-top">Actions</TableHead>
+                                        <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Conflicts</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {visibleRows.map((row) => {
                                         const flags = conflictFlagsByMeetingId.get(row.meetingId)
+                                        const rowHasConflict = hasConflict(flags)
 
                                         return (
                                             <TableRow key={row.meetingId}>
@@ -1257,39 +1237,22 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
-                                                    {renderConflictBadges(flags)}
-                                                </TableCell>
+                                                    <div className="space-y-2">
+                                                        {renderConflictBadges(flags)}
 
-                                                <TableCell className="align-top text-right">
-                                                    <DropdownMenu
-                                                        open={actionMenuMeetingId === row.meetingId}
-                                                        onOpenChange={(open) =>
-                                                            setActionMenuMeetingId((current) =>
-                                                                open ? row.meetingId : current === row.meetingId ? null : current
-                                                            )
-                                                        }
-                                                    >
-                                                        <DropdownMenuTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="rounded-xl">
-                                                                <MoreHorizontal className="size-4" />
-                                                            </Button>
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent align="end" className="w-56">
-                                                            <DropdownMenuLabel>Entry Actions</DropdownMenuLabel>
-                                                            <DropdownMenuSeparator />
-                                                            <DropdownMenuItem onSelect={() => handleEditEntrySelect(row)}>
-                                                                <Pencil className="mr-2 size-4" />
-                                                                Edit entry
-                                                            </DropdownMenuItem>
-                                                            <DropdownMenuItem
-                                                                variant="destructive"
-                                                                onSelect={() => handleDeleteEntrySelect(row)}
+                                                        {rowHasConflict ? (
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="rounded-lg"
+                                                                onClick={goToRoomsAndFacilities}
                                                             >
-                                                                <Trash2 className="mr-2 size-4" />
-                                                                Delete entry
-                                                            </DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
+                                                                <ArrowRight className="mr-2 size-4" />
+                                                                Fix Conflict
+                                                            </Button>
+                                                        ) : null}
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         )
@@ -1398,7 +1361,7 @@ export function PlannerManagementSection({
             </Card>
 
             <Dialog open={pdfPreviewOpen} onOpenChange={setPdfPreviewOpen}>
-                <DialogContent className="h-[82vh] max-h-[82vh] overflow-y-auto p-4 sm:max-w-6xl">
+                <DialogContent className="z-120 h-[82vh] max-h-[82vh] overflow-y-auto p-4 sm:max-w-6xl">
                     <DialogHeader>
                         <DialogTitle>Schedule PDF Preview</DialogTitle>
                         <DialogDescription>
@@ -1437,14 +1400,13 @@ export function PlannerManagementSection({
                 onOpenChange={(v) => {
                     setEntryDialogOpen(v)
                     if (!v) {
-                        setEditingRow(null)
                         setFormAllowConflictSave(false)
                     }
                 }}
             >
-                <DialogContent className="max-h-[78vh] overflow-y-auto sm:max-w-4xl">
+                <DialogContent className="z-120 max-h-[78vh] overflow-y-auto sm:max-w-4xl">
                     <DialogHeader>
-                        <DialogTitle>{editingRow ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
+                        <DialogTitle>Create Schedule Entry</DialogTitle>
                         <DialogDescription>
                             Use dropdowns for section, subject, faculty, and room. Section labels follow the same display format used in Master Data.
                         </DialogDescription>
@@ -1701,7 +1663,7 @@ export function PlannerManagementSection({
                                         ))}
                                     </ul>
 
-                                    <div className="flex items-center gap-2 pt-1">
+                                    <div className="flex flex-wrap items-center gap-2 pt-1">
                                         <Checkbox
                                             id="allowConflictSave"
                                             checked={formAllowConflictSave}
@@ -1710,6 +1672,17 @@ export function PlannerManagementSection({
                                         <Label htmlFor="allowConflictSave" className="cursor-pointer text-sm">
                                             Override and save anyway
                                         </Label>
+
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="rounded-lg"
+                                            onClick={goToRoomsAndFacilities}
+                                        >
+                                            <ArrowRight className="mr-2 size-4" />
+                                            Fix in Rooms & Facilities
+                                        </Button>
                                     </div>
                                 </AlertDescription>
                             </Alert>
@@ -1739,11 +1712,6 @@ export function PlannerManagementSection({
                                     <RefreshCcw className="mr-2 size-4 animate-spin" />
                                     Saving...
                                 </>
-                            ) : editingRow ? (
-                                <>
-                                    <Pencil className="mr-2 size-4" />
-                                    Update Entry
-                                </>
                             ) : (
                                 <>
                                     <Plus className="mr-2 size-4" />
@@ -1754,30 +1722,6 @@ export function PlannerManagementSection({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-
-            <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(v) => !v && setDeleteTarget(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete schedule entry?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will remove the selected class meeting. If no meetings remain for the class, the class record will also be removed.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={(e) => {
-                                e.preventDefault()
-                                void onConfirmDeleteEntry()
-                            }}
-                            disabled={deleting}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
-                            {deleting ? "Deleting..." : "Delete"}
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </>
     )
 }

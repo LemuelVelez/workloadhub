@@ -78,7 +78,6 @@ export default function AdminSchedulesPage() {
     const [createSetActive, setCreateSetActive] = React.useState<boolean>(false)
     const [saving, setSaving] = React.useState(false)
 
-    // Schedule planner states
     const [selectedVersionId, setSelectedVersionId] = React.useState<string>("")
 
     const [subjects, setSubjects] = React.useState<SubjectDoc[]>([])
@@ -93,7 +92,6 @@ export default function AdminSchedulesPage() {
     const [showConflictsOnly, setShowConflictsOnly] = React.useState(false)
 
     const [entryDialogOpen, setEntryDialogOpen] = React.useState(false)
-    const [editingRow, setEditingRow] = React.useState<ScheduleRow | null>(null)
     const [entrySaving, setEntrySaving] = React.useState(false)
 
     const [formSectionId, setFormSectionId] = React.useState("")
@@ -109,9 +107,6 @@ export default function AdminSchedulesPage() {
     const [formDeliveryMode, setFormDeliveryMode] = React.useState("")
     const [formRemarks, setFormRemarks] = React.useState("")
     const [formAllowConflictSave, setFormAllowConflictSave] = React.useState(false)
-
-    const [deleteTarget, setDeleteTarget] = React.useState<ScheduleRow | null>(null)
-    const [deleting, setDeleting] = React.useState(false)
 
     const termMap = React.useMemo(() => {
         const m = new Map<string, AcademicTermDoc>()
@@ -310,7 +305,6 @@ export default function AdminSchedulesPage() {
 
         setSaving(true)
         try {
-            // If setting Active: deactivate other Active versions in same term + college
             if (next === "Active") {
                 const others = versions.filter(
                     (x) =>
@@ -497,8 +491,8 @@ export default function AdminSchedulesPage() {
             const facultyKey = facultyUserId
                 ? `uid:${facultyUserId}`
                 : manualFaculty
-                    ? `manual:${normalizeText(manualFaculty)}`
-                    : ""
+                  ? `manual:${normalizeText(manualFaculty)}`
+                  : ""
 
             const subjectCode = String(subject?.code || "").trim()
             const subjectTitle = String(subject?.title || "").trim()
@@ -652,39 +646,10 @@ export default function AdminSchedulesPage() {
         setFormAllowConflictSave(false)
     }, [sections, subjects, rooms])
 
-    const openCreateEntry = () => {
-        setEditingRow(null)
+    const openCreateEntry = React.useCallback(() => {
         resetEntryForm()
         setEntryDialogOpen(true)
-    }
-
-    const openEditEntry = (row: ScheduleRow) => {
-        setEditingRow(row)
-        setFormSectionId(row.sectionId || "")
-        setFormSubjectId(row.subjectId || "")
-
-        if (row.facultyUserId) {
-            setFormFacultyChoice(row.facultyUserId)
-            setFormManualFaculty("")
-        } else if (row.manualFaculty) {
-            setFormFacultyChoice(FACULTY_OPTION_MANUAL)
-            setFormManualFaculty(row.manualFaculty)
-        } else {
-            setFormFacultyChoice(FACULTY_OPTION_NONE)
-            setFormManualFaculty("")
-        }
-
-        setFormRoomId(row.roomId || "")
-        setFormDayOfWeek(row.dayOfWeek || "Monday")
-        setFormStartTime(row.startTime || "07:00")
-        setFormEndTime(row.endTime || "08:00")
-        setFormMeetingType((row.meetingType || "LECTURE") as MeetingType)
-        setFormClassCode(row.classCode || "")
-        setFormDeliveryMode(row.deliveryMode || "")
-        setFormRemarks(row.classRemarks || "")
-        setFormAllowConflictSave(false)
-        setEntryDialogOpen(true)
-    }
+    }, [resetEntryForm])
 
     const candidateConflicts = React.useMemo<CandidateConflict[]>(() => {
         if (!entryDialogOpen) return []
@@ -697,13 +662,12 @@ export default function AdminSchedulesPage() {
                     ? `manual:${normalizeText(formManualFaculty)}`
                     : ""
                 : formFacultyChoice === FACULTY_OPTION_NONE
-                    ? ""
-                    : `uid:${formFacultyChoice}`
+                  ? ""
+                  : `uid:${formFacultyChoice}`
 
         const out: CandidateConflict[] = []
 
         for (const r of scheduleRows) {
-            if (editingRow && r.meetingId === editingRow.meetingId) continue
             if (normalizeText(r.dayOfWeek) !== normalizeText(formDayOfWeek)) continue
             if (!rangesOverlap(r.startTime, r.endTime, formStartTime, formEndTime)) continue
 
@@ -732,7 +696,6 @@ export default function AdminSchedulesPage() {
         formManualFaculty,
         formSectionId,
         scheduleRows,
-        editingRow,
     ])
 
     const candidateConflictCounts = React.useMemo(() => {
@@ -809,79 +772,34 @@ export default function AdminSchedulesPage() {
                 facultyUserId,
                 classCode: formClassCode.trim() || null,
                 deliveryMode: formDeliveryMode.trim() || null,
-                status: editingRow?.classStatus || "Planned",
+                status: "Planned",
                 remarks: composeRemarks(formRemarks, manualFaculty),
             }
 
-            if (editingRow) {
-                await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASSES, editingRow.classId, classPayload)
+            const createdClass = await databases.createDocument(
+                DATABASE_ID,
+                COLLECTIONS.CLASSES,
+                ID.unique(),
+                classPayload
+            )
 
-                await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, editingRow.meetingId, {
-                    versionId: selectedVersion.$id,
-                    classId: editingRow.classId,
-                    dayOfWeek: formDayOfWeek,
-                    startTime: formStartTime,
-                    endTime: formEndTime,
-                    roomId: formRoomId || null,
-                    meetingType: formMeetingType,
-                })
+            await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                versionId: selectedVersion.$id,
+                classId: createdClass.$id,
+                dayOfWeek: formDayOfWeek,
+                startTime: formStartTime,
+                endTime: formEndTime,
+                roomId: formRoomId || null,
+                meetingType: formMeetingType,
+            })
 
-                toast.success("Schedule entry updated.")
-            } else {
-                const createdClass = await databases.createDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASSES,
-                    ID.unique(),
-                    classPayload
-                )
-
-                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                    versionId: selectedVersion.$id,
-                    classId: createdClass.$id,
-                    dayOfWeek: formDayOfWeek,
-                    startTime: formStartTime,
-                    endTime: formEndTime,
-                    roomId: formRoomId || null,
-                    meetingType: formMeetingType,
-                })
-
-                toast.success("Schedule entry created.")
-            }
-
+            toast.success("Schedule entry created.")
             setEntryDialogOpen(false)
-            setEditingRow(null)
             await fetchScheduleContext()
         } catch (e: any) {
             toast.error(e?.message || "Failed to save schedule entry.")
         } finally {
             setEntrySaving(false)
-        }
-    }
-
-    const confirmDeleteEntry = async () => {
-        if (!deleteTarget) return
-
-        setDeleting(true)
-        try {
-            await databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, deleteTarget.meetingId)
-
-            const remainRes = await databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, [
-                Query.equal("classId", deleteTarget.classId),
-                Query.limit(1),
-            ])
-
-            const remain = (remainRes?.documents ?? []) as ClassMeetingDoc[]
-            if (remain.length === 0) {
-                await databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASSES, deleteTarget.classId)
-            }
-
-            toast.success("Schedule entry deleted.")
-            setDeleteTarget(null)
-            await fetchScheduleContext()
-        } catch (e: any) {
-            toast.error(e?.message || "Failed to delete schedule entry.")
-        } finally {
-            setDeleting(false)
         }
     }
 
@@ -1008,7 +926,6 @@ export default function AdminSchedulesPage() {
                     entrySaving={entrySaving}
                     onReloadEntries={() => void fetchScheduleContext()}
                     onOpenCreateEntry={openCreateEntry}
-                    onOpenEditEntry={openEditEntry}
                     plannerStats={plannerStats}
                     visibleRows={visibleRows}
                     laboratoryRows={laboratoryRows}
@@ -1018,8 +935,6 @@ export default function AdminSchedulesPage() {
                     selectedDeptLabel={selectedDeptLabel}
                     entryDialogOpen={entryDialogOpen}
                     setEntryDialogOpen={setEntryDialogOpen}
-                    editingRow={editingRow}
-                    setEditingRow={setEditingRow}
                     formSectionId={formSectionId}
                     setFormSectionId={setFormSectionId}
                     formSubjectId={formSubjectId}
@@ -1054,10 +969,6 @@ export default function AdminSchedulesPage() {
                     facultyProfiles={facultyProfiles}
                     rooms={rooms}
                     onSaveEntry={saveEntry}
-                    deleteTarget={deleteTarget}
-                    setDeleteTarget={setDeleteTarget}
-                    deleting={deleting}
-                    onConfirmDeleteEntry={confirmDeleteEntry}
                 />
             </div>
         </DashboardLayout>
