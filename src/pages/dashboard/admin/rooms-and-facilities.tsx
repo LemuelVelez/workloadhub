@@ -15,6 +15,7 @@ import {
 import DashboardLayout from "@/components/dashboard-layout"
 import RoomSchedulePrintSheet, {
     type RoomSchedulePrintItem,
+    type RoomScheduleScope,
 } from "@/components/room/room-schedule-print-sheet"
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
@@ -161,11 +162,11 @@ const DEFAULT_PRINT_TIME_SLOTS = [
     "8:01-9:00",
 ] as const
 
-const MORNING_GROUP_LABEL = "Morning Group"
-const AFTERNOON_GROUP_LABEL = "Afternoon Group"
-const COMBINED_GROUP_LABEL = "Combined Group"
-const MORNING_GROUP_END_MINUTES = 12 * 60
-const AFTERNOON_GROUP_START_MINUTES = 13 * 60
+const MORNING_LABEL = "Morning"
+const AFTERNOON_LABEL = "Afternoon"
+const BOTH_LABEL = "Both"
+const MORNING_END_MINUTES = 12 * 60
+const AFTERNOON_START_MINUTES = 13 * 60
 
 function str(v: any) {
     return String(v ?? "").trim()
@@ -244,23 +245,52 @@ function parseClockMinutes(value: any) {
     return hh * 60 + mm
 }
 
-function inferRoomScheduleGroupLabel(startTime: any, endTime: any) {
+function scheduleScopeLabel(scope: RoomScheduleScope | "") {
+    if (scope === "MORNING") return MORNING_LABEL
+    if (scope === "AFTERNOON") return AFTERNOON_LABEL
+    if (scope === "BOTH") return BOTH_LABEL
+    return ""
+}
+
+function inferRoomScheduleScope(startTime: any, endTime: any): RoomScheduleScope | "" {
     const start = parseClockMinutes(startTime)
     const end = parseClockMinutes(endTime)
 
     if (!Number.isFinite(start) || !Number.isFinite(end)) return ""
 
-    if (end <= MORNING_GROUP_END_MINUTES) return MORNING_GROUP_LABEL
-    if (start >= AFTERNOON_GROUP_START_MINUTES) return AFTERNOON_GROUP_LABEL
+    if (end <= MORNING_END_MINUTES) return "MORNING"
+    if (start >= AFTERNOON_START_MINUTES) return "AFTERNOON"
 
-    return COMBINED_GROUP_LABEL
+    return "BOTH"
 }
 
-function roomScheduleGroupBadgeVariant(groupLabel: string) {
-    const value = str(groupLabel).toLowerCase()
+function resolveRoomScheduleScope(item: RoomSchedulePrintItem): RoomScheduleScope | "" {
+    const raw = str(item.groupLabel).toLowerCase()
 
-    if (value === MORNING_GROUP_LABEL.toLowerCase()) return "secondary" as const
-    if (value === AFTERNOON_GROUP_LABEL.toLowerCase()) return "default" as const
+    if (raw.includes("morning")) return "MORNING"
+    if (raw.includes("afternoon")) return "AFTERNOON"
+    if (raw.includes("combined") || raw.includes("both")) return "BOTH"
+
+    return inferRoomScheduleScope(item.startTime, item.endTime)
+}
+
+function matchesRoomScheduleScope(item: RoomSchedulePrintItem, scheduleScope: RoomScheduleScope) {
+    const itemScope = resolveRoomScheduleScope(item)
+
+    if (!itemScope) return scheduleScope === "BOTH"
+    if (scheduleScope === "BOTH") return true
+    if (scheduleScope === "MORNING") {
+        return itemScope === "MORNING" || itemScope === "BOTH"
+    }
+
+    return itemScope === "AFTERNOON" || itemScope === "BOTH"
+}
+
+function roomSchedulePeriodBadgeVariant(item: RoomSchedulePrintItem) {
+    const scope = resolveRoomScheduleScope(item)
+
+    if (scope === "MORNING") return "secondary" as const
+    if (scope === "AFTERNOON") return "default" as const
 
     return "outline" as const
 }
@@ -285,8 +315,8 @@ function buildSectionLabel(section?: SectionLite | null) {
     return name
 }
 
-function buildPrintableGroupText(item: RoomSchedulePrintItem) {
-    return str(item.groupLabel) || inferRoomScheduleGroupLabel(item.startTime, item.endTime)
+function buildPrintablePeriodText(item: RoomSchedulePrintItem) {
+    return scheduleScopeLabel(resolveRoomScheduleScope(item))
 }
 
 function buildPrintableSubjectLabel(item: RoomSchedulePrintItem) {
@@ -514,13 +544,14 @@ async function fetchRoomPrintableSchedule(params: {
         const subjectCode = str(subject?.code)
         const subjectTitle = str(subject?.title)
         const sectionLabel = buildSectionLabel(section)
-        const groupLabel = inferRoomScheduleGroupLabel(meeting.startTime, meeting.endTime)
+        const scheduleScope = inferRoomScheduleScope(meeting.startTime, meeting.endTime)
+        const periodLabel = scheduleScopeLabel(scheduleScope)
 
         const lineTwoParts = [subjectCode, sectionLabel].filter(Boolean)
         const lineThree = subjectTitle || str(klass?.classCode)
 
         const contentLines = [
-            groupLabel,
+            periodLabel,
             facultyName,
             lineTwoParts.join(" - "),
             lineThree,
@@ -536,7 +567,7 @@ async function fetchRoomPrintableSchedule(params: {
             subjectTitle: subjectTitle || null,
             sectionLabel: sectionLabel || null,
             notes: meeting.notes || null,
-            groupLabel: groupLabel || null,
+            groupLabel: periodLabel || null,
             contentLines,
         } as RoomSchedulePrintItem
     })
@@ -578,6 +609,7 @@ export default function AdminRoomsAndFacilitiesPage() {
 
     const [printRoomId, setPrintRoomId] = React.useState("")
     const [printTermId, setPrintTermId] = React.useState("")
+    const [printScope, setPrintScope] = React.useState<RoomScheduleScope>("BOTH")
     const [scheduleBusy, setScheduleBusy] = React.useState(false)
     const [printItems, setPrintItems] = React.useState<RoomSchedulePrintItem[]>([])
 
@@ -752,28 +784,29 @@ export default function AdminRoomsAndFacilitiesPage() {
         [terms, printTermId]
     )
 
+    const filteredPrintItems = React.useMemo(
+        () => printItems.filter((item) => matchesRoomScheduleScope(item, printScope)),
+        [printItems, printScope]
+    )
+
     const uniquePrintInstructors = React.useMemo(
         () =>
             Array.from(
                 new Set(
-                    printItems
+                    filteredPrintItems
                         .map((item) => buildPrintableInstructorText(item))
                         .filter(Boolean)
                 )
             ),
-        [printItems]
+        [filteredPrintItems]
     )
 
-    const uniquePrintGroups = React.useMemo(
+    const uniquePrintPeriods = React.useMemo(
         () =>
             Array.from(
-                new Set(
-                    printItems
-                        .map((item) => buildPrintableGroupText(item))
-                        .filter(Boolean)
-                )
+                new Set(filteredPrintItems.map((item) => buildPrintablePeriodText(item)).filter(Boolean))
             ),
-        [printItems]
+        [filteredPrintItems]
     )
 
     const q = search.trim().toLowerCase()
@@ -889,12 +922,13 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     Room Schedule Print Sheet
                                 </CardTitle>
                                 <CardDescription>
-                                    Preview and export a room monitoring sheet matched to the official printed layout.
+                                    Preview and export a room monitoring sheet for Morning, Afternoon,
+                                    or Both schedules.
                                 </CardDescription>
                             </div>
 
-                            <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-96">
-                                <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-md">
+                                <div className="grid gap-2 sm:grid-cols-3">
                                     <div className="grid gap-2">
                                         <Label htmlFor="print-room">Room</Label>
                                         <Select value={printRoomId} onValueChange={setPrintRoomId}>
@@ -926,6 +960,25 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             </SelectContent>
                                         </Select>
                                     </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="print-scope">Schedule</Label>
+                                        <Select
+                                            value={printScope}
+                                            onValueChange={(value) =>
+                                                setPrintScope(value as RoomScheduleScope)
+                                            }
+                                        >
+                                            <SelectTrigger id="print-scope">
+                                                <SelectValue placeholder="Select schedule" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="MORNING">{MORNING_LABEL}</SelectItem>
+                                                <SelectItem value="AFTERNOON">{AFTERNOON_LABEL}</SelectItem>
+                                                <SelectItem value="BOTH">{BOTH_LABEL}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2">
@@ -939,16 +992,18 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             ? academicTermLabel(selectedPrintTerm)
                                             : "No term selected"}
                                     </Badge>
+                                    <Badge variant="outline">{scheduleScopeLabel(printScope)}</Badge>
                                     <Badge variant="outline">
-                                        {printItems.length} schedule block{printItems.length === 1 ? "" : "s"}
+                                        {filteredPrintItems.length} schedule block
+                                        {filteredPrintItems.length === 1 ? "" : "s"}
                                     </Badge>
                                     <Badge variant="outline">
                                         {uniquePrintInstructors.length} instructor
                                         {uniquePrintInstructors.length === 1 ? "" : "s"}
                                     </Badge>
-                                    {uniquePrintGroups.length > 0 ? (
+                                    {uniquePrintPeriods.length > 0 ? (
                                         <Badge variant="outline">
-                                            {uniquePrintGroups.join(" • ")}
+                                            {uniquePrintPeriods.join(" • ")}
                                         </Badge>
                                     ) : null}
                                 </div>
@@ -959,10 +1014,10 @@ export default function AdminRoomsAndFacilitiesPage() {
                     <CardContent className="space-y-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <p className="text-sm text-muted-foreground">
-                                The generated PDF follows the official room monitoring layout with aligned top logos,
-                                a corrected table header, sign columns, a noon break row, color-coded schedule
-                                blocks, visible instructor assignments, and explicit morning, afternoon, or combined
-                                group labels.
+                                The generated PDF follows the official room monitoring layout with aligned
+                                top logos, a corrected table header, sign columns, a noon break row,
+                                color-coded schedule blocks, visible instructor assignments, and selectable
+                                morning, afternoon, or both schedule output.
                             </p>
 
                             <div className="flex items-center gap-2">
@@ -982,6 +1037,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     schoolYear={selectedPrintTerm?.schoolYear ?? ""}
                                     semester={selectedPrintTerm?.semester ?? ""}
                                     timeSlots={[...DEFAULT_PRINT_TIME_SLOTS]}
+                                    scheduleScope={printScope}
                                     disabled={scheduleBusy || !printRoomId || !printTermId}
                                 />
                             </div>
@@ -994,7 +1050,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                             </div>
                         ) : (
                             <div className="rounded-md border bg-muted/20 p-4">
-                                {printItems.length > 0 ? (
+                                {filteredPrintItems.length > 0 ? (
                                     <div className="space-y-3">
                                         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                             <div className="text-sm font-medium">
@@ -1006,7 +1062,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow>
-                                                        <TableHead className="w-40">Group</TableHead>
+                                                        <TableHead className="w-40">Period</TableHead>
                                                         <TableHead className="w-36">Day</TableHead>
                                                         <TableHead className="w-40">Time</TableHead>
                                                         <TableHead>Instructor</TableHead>
@@ -1015,7 +1071,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
-                                                    {printItems.map((item) => (
+                                                    {filteredPrintItems.map((item) => (
                                                         <TableRow
                                                             key={
                                                                 item.id ||
@@ -1024,11 +1080,9 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                         >
                                                             <TableCell>
                                                                 <Badge
-                                                                    variant={roomScheduleGroupBadgeVariant(
-                                                                        buildPrintableGroupText(item)
-                                                                    )}
+                                                                    variant={roomSchedulePeriodBadgeVariant(item)}
                                                                 >
-                                                                    {buildPrintableGroupText(item)}
+                                                                    {buildPrintablePeriodText(item)}
                                                                 </Badge>
                                                             </TableCell>
                                                             <TableCell className="font-medium">
@@ -1061,9 +1115,9 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     </div>
                                 ) : (
                                     <div className="text-sm text-muted-foreground">
-                                        No scheduled classes were found for the selected room and academic term. You
-                                        can still keep the selected room and term, then refresh again after schedules
-                                        are finalized.
+                                        No scheduled classes were found for the selected room, academic term,
+                                        and schedule. You can refresh again after schedules are finalized or
+                                        switch to another schedule selection.
                                     </div>
                                 )}
                             </div>

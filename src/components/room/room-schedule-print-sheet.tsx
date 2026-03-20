@@ -34,6 +34,8 @@ export type RoomSchedulePrintItem = {
     groupLabel?: string | null
 }
 
+export type RoomScheduleScope = "MORNING" | "AFTERNOON" | "BOTH"
+
 export type RoomSchedulePrintSheetProps = {
     roomLabel: string
     items: RoomSchedulePrintItem[]
@@ -53,6 +55,7 @@ export type RoomSchedulePrintSheetProps = {
     previewLabel?: string
     exportLabel?: string
     disabled?: boolean
+    scheduleScope?: RoomScheduleScope
 }
 
 const DEFAULT_TIME_SLOTS = [
@@ -74,11 +77,11 @@ const DEFAULT_TIME_SLOTS = [
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
 const NOON_BREAK_SLOT = "12:01-1:00"
 
-const MORNING_GROUP_LABEL = "Morning Group"
-const AFTERNOON_GROUP_LABEL = "Afternoon Group"
-const COMBINED_GROUP_LABEL = "Combined Group"
-const MORNING_GROUP_END_MINUTES = 12 * 60
-const AFTERNOON_GROUP_START_MINUTES = 13 * 60
+const MORNING_LABEL = "Morning"
+const AFTERNOON_LABEL = "Afternoon"
+const BOTH_LABEL = "Both"
+const MORNING_END_MINUTES = 12 * 60
+const AFTERNOON_START_MINUTES = 13 * 60
 
 const TIME_COL_WIDTH = 82
 const DAY_COL_WIDTH = 95
@@ -187,16 +190,49 @@ function parseClockMinutes(value: string) {
     return hh * 60 + mm
 }
 
-function inferScheduleGroupLabel(startTime: string, endTime: string) {
+function scheduleScopeLabel(scope: RoomScheduleScope | "") {
+    if (scope === "MORNING") return MORNING_LABEL
+    if (scope === "AFTERNOON") return AFTERNOON_LABEL
+    if (scope === "BOTH") return BOTH_LABEL
+    return ""
+}
+
+function inferScheduleScope(startTime: string, endTime: string): RoomScheduleScope | "" {
     const start = parseClockMinutes(startTime)
     const end = parseClockMinutes(endTime)
 
     if (start == null || end == null) return ""
 
-    if (end <= MORNING_GROUP_END_MINUTES) return MORNING_GROUP_LABEL
-    if (start >= AFTERNOON_GROUP_START_MINUTES) return AFTERNOON_GROUP_LABEL
+    if (end <= MORNING_END_MINUTES) return "MORNING"
+    if (start >= AFTERNOON_START_MINUTES) return "AFTERNOON"
 
-    return COMBINED_GROUP_LABEL
+    return "BOTH"
+}
+
+function resolveItemScheduleScope(item: RoomSchedulePrintItem): RoomScheduleScope | "" {
+    const raw = normalizeText(item.groupLabel).toLowerCase()
+
+    if (raw.includes("morning")) return "MORNING"
+    if (raw.includes("afternoon")) return "AFTERNOON"
+    if (raw.includes("combined") || raw.includes("both")) return "BOTH"
+
+    return inferScheduleScope(item.startTime, item.endTime)
+}
+
+function resolveItemScheduleLabel(item: RoomSchedulePrintItem) {
+    return scheduleScopeLabel(resolveItemScheduleScope(item))
+}
+
+function matchesScheduleScope(item: RoomSchedulePrintItem, scheduleScope: RoomScheduleScope) {
+    const itemScope = resolveItemScheduleScope(item)
+
+    if (!itemScope) return scheduleScope === "BOTH"
+    if (scheduleScope === "BOTH") return true
+    if (scheduleScope === "MORNING") {
+        return itemScope === "MORNING" || itemScope === "BOTH"
+    }
+
+    return itemScope === "AFTERNOON" || itemScope === "BOTH"
 }
 
 function parseSlotRange(slotLabel: string) {
@@ -219,15 +255,47 @@ function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: numbe
 }
 
 function buildSlotMeta(timeSlots: string[]) {
+    let previousEnd = -1
+
     return timeSlots.map((slot) => {
         const parsed = parseSlotRange(slot)
+        let start = parsed?.start ?? 0
+        let end = parsed?.end ?? 0
+
+        if (parsed) {
+            while (previousEnd >= 0 && start <= previousEnd) {
+                start += 12 * 60
+            }
+
+            while (end <= start) {
+                end += 12 * 60
+            }
+
+            previousEnd = end
+        }
+
         return {
             label: slot,
-            start: parsed?.start ?? 0,
-            end: parsed?.end ?? 0,
+            start,
+            end,
             isNoonBreak: isNoonBreakSlot(slot),
         }
     })
+}
+
+function filterTimeSlotsByScope(timeSlots: string[], scheduleScope: RoomScheduleScope) {
+    if (scheduleScope === "BOTH") return [...timeSlots]
+
+    const slotMeta = buildSlotMeta(timeSlots)
+    const filtered = slotMeta
+        .filter((slot) => {
+            if (slot.isNoonBreak) return false
+            if (scheduleScope === "MORNING") return slot.end <= MORNING_END_MINUTES
+            return slot.start >= AFTERNOON_START_MINUTES
+        })
+        .map((slot) => slot.label)
+
+    return filtered.length > 0 ? filtered : [...timeSlots]
 }
 
 function stableHash(value: string) {
@@ -256,11 +324,10 @@ function resolveContentLines(item: RoomSchedulePrintItem) {
 
     if (explicit.length > 0) return explicit.slice(0, 4)
 
-    const groupLabel =
-        normalizeText(item.groupLabel) || inferScheduleGroupLabel(item.startTime, item.endTime)
+    const scheduleLabel = resolveItemScheduleLabel(item)
 
     const oneLine = normalizeText(item.displayLabel)
-    if (oneLine) return [groupLabel, oneLine].filter(Boolean).slice(0, 4)
+    if (oneLine) return [scheduleLabel, oneLine].filter(Boolean).slice(0, 4)
 
     const line1 = normalizeText(item.facultyName)
     const line2 = [normalizeText(item.subjectCode), normalizeText(item.sectionLabel)]
@@ -269,7 +336,7 @@ function resolveContentLines(item: RoomSchedulePrintItem) {
     const line3 = normalizeText(item.subjectTitle)
     const line4 = normalizeText(item.notes)
 
-    return [groupLabel, line1, line2, line3 || line4].filter(Boolean).slice(0, 4)
+    return [scheduleLabel, line1, line2, line3 || line4].filter(Boolean).slice(0, 4)
 }
 
 function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[]) {
@@ -458,6 +525,7 @@ export function RoomSchedulePrintSheet({
     previewLabel = "Preview PDF",
     exportLabel = "Export PDF",
     disabled = false,
+    scheduleScope = "BOTH",
 }: RoomSchedulePrintSheetProps) {
     const [previewOpen, setPreviewOpen] = React.useState(false)
     const [pdfBusy, setPdfBusy] = React.useState(false)
@@ -473,24 +541,28 @@ export function RoomSchedulePrintSheet({
         [semester, schoolYear]
     )
     const yearBadge = React.useMemo(() => inferYearBadge(schoolYear), [schoolYear])
-    const meetingBlocks = React.useMemo(
-        () => buildMeetingBlocks(items, timeSlots),
-        [items, timeSlots]
+    const selectedScheduleLabel = React.useMemo(
+        () => scheduleScopeLabel(scheduleScope),
+        [scheduleScope]
     )
-    const uniqueGroupLabels = React.useMemo(
+    const filteredItems = React.useMemo(
+        () => items.filter((item) => matchesScheduleScope(item, scheduleScope)),
+        [items, scheduleScope]
+    )
+    const filteredTimeSlots = React.useMemo(
+        () => filterTimeSlotsByScope(timeSlots, scheduleScope),
+        [timeSlots, scheduleScope]
+    )
+    const meetingBlocks = React.useMemo(
+        () => buildMeetingBlocks(filteredItems, filteredTimeSlots),
+        [filteredItems, filteredTimeSlots]
+    )
+    const uniqueScheduleLabels = React.useMemo(
         () =>
             Array.from(
-                new Set(
-                    items
-                        .map(
-                            (item) =>
-                                normalizeText(item.groupLabel) ||
-                                inferScheduleGroupLabel(item.startTime, item.endTime)
-                        )
-                        .filter(Boolean)
-                )
+                new Set(filteredItems.map((item) => resolveItemScheduleLabel(item)).filter(Boolean))
             ),
-        [items]
+        [filteredItems]
     )
 
     const cleanupPreviewUrl = React.useCallback(() => {
@@ -530,7 +602,9 @@ export function RoomSchedulePrintSheet({
             .trim()
             .replace(/[^a-zA-Z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "")
-            .toLowerCase() || "room"}_${formatTimestamp(generatedAt)}.pdf`
+            .toLowerCase() || "room"}_${selectedScheduleLabel.toLowerCase() || "schedule"}_${formatTimestamp(
+            generatedAt
+        )}.pdf`
 
         const styles = StyleSheet.create({
             page: {
@@ -725,7 +799,7 @@ export function RoomSchedulePrintSheet({
                 top: 0,
                 left: TIME_COL_WIDTH,
                 width: GRID_WIDTH - TIME_COL_WIDTH,
-                height: timeSlots.length * ROW_HEIGHT,
+                height: filteredTimeSlots.length * ROW_HEIGHT,
             },
             meetingBlock: {
                 position: "absolute",
@@ -779,7 +853,7 @@ export function RoomSchedulePrintSheet({
         })
 
         const PdfDoc = () => (
-            <Document title={`Room Schedule - ${roomLabel}`}>
+            <Document title={`Room Schedule - ${roomLabel} - ${selectedScheduleLabel}`}>
                 <Page size="A4" orientation="landscape" style={styles.page}>
                     <View style={styles.sheetWrap}>
                         <View style={styles.headerWrap}>
@@ -803,7 +877,9 @@ export function RoomSchedulePrintSheet({
                             </View>
                         </View>
 
-                        <Text style={styles.roomTitle}>{roomLabel.toUpperCase()}</Text>
+                        <Text style={styles.roomTitle}>
+                            {roomLabel.toUpperCase()} — {selectedScheduleLabel.toUpperCase()}
+                        </Text>
 
                         <View style={styles.table}>
                             <View style={styles.headerGrid}>
@@ -835,7 +911,7 @@ export function RoomSchedulePrintSheet({
                             </View>
 
                             <View style={styles.bodyGrid}>
-                                {timeSlots.map((slotLabel) => {
+                                {filteredTimeSlots.map((slotLabel) => {
                                     const isNoonBreak = isNoonBreakSlot(slotLabel)
 
                                     return (
@@ -936,13 +1012,14 @@ export function RoomSchedulePrintSheet({
         semesterSchoolYearLine,
         signatoryName,
         signatoryTitle,
-        timeSlots,
+        filteredTimeSlots,
         yearBadge,
         meetingBlocks,
+        selectedScheduleLabel,
     ])
 
     const ensurePdfPreview = React.useCallback(async () => {
-        if (disabled || pdfPreviewBusyRef.current || pdfUrlRef.current) return
+        if (disabled || pdfPreviewBusyRef.current) return
 
         const requestId = previewRequestIdRef.current + 1
         previewRequestIdRef.current = requestId
@@ -984,6 +1061,7 @@ export function RoomSchedulePrintSheet({
             return
         }
 
+        cleanupPreviewUrl()
         void ensurePdfPreview()
     }, [previewOpen, ensurePdfPreview, cleanupPreviewUrl])
 
@@ -994,13 +1072,13 @@ export function RoomSchedulePrintSheet({
         try {
             const { blob, filename } = await buildPdfBlob()
             downloadBlob(blob, filename)
-            toast.success("Room schedule PDF exported.")
+            toast.success(`${selectedScheduleLabel} room schedule PDF exported.`)
         } catch (e: any) {
             toast.error(e?.message ?? "Failed to export room schedule PDF.")
         } finally {
             setPdfBusy(false)
         }
-    }, [buildPdfBlob, disabled, pdfBusy])
+    }, [buildPdfBlob, disabled, pdfBusy, selectedScheduleLabel])
 
     const controlsDisabled = disabled || pdfBusy || pdfPreviewBusy
 
@@ -1040,21 +1118,24 @@ export function RoomSchedulePrintSheet({
             >
                 <DialogContent className="h-[95svh] sm:max-w-7xl">
                     <DialogHeader>
-                        <DialogTitle>PDF Preview — {roomLabel}</DialogTitle>
+                        <DialogTitle>
+                            PDF Preview — {roomLabel} ({selectedScheduleLabel})
+                        </DialogTitle>
                         <DialogDescription>
-                            A4 landscape room monitoring sheet with visible instructor assignments and
-                            explicit morning, afternoon, or combined group labels per schedule block.
+                            A4 landscape room monitoring sheet filtered to the selected schedule with
+                            visible instructor assignments and clear morning, afternoon, or both labels.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{semester}</Badge>
                         <Badge variant="secondary">SY {schoolYear}</Badge>
+                        <Badge variant="outline">{selectedScheduleLabel}</Badge>
                         <Badge variant="outline">
-                            {items.length} scheduled block{items.length === 1 ? "" : "s"}
+                            {filteredItems.length} scheduled block{filteredItems.length === 1 ? "" : "s"}
                         </Badge>
-                        {uniqueGroupLabels.length > 0 ? (
-                            <Badge variant="outline">{uniqueGroupLabels.join(" • ")}</Badge>
+                        {uniqueScheduleLabels.length > 0 ? (
+                            <Badge variant="outline">{uniqueScheduleLabels.join(" • ")}</Badge>
                         ) : null}
                     </div>
 
@@ -1071,7 +1152,7 @@ export function RoomSchedulePrintSheet({
                         ) : pdfUrl ? (
                             <iframe
                                 key={pdfUrl}
-                                title={`Room schedule PDF preview - ${roomLabel}`}
+                                title={`Room schedule PDF preview - ${roomLabel} - ${selectedScheduleLabel}`}
                                 src={pdfUrl}
                                 className="block h-[75vh] w-full bg-background"
                             />
@@ -1085,8 +1166,7 @@ export function RoomSchedulePrintSheet({
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             Includes the official PNG logo, aligned upper-right CCS mark, corrected header
-                            structure, visible instructor names, and explicit morning, afternoon, or
-                            combined schedule group labels.
+                            structure, visible instructor names, and the selected room schedule view.
                         </div>
 
                         <div className="flex items-center gap-2">
