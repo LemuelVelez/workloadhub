@@ -144,6 +144,7 @@ type UserProfileLite = {
 type RoomTypeFilter = "ALL" | "LECTURE" | "LAB" | "OTHER"
 
 const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
+const PRINT_FILTER_TRIGGER_CLASS = "w-full max-w-none"
 
 const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
 const DEFAULT_PRINT_TIME_SLOTS = [
@@ -915,8 +916,8 @@ export default function AdminRoomsAndFacilitiesPage() {
 
                 <Card>
                     <CardHeader className="space-y-3">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                            <div>
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+                            <div className="min-w-0">
                                 <CardTitle className="flex items-center gap-2">
                                     <Printer className="h-4 w-4" />
                                     Room Schedule Print Sheet
@@ -927,12 +928,15 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 </CardDescription>
                             </div>
 
-                            <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-md">
-                                <div className="grid gap-2 sm:grid-cols-3">
-                                    <div className="grid gap-2">
+                            <div className="flex w-full min-w-0 flex-col gap-3 lg:max-w-4xl">
+                                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                    <div className="grid min-w-0 gap-2">
                                         <Label htmlFor="print-room">Room</Label>
                                         <Select value={printRoomId} onValueChange={setPrintRoomId}>
-                                            <SelectTrigger id="print-room">
+                                            <SelectTrigger
+                                                id="print-room"
+                                                className={PRINT_FILTER_TRIGGER_CLASS}
+                                            >
                                                 <SelectValue placeholder="Select room" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -945,10 +949,13 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         </Select>
                                     </div>
 
-                                    <div className="grid gap-2">
+                                    <div className="grid min-w-0 gap-2">
                                         <Label htmlFor="print-term">Academic Term</Label>
                                         <Select value={printTermId} onValueChange={setPrintTermId}>
-                                            <SelectTrigger id="print-term">
+                                            <SelectTrigger
+                                                id="print-term"
+                                                className={PRINT_FILTER_TRIGGER_CLASS}
+                                            >
                                                 <SelectValue placeholder="Select academic term" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -961,7 +968,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         </Select>
                                     </div>
 
-                                    <div className="grid gap-2">
+                                    <div className="grid min-w-0 gap-2">
                                         <Label htmlFor="print-scope">Schedule</Label>
                                         <Select
                                             value={printScope}
@@ -969,7 +976,10 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                 setPrintScope(value as RoomScheduleScope)
                                             }
                                         >
-                                            <SelectTrigger id="print-scope">
+                                            <SelectTrigger
+                                                id="print-scope"
+                                                className={PRINT_FILTER_TRIGGER_CLASS}
+                                            >
                                                 <SelectValue placeholder="Select schedule" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -981,7 +991,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     </div>
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
                                     <Badge variant="secondary">
                                         {selectedPrintRoom
                                             ? displayRoomSubLabel(selectedPrintRoom)
@@ -1313,7 +1323,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 <div className="grid gap-2">
                                     <Label>Room Type</Label>
                                     <Select value={roomType} onValueChange={setRoomType}>
-                                        <SelectTrigger>
+                                        <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
                                             <SelectValue placeholder="Select type" />
                                         </SelectTrigger>
                                         <SelectContent>
