@@ -1,110 +1,105 @@
+"use client"
+
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-type TableProps = React.ComponentProps<"table"> & {
-  /**
-   * Optional className for the outer table container.
-   * Useful when you need to control overflow/width behavior (e.g., inside ScrollArea).
-   */
-  containerClassName?: string
-  /**
-   * Enables pointer-based horizontal drag scrolling on the table container.
-   */
-  dragScroll?: boolean
-}
-
-function Table({
-  className,
-  containerClassName,
-  dragScroll = false,
-  ...props
-}: TableProps) {
-  const containerRef = React.useRef<HTMLDivElement | null>(null)
-  const dragStateRef = React.useRef({
-    isPointerDown: false,
-    didDrag: false,
-    startX: 0,
-    scrollLeft: 0,
-    pointerId: -1,
-  })
+function Table({ className, ...props }: React.ComponentProps<"table">) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = React.useState(false)
+  const [isScrollable, setIsScrollable] = React.useState(false)
+  const dragStateRef = React.useRef({
+    pointerId: -1,
+    startX: 0,
+    startScrollLeft: 0,
+    moved: false,
+  })
 
-  const stopDragging = React.useCallback(() => {
+  React.useEffect(() => {
     const container = containerRef.current
-    const { pointerId } = dragStateRef.current
+    if (!container) return
 
-    if (container && pointerId >= 0 && container.hasPointerCapture(pointerId)) {
-      container.releasePointerCapture(pointerId)
+    const updateScrollableState = () => {
+      setIsScrollable(container.scrollWidth > container.clientWidth)
     }
 
-    dragStateRef.current.isPointerDown = false
-    dragStateRef.current.startX = 0
-    dragStateRef.current.scrollLeft = 0
-    dragStateRef.current.pointerId = -1
-    setIsDragging(false)
+    updateScrollableState()
+
+    const resizeObserver = new ResizeObserver(updateScrollableState)
+    resizeObserver.observe(container)
+
+    const table = container.querySelector("table")
+    if (table) {
+      resizeObserver.observe(table)
+    }
+
+    window.addEventListener("resize", updateScrollableState)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener("resize", updateScrollableState)
+    }
   }, [])
 
-  const handlePointerDown = React.useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragScroll || event.pointerType === "touch" || event.button !== 0) return
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = containerRef.current
+    if (!container || !isScrollable) return
 
-      const container = containerRef.current
-      if (!container || container.scrollWidth <= container.clientWidth) return
+    if (event.pointerType === "mouse" && event.button !== 0) return
 
-      dragStateRef.current.isPointerDown = true
-      dragStateRef.current.didDrag = false
-      dragStateRef.current.startX = event.clientX
-      dragStateRef.current.scrollLeft = container.scrollLeft
-      dragStateRef.current.pointerId = event.pointerId
+    const target = event.target as HTMLElement | null
+    if (
+      target?.closest(
+        'a, button, input, textarea, select, option, label, summary, [role="button"], [data-no-drag-scroll="true"]'
+      )
+    ) {
+      return
+    }
 
-      container.setPointerCapture(event.pointerId)
-    },
-    [dragScroll]
-  )
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: container.scrollLeft,
+      moved: false,
+    }
 
-  const handlePointerMove = React.useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragScroll || !dragStateRef.current.isPointerDown) return
+    container.setPointerCapture(event.pointerId)
+    setIsDragging(true)
+  }
 
-      const container = containerRef.current
-      if (!container) return
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = containerRef.current
+    if (!container || !isDragging) return
+    if (dragStateRef.current.pointerId !== event.pointerId) return
 
-      const deltaX = event.clientX - dragStateRef.current.startX
+    const deltaX = event.clientX - dragStateRef.current.startX
 
-      if (Math.abs(deltaX) > 4) {
-        dragStateRef.current.didDrag = true
-        if (!isDragging) {
-          setIsDragging(true)
-        }
-      }
+    if (Math.abs(deltaX) > 4) {
+      dragStateRef.current.moved = true
+    }
 
-      if (!dragStateRef.current.didDrag) return
+    container.scrollLeft = dragStateRef.current.startScrollLeft - deltaX
+  }
 
-      event.preventDefault()
-      container.scrollLeft = dragStateRef.current.scrollLeft - deltaX
-    },
-    [dragScroll, isDragging]
-  )
+  const endDragging = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = containerRef.current
+    if (!container) return
+    if (dragStateRef.current.pointerId !== event.pointerId) return
 
-  const handlePointerUp = React.useCallback(() => {
-    stopDragging()
-  }, [stopDragging])
+    if (container.hasPointerCapture(event.pointerId)) {
+      container.releasePointerCapture(event.pointerId)
+    }
 
-  const handlePointerCancel = React.useCallback(() => {
-    stopDragging()
-  }, [stopDragging])
+    setIsDragging(false)
+  }
 
-  const handleClickCapture = React.useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!dragScroll || !dragStateRef.current.didDrag) return
-
+  const handleClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (dragStateRef.current.moved) {
       event.preventDefault()
       event.stopPropagation()
-      dragStateRef.current.didDrag = false
-    },
-    [dragScroll]
-  )
+      dragStateRef.current.moved = false
+    }
+  }
 
   return (
     <div
@@ -112,14 +107,14 @@ function Table({
       data-slot="table-container"
       className={cn(
         "relative w-full overflow-x-auto",
-        dragScroll && "cursor-grab",
+        isScrollable && "cursor-grab",
         isDragging && "cursor-grabbing select-none",
-        containerClassName
       )}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
+      onPointerUp={endDragging}
+      onPointerCancel={endDragging}
+      onLostPointerCapture={() => setIsDragging(false)}
       onClickCapture={handleClickCapture}
     >
       <table

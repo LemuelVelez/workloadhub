@@ -37,6 +37,7 @@ export type RoomSchedulePrintItem = {
 }
 
 export type RoomScheduleScope = "MORNING" | "AFTERNOON" | "BOTH"
+export type RoomSchedulePaperSize = "A4" | "SHORT_BOND" | "LONG_BOND"
 
 export type RoomSchedulePrintSheetProps = {
     roomLabel: string
@@ -53,28 +54,13 @@ export type RoomSchedulePrintSheetProps = {
     signatoryTitle?: string
 
     timeSlots?: string[]
+    paperSize?: RoomSchedulePaperSize
 
     previewLabel?: string
     exportLabel?: string
     disabled?: boolean
     scheduleScope?: RoomScheduleScope
 }
-
-const DEFAULT_TIME_SLOTS = [
-    "8:00-9:00",
-    "9:01-10:00",
-    "10:01-11:00",
-    "11:01-12:00",
-    "12:01-1:00",
-    "1:01-2:00",
-    "2:01-3:00",
-    "3:01-4:00",
-    "4:01-5:00",
-    "5:01-6:00",
-    "6:01-7:00",
-    "7:01-8:00",
-    "8:01-9:00",
-] as const
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
 const NOON_BREAK_SLOT = "12:01-1:00"
@@ -85,6 +71,12 @@ const BOTH_LABEL = "Morning & Afternoon"
 const MORNING_END_MINUTES = 12 * 60
 const AFTERNOON_START_MINUTES = 13 * 60
 const MINUTES_PER_HALF_DAY = 12 * 60
+const MINUTES_PER_DAY = 24 * 60
+
+const PAGE_PADDING_TOP = 18
+const PAGE_PADDING_RIGHT = 22
+const PAGE_PADDING_BOTTOM = 18
+const PAGE_PADDING_LEFT = 22
 
 const TIME_COL_WIDTH = 84
 const DAY_COL_WIDTH = 108
@@ -115,9 +107,40 @@ const PASTEL_BLOCKS = [
     "#FBE4CB",
 ] as const
 
+const PAPER_SIZE_OPTIONS: Array<{
+    value: RoomSchedulePaperSize
+    label: string
+}> = [
+    { value: "A4", label: "A4" },
+    { value: "SHORT_BOND", label: "Short Bond" },
+    { value: "LONG_BOND", label: "Long Bond" },
+]
+
 const assetUrlCache = new Map<string, Promise<string>>()
 
 let pdfRendererPromise: Promise<any> | null = null
+
+type SlotDescriptor = {
+    label: string
+    start: number
+    end: number
+    isNoonBreak: boolean
+}
+
+type PdfLayoutMetrics = {
+    tableScale: number
+    rowHeight: number
+    headerRowHeight: number
+    headerSubRowHeight: number
+    headerTotalHeight: number
+    dayHeaderFontSize: number
+    yearBadgeFontSize: number
+    signFontSize: number
+    timeFontSize: number
+    noonFontSize: number
+    bodyGridHeight: number
+    blockScale: number
+}
 
 function pad2(n: number) {
     return String(n).padStart(2, "0")
@@ -198,6 +221,18 @@ function parseClockMinutes(value: string) {
     return hh * 60 + mm
 }
 
+function formatMinutesToSlotClock(totalMinutes: number) {
+    const normalized = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY
+    const hh24 = Math.floor(normalized / 60)
+    const mm = normalized % 60
+    const hh12 = hh24 % 12 || 12
+    return `${hh12}:${pad2(mm)}`
+}
+
+function inchesToPoints(value: number) {
+    return value * 72
+}
+
 function scheduleScopeLabel(scope: RoomScheduleScope | "") {
     if (scope === "MORNING") return MORNING_LABEL
     if (scope === "AFTERNOON") return AFTERNOON_LABEL
@@ -212,6 +247,105 @@ function scheduleScopeFilenameLabel(scope: RoomScheduleScope | "") {
     return "schedule"
 }
 
+function paperSizeLabel(paperSize: RoomSchedulePaperSize) {
+    if (paperSize === "SHORT_BOND") return "Short Bond Paper"
+    if (paperSize === "LONG_BOND") return "Long Bond Paper"
+    return "A4"
+}
+
+function paperSizeFilenameLabel(paperSize: RoomSchedulePaperSize) {
+    if (paperSize === "SHORT_BOND") return "short-bond"
+    if (paperSize === "LONG_BOND") return "long-bond"
+    return "a4"
+}
+
+function resolvePdfPageSize(paperSize: RoomSchedulePaperSize) {
+    if (paperSize === "SHORT_BOND") {
+        return {
+            width: inchesToPoints(11),
+            height: inchesToPoints(8.5),
+        }
+    }
+
+    if (paperSize === "LONG_BOND") {
+        return {
+            width: inchesToPoints(13),
+            height: inchesToPoints(8.5),
+        }
+    }
+
+    return "A4"
+}
+
+function resolvePdfPageDimensions(paperSize: RoomSchedulePaperSize) {
+    if (paperSize === "SHORT_BOND") {
+        return {
+            width: inchesToPoints(11),
+            height: inchesToPoints(8.5),
+        }
+    }
+
+    if (paperSize === "LONG_BOND") {
+        return {
+            width: inchesToPoints(13),
+            height: inchesToPoints(8.5),
+        }
+    }
+
+    return {
+        width: 841.89,
+        height: 595.28,
+    }
+}
+
+function computePdfLayoutMetrics(
+    rowCount: number,
+    paperSize: RoomSchedulePaperSize
+): PdfLayoutMetrics {
+    const { height: pageHeight } = resolvePdfPageDimensions(paperSize)
+    const usablePageHeight = pageHeight - PAGE_PADDING_TOP - PAGE_PADDING_BOTTOM
+
+    const reservedHeaderHeight = 86
+    const reservedTitleHeight = 38
+    const reservedBottomHeight = 82
+    const reservedGapHeight = 12
+
+    const maxTableHeight = Math.max(
+        150,
+        usablePageHeight -
+            reservedHeaderHeight -
+            reservedTitleHeight -
+            reservedBottomHeight -
+            reservedGapHeight
+    )
+
+    const baseTableHeight = HEADER_TOTAL_HEIGHT + rowCount * ROW_HEIGHT
+    const tableScale =
+        baseTableHeight > 0 ? Math.min(1, maxTableHeight / baseTableHeight) : 1
+
+    const rowHeight = Number((ROW_HEIGHT * tableScale).toFixed(2))
+    const headerRowHeight = Number((HEADER_ROW_HEIGHT * tableScale).toFixed(2))
+    const headerSubRowHeight = Number((HEADER_SUB_ROW_HEIGHT * tableScale).toFixed(2))
+    const headerTotalHeight = Number((headerRowHeight + headerSubRowHeight).toFixed(2))
+    const bodyGridHeight = Number((rowCount * rowHeight).toFixed(2))
+    const blockScale = Math.max(0.45, tableScale)
+
+    return {
+        tableScale,
+        rowHeight,
+        headerRowHeight,
+        headerSubRowHeight,
+        headerTotalHeight,
+        dayHeaderFontSize: Math.max(5.1, Number((8.2 * tableScale).toFixed(2))),
+        yearBadgeFontSize: Math.max(4, Number((6.2 * tableScale).toFixed(2))),
+        signFontSize: Math.max(3.2, Number((5.3 * tableScale).toFixed(2))),
+        timeFontSize: Math.max(4.2, Number((7 * tableScale).toFixed(2))),
+        noonFontSize: Math.max(4.2, Number((7.2 * tableScale).toFixed(2))),
+        bodyGridHeight,
+        blockScale,
+    }
+}
+
 function inferScheduleScope(startTime: string, endTime: string): RoomScheduleScope | "" {
     const start = parseClockMinutes(startTime)
     const end = parseClockMinutes(endTime)
@@ -224,13 +358,19 @@ function inferScheduleScope(startTime: string, endTime: string): RoomScheduleSco
     return "BOTH"
 }
 
-function resolveItemScheduleScope(item: RoomSchedulePrintItem): RoomScheduleScope | "" {
+function resolveItemScheduleScopeFromLabel(item: RoomSchedulePrintItem): RoomScheduleScope | "" {
     const raw = normalizeText(item.groupLabel).toLowerCase()
 
     if (raw.includes("morning")) return "MORNING"
     if (raw.includes("afternoon")) return "AFTERNOON"
     if (raw.includes("combined") || raw.includes("both")) return "BOTH"
 
+    return ""
+}
+
+function resolveItemScheduleScope(item: RoomSchedulePrintItem): RoomScheduleScope | "" {
+    const fromLabel = resolveItemScheduleScopeFromLabel(item)
+    if (fromLabel) return fromLabel
     return inferScheduleScope(item.startTime, item.endTime)
 }
 
@@ -269,18 +409,17 @@ function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: numbe
     return aStart < normalizedBEnd && bStart < normalizedAEnd
 }
 
-function buildSlotMeta(
-    timeSlots: string[],
-    scheduleScope: RoomScheduleScope = "BOTH"
-) {
-    let previousEnd = scheduleScope === "AFTERNOON" ? AFTERNOON_START_MINUTES - 1 : -1
+function parseOrderedSlotDescriptors(timeSlots: string[]) {
+    let previousEnd = -1
 
-    return timeSlots.map((slot) => {
-        const parsed = parseSlotRange(slot)
-        let start = parsed?.start ?? 0
-        let end = parsed?.end ?? 0
+    return timeSlots
+        .map((slot) => {
+            const parsed = parseSlotRange(slot)
+            if (!parsed) return null
 
-        if (parsed) {
+            let start = parsed.start
+            let end = parsed.end
+
             while (previousEnd >= 0 && start <= previousEnd) {
                 start += MINUTES_PER_HALF_DAY
             }
@@ -290,15 +429,237 @@ function buildSlotMeta(
             }
 
             previousEnd = end
+
+            return {
+                label: slot,
+                start,
+                end,
+                isNoonBreak: isNoonBreakSlot(slot),
+            } satisfies SlotDescriptor
+        })
+        .filter(Boolean) as SlotDescriptor[]
+}
+
+function buildSlotMeta(
+    timeSlots: string[],
+    scheduleScope: RoomScheduleScope = "BOTH"
+) {
+    const normalized = parseOrderedSlotDescriptors(timeSlots)
+
+    if (scheduleScope !== "AFTERNOON") {
+        return normalized
+    }
+
+    return normalized.map((slot) => {
+        if (slot.start >= AFTERNOON_START_MINUTES) return slot
+
+        let start = slot.start
+        let end = slot.end
+
+        while (start < AFTERNOON_START_MINUTES) {
+            start += MINUTES_PER_HALF_DAY
+            end += MINUTES_PER_HALF_DAY
         }
 
         return {
-            label: slot,
+            ...slot,
             start,
             end,
-            isNoonBreak: isNoonBreakSlot(slot),
         }
     })
+}
+
+function resolveItemTimeRange(
+    item: RoomSchedulePrintItem,
+    slotMeta: SlotDescriptor[] = []
+) {
+    const parsedStart = parseClockMinutes(item.startTime)
+    const parsedEnd = parseClockMinutes(item.endTime)
+
+    if (parsedStart == null || parsedEnd == null) return null
+
+    const normalizeRange = (baseStart: number, baseEnd: number) => {
+        let start = baseStart
+        let end = baseEnd
+
+        while (end <= start) {
+            end += MINUTES_PER_HALF_DAY
+        }
+
+        return { start, end }
+    }
+
+    const rawScope = resolveItemScheduleScopeFromLabel(item)
+    const candidates: Array<{ start: number; end: number }> = []
+
+    const pushCandidate = (start: number, end: number) => {
+        const normalized = normalizeRange(start, end)
+        if (
+            !candidates.some(
+                (candidate) =>
+                    candidate.start === normalized.start && candidate.end === normalized.end
+            )
+        ) {
+            candidates.push(normalized)
+        }
+    }
+
+    pushCandidate(parsedStart, parsedEnd)
+    pushCandidate(parsedStart + MINUTES_PER_HALF_DAY, parsedEnd + MINUTES_PER_HALF_DAY)
+
+    if (rawScope === "AFTERNOON" || rawScope === "BOTH") {
+        pushCandidate(parsedStart + MINUTES_PER_HALF_DAY, parsedEnd + MINUTES_PER_HALF_DAY)
+    }
+
+    const matchesAnySlot = (range: { start: number; end: number }) =>
+        slotMeta.some(
+            (slot) =>
+                !slot.isNoonBreak && rangesOverlap(range.start, range.end, slot.start, slot.end)
+        )
+
+    if (slotMeta.length > 0) {
+        const matchedCandidate = candidates.find(matchesAnySlot)
+        if (matchedCandidate) return matchedCandidate
+    }
+
+    if (rawScope === "AFTERNOON") {
+        const afternoonCandidate = candidates.find(
+            (candidate) => candidate.start >= AFTERNOON_START_MINUTES
+        )
+        if (afternoonCandidate) return afternoonCandidate
+    }
+
+    if (rawScope === "MORNING") {
+        const morningCandidate = candidates.find(
+            (candidate) => candidate.end <= MORNING_END_MINUTES
+        )
+        if (morningCandidate) return morningCandidate
+    }
+
+    return candidates[0] ?? null
+}
+
+function inferPreferredSlotDuration(items: RoomSchedulePrintItem[], slotMeta: SlotDescriptor[]) {
+    const counts = new Map<number, number>()
+
+    const addDuration = (value: number | null) => {
+        if (value == null || value <= 0) return
+        counts.set(value, (counts.get(value) ?? 0) + 1)
+    }
+
+    for (const slot of slotMeta) {
+        if (slot.isNoonBreak) continue
+        addDuration(slot.end - slot.start)
+    }
+
+    for (const item of items) {
+        const range = resolveItemTimeRange(item)
+        if (!range) continue
+        addDuration(range.end - range.start)
+    }
+
+    const ranked = Array.from(counts.entries()).sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1]
+        return b[0] - a[0]
+    })
+
+    return ranked[0]?.[0] ?? null
+}
+
+function buildLabelsFromBoundaries(boundaries: number[], preferredDuration: number | null) {
+    const uniqueSorted = Array.from(
+        new Set(boundaries.filter((value) => Number.isFinite(value)))
+    ).sort((a, b) => a - b)
+
+    if (uniqueSorted.length < 2) return [] as string[]
+
+    const labels: string[] = []
+
+    for (let index = 0; index < uniqueSorted.length - 1; index += 1) {
+        const start = uniqueSorted[index]
+        const end = uniqueSorted[index + 1]
+
+        if (end <= start) continue
+
+        if (!preferredDuration || preferredDuration <= 0) {
+            labels.push(`${formatMinutesToSlotClock(start)}-${formatMinutesToSlotClock(end)}`)
+            continue
+        }
+
+        let cursor = start
+        while (cursor + preferredDuration < end) {
+            const next = cursor + preferredDuration
+            labels.push(`${formatMinutesToSlotClock(cursor)}-${formatMinutesToSlotClock(next)}`)
+            cursor = next
+        }
+
+        labels.push(`${formatMinutesToSlotClock(cursor)}-${formatMinutesToSlotClock(end)}`)
+    }
+
+    return labels
+}
+
+function resolveAutoTimeSlots(items: RoomSchedulePrintItem[], timeSlots?: string[]) {
+    const explicitSlots = parseOrderedSlotDescriptors(timeSlots ?? [])
+    const preferredDuration = inferPreferredSlotDuration(items, explicitSlots)
+
+    const itemRanges = items
+        .map((item) => resolveItemTimeRange(item))
+        .filter(Boolean) as Array<{ start: number; end: number }>
+
+    if (explicitSlots.length === 0) {
+        const boundaries = itemRanges.flatMap((range) => [range.start, range.end])
+        return buildLabelsFromBoundaries(boundaries, preferredDuration)
+    }
+
+    if (itemRanges.length === 0) {
+        return explicitSlots.map((slot) => slot.label)
+    }
+
+    const descriptors = [...explicitSlots]
+    const minItemStart = Math.min(...itemRanges.map((range) => range.start))
+    const maxItemEnd = Math.max(...itemRanges.map((range) => range.end))
+
+    if (preferredDuration && preferredDuration > 0) {
+        let firstStart = descriptors[0]?.start ?? minItemStart
+        const prepended: SlotDescriptor[] = []
+
+        while (minItemStart < firstStart) {
+            const nextStart = Math.max(minItemStart, firstStart - preferredDuration)
+            prepended.unshift({
+                label: `${formatMinutesToSlotClock(nextStart)}-${formatMinutesToSlotClock(firstStart)}`,
+                start: nextStart,
+                end: firstStart,
+                isNoonBreak: false,
+            })
+            if (nextStart === firstStart) break
+            firstStart = nextStart
+        }
+
+        let lastEnd = descriptors[descriptors.length - 1]?.end ?? maxItemEnd
+        const appended: SlotDescriptor[] = []
+
+        while (maxItemEnd > lastEnd) {
+            const nextEnd = Math.min(maxItemEnd, lastEnd + preferredDuration)
+            appended.push({
+                label: `${formatMinutesToSlotClock(lastEnd)}-${formatMinutesToSlotClock(nextEnd)}`,
+                start: lastEnd,
+                end: nextEnd,
+                isNoonBreak: false,
+            })
+            if (nextEnd === lastEnd) break
+            lastEnd = nextEnd
+        }
+
+        return [...prepended, ...descriptors, ...appended].map((slot) => slot.label)
+    }
+
+    const boundaries = [...explicitSlots.flatMap((slot) => [slot.start, slot.end])]
+    for (const range of itemRanges) {
+        boundaries.push(range.start, range.end)
+    }
+
+    return buildLabelsFromBoundaries(boundaries, preferredDuration)
 }
 
 function filterTimeSlotsByScope(timeSlots: string[], scheduleScope: RoomScheduleScope) {
@@ -381,9 +742,7 @@ function sanitizeBlockLine(value: string) {
 }
 
 function sanitizeBlockLines(values: string[]) {
-    return values
-        .map((value) => sanitizeBlockLine(value))
-        .filter(Boolean)
+    return values.map((value) => sanitizeBlockLine(value)).filter(Boolean)
 }
 
 function resolveContentLines(item: RoomSchedulePrintItem) {
@@ -454,12 +813,19 @@ function wrapLineText(value: string, maxCharsPerLine: number) {
     return lines
 }
 
-function buildWrappedLayout(lines: string[], width: number, height: number, fontSize: number) {
-    const usableWidth = Math.max(width - BLOCK_PADDING_X * 2 - 2, 38)
-    const usableHeight = Math.max(height - BLOCK_PADDING_Y * 2 - 2, fontSize)
+function buildWrappedLayout(
+    lines: string[],
+    width: number,
+    height: number,
+    fontSize: number,
+    paddingX: number,
+    paddingY: number
+) {
+    const usableWidth = Math.max(width - paddingX * 2 - 2, 28)
+    const usableHeight = Math.max(height - paddingY * 2 - 2, fontSize)
 
     const maxCharsPerLine = Math.max(
-        7,
+        5,
         Math.floor(usableWidth / Math.max(fontSize * 0.6, 1))
     )
 
@@ -479,38 +845,56 @@ function buildWrappedLayout(lines: string[], width: number, height: number, font
 function resolveScaledBlockContent(
     item: RoomSchedulePrintItem,
     width: number,
-    height: number
+    height: number,
+    scale = 1
 ) {
     const baseLines = resolveContentLines(item).map(collapseLineText).filter(Boolean)
+
+    const paddingX = Math.max(1, Number((BLOCK_PADDING_X * scale).toFixed(2)))
+    const paddingY = Math.max(0.8, Number((BLOCK_PADDING_Y * scale).toFixed(2)))
+    const minFontSize = Math.max(2.6, Number((BLOCK_MIN_FONT_SIZE * scale).toFixed(2)))
+    const maxFontSize = Math.max(minFontSize, Number((BLOCK_MAX_FONT_SIZE * scale).toFixed(2)))
+    const fontStep = Math.max(0.1, Number((BLOCK_FONT_STEP * scale).toFixed(2)))
 
     if (baseLines.length === 0) {
         return {
             lines: [] as string[],
-            fontSize: BLOCK_MIN_FONT_SIZE,
+            fontSize: minFontSize,
+            paddingX,
+            paddingY,
         }
     }
 
     for (
-        let fontSize = BLOCK_MAX_FONT_SIZE;
-        fontSize >= BLOCK_MIN_FONT_SIZE;
-        fontSize = Number((fontSize - BLOCK_FONT_STEP).toFixed(2))
+        let fontSize = maxFontSize;
+        fontSize >= minFontSize;
+        fontSize = Number((fontSize - fontStep).toFixed(2))
     ) {
-        const layout = buildWrappedLayout(baseLines, width, height, fontSize)
+        const layout = buildWrappedLayout(baseLines, width, height, fontSize, paddingX, paddingY)
         if (layout.wrapped.length <= layout.maxLines) {
             return {
                 lines: layout.wrapped,
                 fontSize,
+                paddingX,
+                paddingY,
             }
         }
     }
 
-    const fallbackLayout = buildWrappedLayout(baseLines, width, height, BLOCK_MIN_FONT_SIZE)
+    const fallbackLayout = buildWrappedLayout(
+        baseLines,
+        width,
+        height,
+        minFontSize,
+        paddingX,
+        paddingY
+    )
     const clipped = fallbackLayout.wrapped.slice(0, fallbackLayout.maxLines)
 
     if (clipped.length > 0) {
         clipped[clipped.length - 1] = clampLineText(
             clipped[clipped.length - 1],
-            Math.max(6, fallbackLayout.maxCharsPerLine - 1)
+            Math.max(5, fallbackLayout.maxCharsPerLine - 1)
         )
 
         if (!clipped[clipped.length - 1].endsWith("…")) {
@@ -520,14 +904,18 @@ function resolveScaledBlockContent(
 
     return {
         lines: clipped,
-        fontSize: BLOCK_MIN_FONT_SIZE,
+        fontSize: minFontSize,
+        paddingX,
+        paddingY,
     }
 }
 
 function buildMeetingBlocks(
     items: RoomSchedulePrintItem[],
     timeSlots: string[],
-    scheduleScope: RoomScheduleScope
+    scheduleScope: RoomScheduleScope,
+    rowHeight: number,
+    blockScale: number
 ) {
     const slotMeta = buildSlotMeta(timeSlots, scheduleScope)
     const blocks: Array<{
@@ -544,6 +932,8 @@ function buildMeetingBlocks(
         textColor: string
         lines: string[]
         fontSize: number
+        paddingX: number
+        paddingY: number
     }> = []
 
     for (let index = 0; index < items.length; index += 1) {
@@ -552,16 +942,15 @@ function buildMeetingBlocks(
         const dayIndex = DAYS.findIndex((d) => d === day)
         if (dayIndex < 0) continue
 
-        const startMinutes = parseClockMinutes(item.startTime)
-        const endMinutes = parseClockMinutes(item.endTime)
-        if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) continue
+        const range = resolveItemTimeRange(item, slotMeta)
+        if (!range) continue
 
         const matchedRows: number[] = []
         for (let rowIndex = 0; rowIndex < slotMeta.length; rowIndex += 1) {
             const slot = slotMeta[rowIndex]
             if (slot.isNoonBreak) continue
 
-            if (rangesOverlap(startMinutes, endMinutes, slot.start, slot.end)) {
+            if (rangesOverlap(range.start, range.end, slot.start, slot.end)) {
                 matchedRows.push(rowIndex)
             }
         }
@@ -571,10 +960,10 @@ function buildMeetingBlocks(
         const rowIndex = matchedRows[0]
         const rowSpan = matchedRows.length
         const left = dayIndex * (DAY_COL_WIDTH + SIGN_COL_WIDTH)
-        const top = rowIndex * ROW_HEIGHT
+        const top = rowIndex * rowHeight
         const width = DAY_COL_WIDTH
-        const height = Math.max(rowSpan * ROW_HEIGHT - 1, ROW_HEIGHT)
-        const blockContent = resolveScaledBlockContent(item, width, height)
+        const height = Math.max(rowSpan * rowHeight - 1, rowHeight)
+        const blockContent = resolveScaledBlockContent(item, width, height, blockScale)
 
         blocks.push({
             id: normalizeText(item.id) || `${day}-${item.startTime}-${item.endTime}-${index}`,
@@ -593,6 +982,8 @@ function buildMeetingBlocks(
             textColor: resolveBlockTextColor(item),
             lines: blockContent.lines,
             fontSize: blockContent.fontSize,
+            paddingX: blockContent.paddingX,
+            paddingY: blockContent.paddingY,
         })
     }
 
@@ -710,7 +1101,8 @@ export function RoomSchedulePrintSheet({
     documentSubtitle = "Room Utilization/Class Monitoring",
     signatoryName = "ERSON A. RODRIGUEZ, LPT, MSIT",
     signatoryTitle = "Associate Dean, CCS",
-    timeSlots = [...DEFAULT_TIME_SLOTS],
+    timeSlots,
+    paperSize = "A4",
     previewLabel = "Preview PDF",
     exportLabel = "Export PDF",
     disabled = false,
@@ -720,10 +1112,16 @@ export function RoomSchedulePrintSheet({
     const [pdfBusy, setPdfBusy] = React.useState(false)
     const [pdfPreviewBusy, setPdfPreviewBusy] = React.useState(false)
     const [pdfUrl, setPdfUrl] = React.useState<string | null>(null)
+    const [selectedPaperSize, setSelectedPaperSize] =
+        React.useState<RoomSchedulePaperSize>(paperSize)
 
     const pdfUrlRef = React.useRef<string | null>(null)
     const pdfPreviewBusyRef = React.useRef(false)
     const previewRequestIdRef = React.useRef(0)
+
+    React.useEffect(() => {
+        setSelectedPaperSize(paperSize)
+    }, [paperSize])
 
     const semesterSchoolYearLine = React.useMemo(
         () => toSemesterSchoolYearLine(semester, schoolYear),
@@ -738,17 +1136,44 @@ export function RoomSchedulePrintSheet({
         () => scheduleScopeFilenameLabel(scheduleScope),
         [scheduleScope]
     )
+    const selectedPaperSizeLabel = React.useMemo(
+        () => paperSizeLabel(selectedPaperSize),
+        [selectedPaperSize]
+    )
+    const selectedPaperSizeFileLabel = React.useMemo(
+        () => paperSizeFilenameLabel(selectedPaperSize),
+        [selectedPaperSize]
+    )
+    const pdfPageSize = React.useMemo(
+        () => resolvePdfPageSize(selectedPaperSize),
+        [selectedPaperSize]
+    )
     const filteredItems = React.useMemo(
         () => items.filter((item) => matchesScheduleScope(item, scheduleScope)),
         [items, scheduleScope]
     )
+    const resolvedTimeSlots = React.useMemo(
+        () => resolveAutoTimeSlots(items, timeSlots),
+        [items, timeSlots]
+    )
     const filteredTimeSlots = React.useMemo(
-        () => filterTimeSlotsByScope(timeSlots, scheduleScope),
-        [timeSlots, scheduleScope]
+        () => filterTimeSlotsByScope(resolvedTimeSlots, scheduleScope),
+        [resolvedTimeSlots, scheduleScope]
+    )
+    const tableLayout = React.useMemo(
+        () => computePdfLayoutMetrics(filteredTimeSlots.length, selectedPaperSize),
+        [filteredTimeSlots.length, selectedPaperSize]
     )
     const meetingBlocks = React.useMemo(
-        () => buildMeetingBlocks(filteredItems, filteredTimeSlots, scheduleScope),
-        [filteredItems, filteredTimeSlots, scheduleScope]
+        () =>
+            buildMeetingBlocks(
+                filteredItems,
+                filteredTimeSlots,
+                scheduleScope,
+                tableLayout.rowHeight,
+                tableLayout.blockScale
+            ),
+        [filteredItems, filteredTimeSlots, scheduleScope, tableLayout.rowHeight, tableLayout.blockScale]
     )
     const uniqueScheduleLabels = React.useMemo(
         () =>
@@ -795,16 +1220,16 @@ export function RoomSchedulePrintSheet({
             .trim()
             .replace(/[^a-zA-Z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "")
-            .toLowerCase() || "room"}_${selectedScheduleFileLabel}_${formatTimestamp(
+            .toLowerCase() || "room"}_${selectedScheduleFileLabel}_${selectedPaperSizeFileLabel}_${formatTimestamp(
             generatedAt
         )}.pdf`
 
         const styles = StyleSheet.create({
             page: {
-                paddingTop: 18,
-                paddingRight: 22,
-                paddingBottom: 18,
-                paddingLeft: 22,
+                paddingTop: PAGE_PADDING_TOP,
+                paddingRight: PAGE_PADDING_RIGHT,
+                paddingBottom: PAGE_PADDING_BOTTOM,
+                paddingLeft: PAGE_PADDING_LEFT,
                 fontFamily: "Helvetica",
                 color: "#1F2937",
                 fontSize: 8.25,
@@ -812,6 +1237,20 @@ export function RoomSchedulePrintSheet({
 
             sheetWrap: {
                 width: GRID_WIDTH,
+                minHeight: "100%",
+                alignSelf: "center",
+                display: "flex",
+                flexDirection: "column",
+            },
+
+            contentWrap: {
+                width: GRID_WIDTH,
+                alignSelf: "center",
+            },
+
+            bottomWrap: {
+                width: GRID_WIDTH,
+                marginTop: "auto",
                 alignSelf: "center",
             },
 
@@ -896,7 +1335,7 @@ export function RoomSchedulePrintSheet({
             },
             timeHeadCell: {
                 width: TIME_COL_WIDTH,
-                height: HEADER_TOTAL_HEIGHT,
+                height: tableLayout.headerTotalHeight,
                 borderRightWidth: 1,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
@@ -914,7 +1353,7 @@ export function RoomSchedulePrintSheet({
                 borderColor: "#6B7280",
             },
             dayHeadCell: {
-                height: HEADER_ROW_HEIGHT,
+                height: tableLayout.headerRowHeight,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
                 alignItems: "center",
@@ -922,7 +1361,7 @@ export function RoomSchedulePrintSheet({
                 paddingHorizontal: 2,
             },
             daySubCell: {
-                height: HEADER_SUB_ROW_HEIGHT,
+                height: tableLayout.headerSubRowHeight,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
                 alignItems: "center",
@@ -931,7 +1370,7 @@ export function RoomSchedulePrintSheet({
             },
             signHeadCell: {
                 width: SIGN_COL_WIDTH,
-                height: HEADER_TOTAL_HEIGHT,
+                height: tableLayout.headerTotalHeight,
                 borderRightWidth: 1,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
@@ -940,7 +1379,7 @@ export function RoomSchedulePrintSheet({
                 paddingVertical: 1,
             },
             signText: {
-                fontSize: 5.3,
+                fontSize: tableLayout.signFontSize,
                 lineHeight: 1,
                 textAlign: "center",
             },
@@ -948,14 +1387,15 @@ export function RoomSchedulePrintSheet({
             bodyGrid: {
                 position: "relative",
                 width: GRID_WIDTH,
+                height: tableLayout.bodyGridHeight,
             },
             bodyRow: {
                 flexDirection: "row",
-                height: ROW_HEIGHT,
+                height: tableLayout.rowHeight,
             },
             timeCell: {
                 width: TIME_COL_WIDTH,
-                height: ROW_HEIGHT,
+                height: tableLayout.rowHeight,
                 borderRightWidth: 1,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
@@ -965,21 +1405,21 @@ export function RoomSchedulePrintSheet({
             },
             blankDayCell: {
                 width: DAY_COL_WIDTH,
-                height: ROW_HEIGHT,
+                height: tableLayout.rowHeight,
                 borderRightWidth: 1,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
             },
             blankSignCell: {
                 width: SIGN_COL_WIDTH,
-                height: ROW_HEIGHT,
+                height: tableLayout.rowHeight,
                 borderRightWidth: 1,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
             },
             noonCell: {
                 width: GRID_WIDTH - TIME_COL_WIDTH,
-                height: ROW_HEIGHT,
+                height: tableLayout.rowHeight,
                 borderBottomWidth: 1,
                 borderColor: "#6B7280",
                 alignItems: "center",
@@ -992,14 +1432,12 @@ export function RoomSchedulePrintSheet({
                 top: 0,
                 left: TIME_COL_WIDTH,
                 width: GRID_WIDTH - TIME_COL_WIDTH,
-                height: filteredTimeSlots.length * ROW_HEIGHT,
+                height: tableLayout.bodyGridHeight,
             },
             meetingBlock: {
                 position: "absolute",
                 borderWidth: 0.8,
                 borderColor: "#94A3B8",
-                paddingVertical: BLOCK_PADDING_Y,
-                paddingHorizontal: BLOCK_PADDING_X,
                 alignItems: "center",
                 justifyContent: "center",
             },
@@ -1045,146 +1483,172 @@ export function RoomSchedulePrintSheet({
             },
         })
 
+        const pdfPageProps =
+            typeof pdfPageSize === "string"
+                ? { size: pdfPageSize, orientation: "landscape" as const }
+                : { size: pdfPageSize }
+
         const PdfDoc = () => (
-            <Document title={`Room Schedule - ${roomLabel} - ${selectedScheduleLabel}`}>
-                <Page size="A4" orientation="landscape" style={styles.page}>
+            <Document
+                title={`Room Schedule - ${roomLabel} - ${selectedScheduleLabel} - ${selectedPaperSizeLabel}`}
+            >
+                <Page {...pdfPageProps} style={styles.page}>
                     <View style={styles.sheetWrap}>
-                        <View style={styles.headerWrap}>
-                            <View style={styles.headerRow}>
-                                <View style={styles.logoWrap}>
-                                    <Image src={leftLogoSrc} style={styles.logo} />
-                                </View>
-
-                                <View style={styles.centerHeader}>
-                                    <Text style={styles.republic}>Republic of the Philippines</Text>
-                                    <Text style={styles.school}>{institutionName}</Text>
-                                    <Text style={styles.campusLine}>{institutionSubtitle}</Text>
-                                    <Text style={styles.college}>{collegeName}</Text>
-                                    <Text style={styles.subtitle}>{documentSubtitle}</Text>
-                                    <Text style={styles.semesterLine}>{semesterSchoolYearLine}</Text>
-                                </View>
-
-                                <View style={styles.logoWrap}>
-                                    <Image src={rightLogoSrc} style={styles.logo} />
-                                </View>
-                            </View>
-                        </View>
-
-                        <Text style={styles.roomTitle}>
-                            {roomLabel.toUpperCase()} — {selectedScheduleLabel.toUpperCase()}
-                        </Text>
-
-                        <View style={styles.table}>
-                            <View style={styles.headerGrid}>
-                                <View style={styles.timeHeadCell}>
-                                    <Text>Time</Text>
-                                </View>
-
-                                {DAYS.map((day, dayIndex) => (
-                                    <View key={day} style={styles.dayGroup}>
-                                        <View style={styles.dayHeaderStack}>
-                                            <View style={styles.dayHeadCell}>
-                                                <Text>{day}</Text>
-                                            </View>
-                                            <View style={styles.daySubCell}>
-                                                <Text style={{ fontSize: 6.2 }}>{yearBadge || " "}</Text>
-                                            </View>
-                                        </View>
-
-                                        <View
-                                            style={[
-                                                styles.signHeadCell,
-                                                dayIndex === DAYS.length - 1 ? { borderRightWidth: 0 } : null,
-                                            ]}
-                                        >
-                                            <Text style={styles.signText}>{VERTICAL_SIGN_TEXT}</Text>
-                                        </View>
+                        <View style={styles.contentWrap}>
+                            <View style={styles.headerWrap}>
+                                <View style={styles.headerRow}>
+                                    <View style={styles.logoWrap}>
+                                        <Image src={leftLogoSrc} style={styles.logo} />
                                     </View>
-                                ))}
+
+                                    <View style={styles.centerHeader}>
+                                        <Text style={styles.republic}>Republic of the Philippines</Text>
+                                        <Text style={styles.school}>{institutionName}</Text>
+                                        <Text style={styles.campusLine}>{institutionSubtitle}</Text>
+                                        <Text style={styles.college}>{collegeName}</Text>
+                                        <Text style={styles.subtitle}>{documentSubtitle}</Text>
+                                        <Text style={styles.semesterLine}>{semesterSchoolYearLine}</Text>
+                                    </View>
+
+                                    <View style={styles.logoWrap}>
+                                        <Image src={rightLogoSrc} style={styles.logo} />
+                                    </View>
+                                </View>
                             </View>
 
-                            <View style={styles.bodyGrid}>
-                                {filteredTimeSlots.map((slotLabel) => {
-                                    const isNoonBreak = isNoonBreakSlot(slotLabel)
+                            <Text style={styles.roomTitle}>
+                                {roomLabel.toUpperCase()} — {selectedScheduleLabel.toUpperCase()}
+                            </Text>
 
-                                    return (
-                                        <View key={slotLabel} style={styles.bodyRow}>
-                                            <View style={styles.timeCell}>
-                                                <Text>{slotLabel}</Text>
-                                            </View>
+                            <View style={styles.table}>
+                                <View style={styles.headerGrid}>
+                                    <View style={styles.timeHeadCell}>
+                                        <Text style={{ fontSize: tableLayout.dayHeaderFontSize }}>Time</Text>
+                                    </View>
 
-                                            {isNoonBreak ? (
-                                                <View style={styles.noonCell}>
-                                                    <Text style={{ fontSize: 7.2, color: "#4B5563" }}>
-                                                        Noon Break
+                                    {DAYS.map((day, dayIndex) => (
+                                        <View key={day} style={styles.dayGroup}>
+                                            <View style={styles.dayHeaderStack}>
+                                                <View style={styles.dayHeadCell}>
+                                                    <Text style={{ fontSize: tableLayout.dayHeaderFontSize }}>
+                                                        {day}
                                                     </Text>
                                                 </View>
-                                            ) : (
-                                                <>
-                                                    {DAYS.map((day, dayIndex) => (
-                                                        <React.Fragment key={`${slotLabel}-${day}`}>
-                                                            <View style={styles.blankDayCell} />
-                                                            <View
-                                                                style={[
-                                                                    styles.blankSignCell,
-                                                                    dayIndex === DAYS.length - 1
-                                                                        ? { borderRightWidth: 0 }
-                                                                        : null,
-                                                                ]}
-                                                            />
-                                                        </React.Fragment>
-                                                    ))}
-                                                </>
-                                            )}
-                                        </View>
-                                    )
-                                })}
+                                                <View style={styles.daySubCell}>
+                                                    <Text style={{ fontSize: tableLayout.yearBadgeFontSize }}>
+                                                        {yearBadge || " "}
+                                                    </Text>
+                                                </View>
+                                            </View>
 
-                                <View style={styles.overlayArea}>
-                                    {meetingBlocks.map((block) => (
-                                        <View
-                                            key={block.id}
-                                            style={[
-                                                styles.meetingBlock,
-                                                {
-                                                    top: block.top,
-                                                    left: block.left,
-                                                    width: block.width,
-                                                    height: block.height,
-                                                    backgroundColor: block.color,
-                                                },
-                                            ]}
-                                        >
-                                            {block.lines.map((line, lineIndex) => (
-                                                <Text
-                                                    key={`${block.id}-${lineIndex}`}
-                                                    style={[
-                                                        styles.meetingText,
-                                                        {
-                                                            color: block.textColor,
-                                                            fontSize: block.fontSize,
-                                                            fontWeight:
-                                                                lineIndex === 0 ? "bold" : "normal",
-                                                        },
-                                                    ]}
-                                                >
-                                                    {line}
-                                                </Text>
-                                            ))}
+                                            <View
+                                                style={[
+                                                    styles.signHeadCell,
+                                                    dayIndex === DAYS.length - 1
+                                                        ? { borderRightWidth: 0 }
+                                                        : null,
+                                                ]}
+                                            >
+                                                <Text style={styles.signText}>{VERTICAL_SIGN_TEXT}</Text>
+                                            </View>
                                         </View>
                                     ))}
                                 </View>
+
+                                <View style={styles.bodyGrid}>
+                                    {filteredTimeSlots.map((slotLabel) => {
+                                        const isNoonBreak = isNoonBreakSlot(slotLabel)
+
+                                        return (
+                                            <View key={slotLabel} style={styles.bodyRow}>
+                                                <View style={styles.timeCell}>
+                                                    <Text style={{ fontSize: tableLayout.timeFontSize }}>
+                                                        {slotLabel}
+                                                    </Text>
+                                                </View>
+
+                                                {isNoonBreak ? (
+                                                    <View style={styles.noonCell}>
+                                                        <Text
+                                                            style={{
+                                                                fontSize: tableLayout.noonFontSize,
+                                                                color: "#4B5563",
+                                                            }}
+                                                        >
+                                                            Noon Break
+                                                        </Text>
+                                                    </View>
+                                                ) : (
+                                                    <>
+                                                        {DAYS.map((day, dayIndex) => (
+                                                            <React.Fragment key={`${slotLabel}-${day}`}>
+                                                                <View style={styles.blankDayCell} />
+                                                                <View
+                                                                    style={[
+                                                                        styles.blankSignCell,
+                                                                        dayIndex === DAYS.length - 1
+                                                                            ? { borderRightWidth: 0 }
+                                                                            : null,
+                                                                    ]}
+                                                                />
+                                                            </React.Fragment>
+                                                        ))}
+                                                    </>
+                                                )}
+                                            </View>
+                                        )
+                                    })}
+
+                                    <View style={styles.overlayArea}>
+                                        {meetingBlocks.map((block) => (
+                                            <View
+                                                key={block.id}
+                                                style={[
+                                                    styles.meetingBlock,
+                                                    {
+                                                        top: block.top,
+                                                        left: block.left,
+                                                        width: block.width,
+                                                        height: block.height,
+                                                        backgroundColor: block.color,
+                                                        paddingHorizontal: block.paddingX,
+                                                        paddingVertical: block.paddingY,
+                                                    },
+                                                ]}
+                                            >
+                                                {block.lines.map((line, lineIndex) => (
+                                                    <Text
+                                                        key={`${block.id}-${lineIndex}`}
+                                                        style={[
+                                                            styles.meetingText,
+                                                            {
+                                                                color: block.textColor,
+                                                                fontSize: block.fontSize,
+                                                                fontWeight:
+                                                                    lineIndex === 0 ? "bold" : "normal",
+                                                            },
+                                                        ]}
+                                                    >
+                                                        {line}
+                                                    </Text>
+                                                ))}
+                                            </View>
+                                        ))}
+                                    </View>
+                                </View>
                             </View>
                         </View>
 
-                        <View style={styles.signatoryWrap}>
-                            <Text style={styles.signatoryName}>{signatoryName}</Text>
-                            <Text style={styles.signatoryTitle}>{signatoryTitle}</Text>
-                        </View>
+                        <View style={styles.bottomWrap}>
+                            <View style={styles.signatoryWrap}>
+                                <Text style={styles.signatoryName}>{signatoryName}</Text>
+                                <Text style={styles.signatoryTitle}>{signatoryTitle}</Text>
+                            </View>
 
-                        <View style={styles.footerRuleWrap}>
-                            <View style={styles.blueRule} />
-                            <View style={styles.goldRule} />
+                            <View style={styles.footerRuleWrap}>
+                                <View style={styles.blueRule} />
+                                <View style={styles.goldRule} />
+                            </View>
                         </View>
                     </View>
                 </Page>
@@ -1207,6 +1671,10 @@ export function RoomSchedulePrintSheet({
         meetingBlocks,
         selectedScheduleLabel,
         selectedScheduleFileLabel,
+        selectedPaperSizeLabel,
+        selectedPaperSizeFileLabel,
+        pdfPageSize,
+        tableLayout,
     ])
 
     const ensurePdfPreview = React.useCallback(async () => {
@@ -1263,41 +1731,67 @@ export function RoomSchedulePrintSheet({
         try {
             const { blob, filename } = await buildPdfBlob()
             downloadBlob(blob, filename)
-            toast.success(`${selectedScheduleLabel} room schedule PDF exported.`)
+            toast.success(
+                `${selectedScheduleLabel} room schedule PDF exported in ${selectedPaperSizeLabel}.`
+            )
         } catch (e: any) {
             toast.error(e?.message ?? "Failed to export room schedule PDF.")
         } finally {
             setPdfBusy(false)
         }
-    }, [buildPdfBlob, disabled, pdfBusy, selectedScheduleLabel])
+    }, [buildPdfBlob, disabled, pdfBusy, selectedScheduleLabel, selectedPaperSizeLabel])
 
     const controlsDisabled = disabled || pdfBusy || pdfPreviewBusy
 
     return (
         <>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPreviewOpen(true)}
-                    disabled={controlsDisabled}
-                >
-                    {pdfPreviewBusy ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                        <Eye className="mr-2 h-4 w-4" />
-                    )}
-                    {pdfPreviewBusy ? "Preparing preview..." : previewLabel}
-                </Button>
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground">Paper Size:</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                            {PAPER_SIZE_OPTIONS.map((option) => (
+                                <Button
+                                    key={option.value}
+                                    type="button"
+                                    size="sm"
+                                    variant={
+                                        selectedPaperSize === option.value ? "default" : "outline"
+                                    }
+                                    onClick={() => setSelectedPaperSize(option.value)}
+                                    disabled={controlsDisabled}
+                                >
+                                    {option.label}
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
 
-                <Button size="sm" onClick={() => void onExportPdf()} disabled={controlsDisabled}>
-                    {pdfBusy ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                        <Download className="mr-2 h-4 w-4" />
-                    )}
-                    {pdfBusy ? "Exporting..." : exportLabel}
-                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPreviewOpen(true)}
+                        disabled={controlsDisabled}
+                    >
+                        {pdfPreviewBusy ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                            <Eye className="mr-2 h-4 w-4" />
+                        )}
+                        {pdfPreviewBusy ? "Preparing preview..." : previewLabel}
+                    </Button>
+
+                    <Button size="sm" onClick={() => void onExportPdf()} disabled={controlsDisabled}>
+                        {pdfBusy ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                            <Download className="mr-2 h-4 w-4" />
+                        )}
+                        {pdfBusy ? "Exporting..." : exportLabel}
+                    </Button>
+                </div>
             </div>
 
             <Dialog
@@ -1313,8 +1807,9 @@ export function RoomSchedulePrintSheet({
                             PDF Preview — {roomLabel} ({selectedScheduleLabel})
                         </DialogTitle>
                         <DialogDescription>
-                            A4 landscape room monitoring sheet filtered to the selected schedule with
-                            adaptive text fitting and cleaner cell content.
+                            Room monitoring sheet with adaptive text fitting, dynamic time-slot generation,
+                            switchable paper size, and auto-scaled table height so the signatory stays on
+                            the same page.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1322,12 +1817,35 @@ export function RoomSchedulePrintSheet({
                         <Badge variant="secondary">{semester}</Badge>
                         <Badge variant="secondary">SY {schoolYear}</Badge>
                         <Badge variant="outline">{selectedScheduleLabel}</Badge>
+                        <Badge variant="outline">{selectedPaperSizeLabel}</Badge>
                         <Badge variant="outline">
                             {filteredItems.length} scheduled block{filteredItems.length === 1 ? "" : "s"}
+                        </Badge>
+                        <Badge variant="outline">
+                            {filteredTimeSlots.length} time slot{filteredTimeSlots.length === 1 ? "" : "s"}
+                        </Badge>
+                        <Badge variant="outline">
+                            Scale {(tableLayout.tableScale * 100).toFixed(0)}%
                         </Badge>
                         {uniqueScheduleLabels.length > 0 ? (
                             <Badge variant="outline">{uniqueScheduleLabels.join(" • ")}</Badge>
                         ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground">Paper Size:</span>
+                        {PAPER_SIZE_OPTIONS.map((option) => (
+                            <Button
+                                key={`preview-${option.value}`}
+                                type="button"
+                                size="sm"
+                                variant={selectedPaperSize === option.value ? "default" : "outline"}
+                                onClick={() => setSelectedPaperSize(option.value)}
+                                disabled={controlsDisabled}
+                            >
+                                {option.label}
+                            </Button>
+                        ))}
                     </div>
 
                     <div className="mt-3 overflow-hidden rounded-md border bg-background">
@@ -1343,7 +1861,7 @@ export function RoomSchedulePrintSheet({
                         ) : pdfUrl ? (
                             <iframe
                                 key={pdfUrl}
-                                title={`Room schedule PDF preview - ${roomLabel} - ${selectedScheduleLabel}`}
+                                title={`Room schedule PDF preview - ${roomLabel} - ${selectedScheduleLabel} - ${selectedPaperSizeLabel}`}
                                 src={pdfUrl}
                                 className="block h-[75vh] w-full bg-background"
                             />
@@ -1356,8 +1874,8 @@ export function RoomSchedulePrintSheet({
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
-                            Includes the official PNG logo, aligned upper-right CCS mark, corrected header
-                            structure, tighter cell padding, and auto-scaled schedule block text.
+                            The table now automatically scales to fit the current page height so the
+                            signatory block remains on the same page.
                         </div>
 
                         <div className="flex items-center gap-2">
