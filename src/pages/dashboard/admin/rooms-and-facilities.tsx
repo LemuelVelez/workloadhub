@@ -1050,13 +1050,6 @@ export default function AdminRoomsAndFacilitiesPage() {
 
                     <CardContent className="space-y-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                            <p className="text-sm text-muted-foreground">
-                                The generated PDF follows the official room monitoring layout with aligned
-                                top logos, a corrected table header, sign columns, a noon break row,
-                                color-coded schedule blocks, visible instructor assignments, selectable
-                                morning, afternoon, or combined Morning & Afternoon schedule output,
-                                wrapped text blocks, adaptive block sizing, and 12-hour time display.
-                            </p>
 
                             <div className="flex items-center gap-2">
                                 <Button
