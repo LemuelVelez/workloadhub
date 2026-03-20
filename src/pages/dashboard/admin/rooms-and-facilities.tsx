@@ -161,6 +161,12 @@ const DEFAULT_PRINT_TIME_SLOTS = [
     "8:01-9:00",
 ] as const
 
+const MORNING_GROUP_LABEL = "Morning Group"
+const AFTERNOON_GROUP_LABEL = "Afternoon Group"
+const COMBINED_GROUP_LABEL = "Combined Group"
+const MORNING_GROUP_END_MINUTES = 12 * 60
+const AFTERNOON_GROUP_START_MINUTES = 13 * 60
+
 function str(v: any) {
     return String(v ?? "").trim()
 }
@@ -238,6 +244,27 @@ function parseClockMinutes(value: any) {
     return hh * 60 + mm
 }
 
+function inferRoomScheduleGroupLabel(startTime: any, endTime: any) {
+    const start = parseClockMinutes(startTime)
+    const end = parseClockMinutes(endTime)
+
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return ""
+
+    if (end <= MORNING_GROUP_END_MINUTES) return MORNING_GROUP_LABEL
+    if (start >= AFTERNOON_GROUP_START_MINUTES) return AFTERNOON_GROUP_LABEL
+
+    return COMBINED_GROUP_LABEL
+}
+
+function roomScheduleGroupBadgeVariant(groupLabel: string) {
+    const value = str(groupLabel).toLowerCase()
+
+    if (value === MORNING_GROUP_LABEL.toLowerCase()) return "secondary" as const
+    if (value === AFTERNOON_GROUP_LABEL.toLowerCase()) return "default" as const
+
+    return "outline" as const
+}
+
 function academicTermLabel(term?: AcademicTermDocLite | null) {
     if (!term) return "Select academic term"
     return `${term.semester} • SY ${term.schoolYear}`
@@ -256,6 +283,10 @@ function buildSectionLabel(section?: SectionLite | null) {
     if (yr > 0 && name) return `${yr}${name}`
     if (yr > 0) return `${yr}`
     return name
+}
+
+function buildPrintableGroupText(item: RoomSchedulePrintItem) {
+    return str(item.groupLabel) || inferRoomScheduleGroupLabel(item.startTime, item.endTime)
 }
 
 function buildPrintableSubjectLabel(item: RoomSchedulePrintItem) {
@@ -483,11 +514,13 @@ async function fetchRoomPrintableSchedule(params: {
         const subjectCode = str(subject?.code)
         const subjectTitle = str(subject?.title)
         const sectionLabel = buildSectionLabel(section)
+        const groupLabel = inferRoomScheduleGroupLabel(meeting.startTime, meeting.endTime)
 
         const lineTwoParts = [subjectCode, sectionLabel].filter(Boolean)
         const lineThree = subjectTitle || str(klass?.classCode)
 
         const contentLines = [
+            groupLabel,
             facultyName,
             lineTwoParts.join(" - "),
             lineThree,
@@ -503,6 +536,7 @@ async function fetchRoomPrintableSchedule(params: {
             subjectTitle: subjectTitle || null,
             sectionLabel: sectionLabel || null,
             notes: meeting.notes || null,
+            groupLabel: groupLabel || null,
             contentLines,
         } as RoomSchedulePrintItem
     })
@@ -730,6 +764,18 @@ export default function AdminRoomsAndFacilitiesPage() {
         [printItems]
     )
 
+    const uniquePrintGroups = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    printItems
+                        .map((item) => buildPrintableGroupText(item))
+                        .filter(Boolean)
+                )
+            ),
+        [printItems]
+    )
+
     const q = search.trim().toLowerCase()
 
     const filteredRooms = React.useMemo(() => {
@@ -900,6 +946,11 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         {uniquePrintInstructors.length} instructor
                                         {uniquePrintInstructors.length === 1 ? "" : "s"}
                                     </Badge>
+                                    {uniquePrintGroups.length > 0 ? (
+                                        <Badge variant="outline">
+                                            {uniquePrintGroups.join(" • ")}
+                                        </Badge>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>
@@ -910,7 +961,8 @@ export default function AdminRoomsAndFacilitiesPage() {
                             <p className="text-sm text-muted-foreground">
                                 The generated PDF follows the official room monitoring layout with aligned top logos,
                                 a corrected table header, sign columns, a noon break row, color-coded schedule
-                                blocks, and visible instructor assignments.
+                                blocks, visible instructor assignments, and explicit morning, afternoon, or combined
+                                group labels.
                             </p>
 
                             <div className="flex items-center gap-2">
@@ -954,6 +1006,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow>
+                                                        <TableHead className="w-40">Group</TableHead>
                                                         <TableHead className="w-36">Day</TableHead>
                                                         <TableHead className="w-40">Time</TableHead>
                                                         <TableHead>Instructor</TableHead>
@@ -969,6 +1022,15 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                 `${item.dayOfWeek}-${item.startTime}-${item.endTime}`
                                                             }
                                                         >
+                                                            <TableCell>
+                                                                <Badge
+                                                                    variant={roomScheduleGroupBadgeVariant(
+                                                                        buildPrintableGroupText(item)
+                                                                    )}
+                                                                >
+                                                                    {buildPrintableGroupText(item)}
+                                                                </Badge>
+                                                            </TableCell>
                                                             <TableCell className="font-medium">
                                                                 {normalizeDayLabel(item.dayOfWeek)}
                                                             </TableCell>

@@ -31,6 +31,7 @@ export type RoomSchedulePrintItem = {
     contentLines?: string[]
     color?: string | null
     textColor?: string | null
+    groupLabel?: string | null
 }
 
 export type RoomSchedulePrintSheetProps = {
@@ -72,6 +73,12 @@ const DEFAULT_TIME_SLOTS = [
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
 const NOON_BREAK_SLOT = "12:01-1:00"
+
+const MORNING_GROUP_LABEL = "Morning Group"
+const AFTERNOON_GROUP_LABEL = "Afternoon Group"
+const COMBINED_GROUP_LABEL = "Combined Group"
+const MORNING_GROUP_END_MINUTES = 12 * 60
+const AFTERNOON_GROUP_START_MINUTES = 13 * 60
 
 const TIME_COL_WIDTH = 82
 const DAY_COL_WIDTH = 95
@@ -180,6 +187,18 @@ function parseClockMinutes(value: string) {
     return hh * 60 + mm
 }
 
+function inferScheduleGroupLabel(startTime: string, endTime: string) {
+    const start = parseClockMinutes(startTime)
+    const end = parseClockMinutes(endTime)
+
+    if (start == null || end == null) return ""
+
+    if (end <= MORNING_GROUP_END_MINUTES) return MORNING_GROUP_LABEL
+    if (start >= AFTERNOON_GROUP_START_MINUTES) return AFTERNOON_GROUP_LABEL
+
+    return COMBINED_GROUP_LABEL
+}
+
 function parseSlotRange(slotLabel: string) {
     const [startRaw, endRaw] = String(slotLabel).split("-")
     const start = parseClockMinutes(startRaw ?? "")
@@ -237,8 +256,11 @@ function resolveContentLines(item: RoomSchedulePrintItem) {
 
     if (explicit.length > 0) return explicit.slice(0, 4)
 
+    const groupLabel =
+        normalizeText(item.groupLabel) || inferScheduleGroupLabel(item.startTime, item.endTime)
+
     const oneLine = normalizeText(item.displayLabel)
-    if (oneLine) return [oneLine]
+    if (oneLine) return [groupLabel, oneLine].filter(Boolean).slice(0, 4)
 
     const line1 = normalizeText(item.facultyName)
     const line2 = [normalizeText(item.subjectCode), normalizeText(item.sectionLabel)]
@@ -247,7 +269,7 @@ function resolveContentLines(item: RoomSchedulePrintItem) {
     const line3 = normalizeText(item.subjectTitle)
     const line4 = normalizeText(item.notes)
 
-    return [line1, line2, line3, line4].filter(Boolean).slice(0, 4)
+    return [groupLabel, line1, line2, line3 || line4].filter(Boolean).slice(0, 4)
 }
 
 function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[]) {
@@ -454,6 +476,21 @@ export function RoomSchedulePrintSheet({
     const meetingBlocks = React.useMemo(
         () => buildMeetingBlocks(items, timeSlots),
         [items, timeSlots]
+    )
+    const uniqueGroupLabels = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    items
+                        .map(
+                            (item) =>
+                                normalizeText(item.groupLabel) ||
+                                inferScheduleGroupLabel(item.startTime, item.endTime)
+                        )
+                        .filter(Boolean)
+                )
+            ),
+        [items]
     )
 
     const cleanupPreviewUrl = React.useCallback(() => {
@@ -1005,8 +1042,8 @@ export function RoomSchedulePrintSheet({
                     <DialogHeader>
                         <DialogTitle>PDF Preview — {roomLabel}</DialogTitle>
                         <DialogDescription>
-                            A4 landscape room monitoring sheet with visible instructor assignments per
-                            schedule block.
+                            A4 landscape room monitoring sheet with visible instructor assignments and
+                            explicit morning, afternoon, or combined group labels per schedule block.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1016,6 +1053,9 @@ export function RoomSchedulePrintSheet({
                         <Badge variant="outline">
                             {items.length} scheduled block{items.length === 1 ? "" : "s"}
                         </Badge>
+                        {uniqueGroupLabels.length > 0 ? (
+                            <Badge variant="outline">{uniqueGroupLabels.join(" • ")}</Badge>
+                        ) : null}
                     </div>
 
                     <div className="mt-3 overflow-hidden rounded-md border bg-background">
@@ -1045,7 +1085,8 @@ export function RoomSchedulePrintSheet({
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             Includes the official PNG logo, aligned upper-right CCS mark, corrected header
-                            structure, visible instructor names, and simplified official layout.
+                            structure, visible instructor names, and explicit morning, afternoon, or
+                            combined schedule group labels.
                         </div>
 
                         <div className="flex items-center gap-2">
