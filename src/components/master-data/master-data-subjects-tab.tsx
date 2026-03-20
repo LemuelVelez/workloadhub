@@ -598,7 +598,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                     Drag horizontally on the table to view more columns.
                                 </div>
 
-                                <Table dragScroll className="min-w-max">
+                                <Table className="min-w-max">
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead className="w-40">Code</TableHead>
