@@ -136,7 +136,7 @@ type SubjectLite = {
 
 type SectionLite = {
     $id: string
-    yearLevel: number
+    yearLevel: string
     name: string
 }
 
@@ -357,11 +357,10 @@ function sortTermsDesc(a: AcademicTermDocLite, b: AcademicTermDocLite) {
 
 function buildSectionLabel(section?: SectionLite | null) {
     if (!section) return ""
-    const yr = num(section.yearLevel, 0)
+    const yearLevel = str(section.yearLevel)
     const name = str(section.name)
-    if (yr > 0 && name) return `${yr}${name}`
-    if (yr > 0) return `${yr}`
-    return name
+    if (yearLevel && name) return `${yearLevel}${name}`
+    return yearLevel || name
 }
 
 function buildPrintablePeriodText(item: RoomSchedulePrintItem) {
@@ -832,7 +831,7 @@ async function fetchRoomPrintableSchedule(params: {
             section.$id,
             {
                 $id: section.$id,
-                yearLevel: num(section.yearLevel, 0),
+                yearLevel: str(section.yearLevel),
                 name: str(section.name),
             } as SectionLite,
         ])
