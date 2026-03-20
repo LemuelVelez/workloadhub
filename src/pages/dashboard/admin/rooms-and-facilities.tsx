@@ -1054,8 +1054,8 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 The generated PDF follows the official room monitoring layout with aligned
                                 top logos, a corrected table header, sign columns, a noon break row,
                                 color-coded schedule blocks, visible instructor assignments, selectable
-                                morning, afternoon, or combined Morning & Afternoon schedule output, and
-                                12-hour time display.
+                                morning, afternoon, or combined Morning & Afternoon schedule output,
+                                wrapped text blocks, adaptive block sizing, and 12-hour time display.
                             </p>
 
                             <div className="flex items-center gap-2">
@@ -1096,8 +1096,8 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             </div>
                                         </div>
 
-                                        <div className="overflow-hidden rounded-md border bg-background">
-                                            <Table>
+                                        <div className="overflow-x-auto rounded-md border bg-background">
+                                            <Table className="min-w-245 table-fixed">
                                                 <TableHeader>
                                                     <TableRow>
                                                         <TableHead className="w-40">Period</TableHead>
@@ -1116,32 +1116,42 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                 `${item.dayOfWeek}-${item.startTime}-${item.endTime}`
                                                             }
                                                         >
-                                                            <TableCell>
+                                                            <TableCell className="align-top">
                                                                 <Badge
                                                                     variant={roomSchedulePeriodBadgeVariant(item)}
                                                                 >
                                                                     {buildPrintablePeriodText(item)}
                                                                 </Badge>
                                                             </TableCell>
-                                                            <TableCell className="font-medium">
+                                                            <TableCell className="align-top font-medium">
                                                                 {normalizeDayLabel(item.dayOfWeek)}
                                                             </TableCell>
-                                                            <TableCell>{buildPrintableTimeText(item)}</TableCell>
-                                                            <TableCell>
-                                                                <div className="font-medium">
-                                                                    {buildPrintableInstructorText(item)}
+                                                            <TableCell className="align-top">
+                                                                <div className="whitespace-normal leading-tight">
+                                                                    {buildPrintableTimeText(item)}
                                                                 </div>
-                                                                {str(item.notes) ? (
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        {str(item.notes)}
+                                                            </TableCell>
+                                                            <TableCell className="align-top">
+                                                                <div className="space-y-1">
+                                                                    <div className="whitespace-normal wrap-break-word font-medium leading-tight">
+                                                                        {buildPrintableInstructorText(item)}
                                                                     </div>
-                                                                ) : null}
+                                                                    {str(item.notes) ? (
+                                                                        <div className="whitespace-normal wrap-break-word text-xs leading-tight text-muted-foreground">
+                                                                            {str(item.notes)}
+                                                                        </div>
+                                                                    ) : null}
+                                                                </div>
                                                             </TableCell>
-                                                            <TableCell className="text-muted-foreground">
-                                                                {buildPrintableSubjectLabel(item)}
+                                                            <TableCell className="align-top text-muted-foreground">
+                                                                <div className="whitespace-normal wrap-break-word leading-tight">
+                                                                    {buildPrintableSubjectLabel(item)}
+                                                                </div>
                                                             </TableCell>
-                                                            <TableCell className="text-muted-foreground">
-                                                                {buildPrintableSectionText(item)}
+                                                            <TableCell className="align-top text-muted-foreground">
+                                                                <div className="whitespace-normal wrap-break-word leading-tight">
+                                                                    {buildPrintableSectionText(item)}
+                                                                </div>
                                                             </TableCell>
                                                         </TableRow>
                                                     ))}

@@ -84,13 +84,14 @@ const AFTERNOON_LABEL = "Afternoon"
 const BOTH_LABEL = "Morning & Afternoon"
 const MORNING_END_MINUTES = 12 * 60
 const AFTERNOON_START_MINUTES = 13 * 60
+const MINUTES_PER_HALF_DAY = 12 * 60
 
-const TIME_COL_WIDTH = 82
-const DAY_COL_WIDTH = 95
-const SIGN_COL_WIDTH = 16
-const ROW_HEIGHT = 24
-const HEADER_ROW_HEIGHT = 18
-const HEADER_SUB_ROW_HEIGHT = 14
+const TIME_COL_WIDTH = 84
+const DAY_COL_WIDTH = 108
+const SIGN_COL_WIDTH = 18
+const ROW_HEIGHT = 30
+const HEADER_ROW_HEIGHT = 20
+const HEADER_SUB_ROW_HEIGHT = 16
 const HEADER_TOTAL_HEIGHT = HEADER_ROW_HEIGHT + HEADER_SUB_ROW_HEIGHT
 const GRID_WIDTH = TIME_COL_WIDTH + DAYS.length * (DAY_COL_WIDTH + SIGN_COL_WIDTH)
 const VERTICAL_SIGN_TEXT = "S\ni\ng\nn"
@@ -261,8 +262,11 @@ function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: numbe
     return aStart < normalizedBEnd && bStart < normalizedAEnd
 }
 
-function buildSlotMeta(timeSlots: string[]) {
-    let previousEnd = -1
+function buildSlotMeta(
+    timeSlots: string[],
+    scheduleScope: RoomScheduleScope = "BOTH"
+) {
+    let previousEnd = scheduleScope === "AFTERNOON" ? AFTERNOON_START_MINUTES - 1 : -1
 
     return timeSlots.map((slot) => {
         const parsed = parseSlotRange(slot)
@@ -271,11 +275,11 @@ function buildSlotMeta(timeSlots: string[]) {
 
         if (parsed) {
             while (previousEnd >= 0 && start <= previousEnd) {
-                start += 12 * 60
+                start += MINUTES_PER_HALF_DAY
             }
 
             while (end <= start) {
-                end += 12 * 60
+                end += MINUTES_PER_HALF_DAY
             }
 
             previousEnd = end
@@ -293,7 +297,7 @@ function buildSlotMeta(timeSlots: string[]) {
 function filterTimeSlotsByScope(timeSlots: string[], scheduleScope: RoomScheduleScope) {
     if (scheduleScope === "BOTH") return [...timeSlots]
 
-    const slotMeta = buildSlotMeta(timeSlots)
+    const slotMeta = buildSlotMeta(timeSlots, "BOTH")
     const filtered = slotMeta
         .filter((slot) => {
             if (slot.isNoonBreak) return false
@@ -346,8 +350,101 @@ function resolveContentLines(item: RoomSchedulePrintItem) {
     return [scheduleLabel, line1, line2, line3 || line4].filter(Boolean).slice(0, 4)
 }
 
-function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[]) {
-    const slotMeta = buildSlotMeta(timeSlots)
+function collapseLineText(value: string) {
+    return normalizeText(value).replace(/\s+/g, " ")
+}
+
+function clampLineText(value: string, maxLength: number) {
+    const text = collapseLineText(value)
+    if (text.length <= maxLength) return text
+    return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+function wrapLineText(value: string, maxCharsPerLine: number) {
+    const text = collapseLineText(value)
+    if (!text) return [] as string[]
+    if (text.length <= maxCharsPerLine) return [text]
+
+    const words = text.split(" ").filter(Boolean)
+    const lines: string[] = []
+    let current = ""
+
+    for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word
+
+        if (candidate.length <= maxCharsPerLine) {
+            current = candidate
+            continue
+        }
+
+        if (current) {
+            lines.push(current)
+            current = ""
+        }
+
+        if (word.length <= maxCharsPerLine) {
+            current = word
+            continue
+        }
+
+        let remaining = word
+        while (remaining.length > maxCharsPerLine) {
+            lines.push(`${remaining.slice(0, Math.max(1, maxCharsPerLine - 1))}-`)
+            remaining = remaining.slice(Math.max(1, maxCharsPerLine - 1))
+        }
+        current = remaining
+    }
+
+    if (current) {
+        lines.push(current)
+    }
+
+    return lines
+}
+
+function resolveScaledBlockContent(
+    item: RoomSchedulePrintItem,
+    rowSpan: number,
+    width: number
+) {
+    const baseLines = resolveContentLines(item).map(collapseLineText).filter(Boolean)
+    const fontSize =
+        rowSpan >= 5 ? 7.4 : rowSpan >= 4 ? 7.1 : rowSpan >= 3 ? 6.8 : rowSpan >= 2 ? 6.3 : 5.9
+    const maxLines =
+        rowSpan >= 5 ? 8 : rowSpan >= 4 ? 7 : rowSpan >= 3 ? 6 : rowSpan >= 2 ? 5 : 4
+    const usableWidth = Math.max(width - 10, 48)
+    const maxCharsPerLine = Math.max(
+        12,
+        Math.floor(usableWidth / Math.max(fontSize * 0.72, 1))
+    )
+
+    const wrapped = baseLines.flatMap((line) => wrapLineText(line, maxCharsPerLine))
+    if (wrapped.length <= maxLines) {
+        return {
+            lines: wrapped,
+            fontSize,
+        }
+    }
+
+    const clipped = wrapped.slice(0, maxLines)
+    clipped[maxLines - 1] = clampLineText(clipped[maxLines - 1], Math.max(8, maxCharsPerLine - 1))
+
+    if (!clipped[maxLines - 1].endsWith("…")) {
+        clipped[maxLines - 1] = `${clipped[maxLines - 1].replace(/[.…]+$/g, "")}…`
+    }
+
+    return {
+        lines: clipped,
+        fontSize,
+    }
+}
+
+function buildMeetingBlocks(
+    items: RoomSchedulePrintItem[],
+    timeSlots: string[],
+    scheduleScope: RoomScheduleScope
+) {
+    const slotMeta = buildSlotMeta(timeSlots, scheduleScope)
     const blocks: Array<{
         id: string
         day: string
@@ -392,7 +489,7 @@ function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[])
         const top = rowIndex * ROW_HEIGHT
         const width = DAY_COL_WIDTH
         const height = Math.max(rowSpan * ROW_HEIGHT - 1, ROW_HEIGHT)
-        const fontSize = rowSpan >= 4 ? 7 : rowSpan >= 3 ? 6.8 : 6.2
+        const blockContent = resolveScaledBlockContent(item, rowSpan, width)
 
         blocks.push({
             id: normalizeText(item.id) || `${day}-${item.startTime}-${item.endTime}-${index}`,
@@ -409,8 +506,8 @@ function buildMeetingBlocks(items: RoomSchedulePrintItem[], timeSlots: string[])
                 `${day}|${item.facultyName}|${item.subjectCode}|${item.sectionLabel}|${index}`
             ),
             textColor: resolveBlockTextColor(item),
-            lines: resolveContentLines(item),
-            fontSize,
+            lines: blockContent.lines,
+            fontSize: blockContent.fontSize,
         })
     }
 
@@ -565,8 +662,8 @@ export function RoomSchedulePrintSheet({
         [timeSlots, scheduleScope]
     )
     const meetingBlocks = React.useMemo(
-        () => buildMeetingBlocks(filteredItems, filteredTimeSlots),
-        [filteredItems, filteredTimeSlots]
+        () => buildMeetingBlocks(filteredItems, filteredTimeSlots, scheduleScope),
+        [filteredItems, filteredTimeSlots, scheduleScope]
     )
     const uniqueScheduleLabels = React.useMemo(
         () =>
@@ -758,7 +855,7 @@ export function RoomSchedulePrintSheet({
                 paddingVertical: 1,
             },
             signText: {
-                fontSize: 5,
+                fontSize: 5.3,
                 lineHeight: 1,
                 textAlign: "center",
             },
@@ -817,12 +914,12 @@ export function RoomSchedulePrintSheet({
                 borderWidth: 0.8,
                 borderColor: "#94A3B8",
                 paddingVertical: 3,
-                paddingHorizontal: 3,
+                paddingHorizontal: 4,
                 alignItems: "center",
                 justifyContent: "center",
             },
             meetingText: {
-                lineHeight: 1.15,
+                lineHeight: 1.12,
                 textAlign: "center",
             },
 
@@ -1135,8 +1232,8 @@ export function RoomSchedulePrintSheet({
                         </DialogTitle>
                         <DialogDescription>
                             A4 landscape room monitoring sheet filtered to the selected schedule with
-                            visible instructor assignments and clear morning, afternoon, or combined
-                            labels.
+                            visible instructor assignments, wrapped schedule blocks, and clear morning,
+                            afternoon, or combined labels.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1179,7 +1276,8 @@ export function RoomSchedulePrintSheet({
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             Includes the official PNG logo, aligned upper-right CCS mark, corrected header
-                            structure, visible instructor names, and the selected room schedule view.
+                            structure, visible instructor names, adaptive text scaling, and the selected
+                            room schedule view.
                         </div>
 
                         <div className="flex items-center gap-2">
