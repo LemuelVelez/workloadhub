@@ -164,6 +164,8 @@ type ConflictFixAction = "RESCHEDULE" | "MOVE_ROOM" | "CREATE_ROOM"
 
 const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
 const PRINT_FILTER_TRIGGER_CLASS = "w-full max-w-none"
+const WRAP_TEXT_CLASS = "break-words whitespace-normal leading-tight"
+const CONFLICT_TABLE_CLASS = "min-w-[1240px] table-fixed"
 
 const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
 const DEFAULT_PRINT_TIME_SLOTS = [
@@ -466,6 +468,21 @@ function buildPrintableConflictTitle(item: RoomSchedulePrintItem) {
     return `${subject} • ${section} • ${instructor}`
 }
 
+function buildConflictSectionText(conflict: RoomScheduleConflict) {
+    const sections = Array.from(
+        new Set(
+            [
+                ...(conflict.keptItem ? [conflict.keptItem] : []),
+                ...conflict.conflictingItems,
+            ]
+                .map((item) => buildPrintableSectionText(item))
+                .filter((value) => value && value !== "—")
+        )
+    )
+
+    return sections.length > 0 ? sections.join(", ") : "—"
+}
+
 function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
     const sorted = [...items].sort(comparePrintableItems)
     const conflicts: RoomScheduleConflict[] = []
@@ -526,10 +543,7 @@ function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
                 if (!a || !b) continue
                 if (!doPrintableItemsOverlap(a, b)) continue
 
-                const pairKey = [
-                    buildPrintableItemIdentity(a),
-                    buildPrintableItemIdentity(b),
-                ]
+                const pairKey = [buildPrintableItemIdentity(a), buildPrintableItemIdentity(b)]
                     .sort()
                     .join("::")
 
@@ -861,12 +875,7 @@ async function fetchRoomPrintableSchedule(params: {
         const lineTwoParts = [subjectCode, sectionLabel].filter(Boolean)
         const lineThree = subjectTitle || str(klass?.classCode)
 
-        const contentLines = [
-            periodLabel,
-            facultyName,
-            lineTwoParts.join(" - "),
-            lineThree,
-        ].filter(Boolean)
+        const contentLines = [periodLabel, facultyName, lineTwoParts.join(" - "), lineThree].filter(Boolean)
 
         return {
             id: meeting.$id,
@@ -941,10 +950,7 @@ export default function AdminRoomsAndFacilitiesPage() {
         try {
             const [roomDocs, termDocs] = await Promise.all([
                 listDocs(COLLECTIONS.ROOMS, [Query.orderAsc("code"), Query.limit(2000)]),
-                listDocs(COLLECTIONS.ACADEMIC_TERMS, [
-                    Query.orderDesc("startDate"),
-                    Query.limit(200),
-                ]),
+                listDocs(COLLECTIONS.ACADEMIC_TERMS, [Query.orderDesc("startDate"), Query.limit(200)]),
             ])
 
             const nextRooms = roomDocs.map(
@@ -1120,11 +1126,7 @@ export default function AdminRoomsAndFacilitiesPage() {
     const uniquePrintInstructors = React.useMemo(
         () =>
             Array.from(
-                new Set(
-                    filteredPrintItems
-                        .map((item) => buildPrintableInstructorText(item))
-                        .filter(Boolean)
-                )
+                new Set(filteredPrintItems.map((item) => buildPrintableInstructorText(item)).filter(Boolean))
             ),
         [filteredPrintItems]
     )
@@ -1304,17 +1306,12 @@ export default function AdminRoomsAndFacilitiesPage() {
 
             setFixBusy(true)
             try {
-                await databases.updateDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASS_MEETINGS,
-                    meetingId,
-                    {
-                        dayOfWeek: fixDayOfWeek,
-                        startTime: normalizedStart,
-                        endTime: normalizedEnd,
-                    }
-                )
-                toast.success("Conflicted schedule updated in database.")
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meetingId, {
+                    dayOfWeek: fixDayOfWeek,
+                    startTime: normalizedStart,
+                    endTime: normalizedEnd,
+                })
+                toast.success("Conflicted schedule updated.")
                 setFixDialogOpen(false)
                 await loadPrintableSchedule()
             } catch (e: any) {
@@ -1333,14 +1330,9 @@ export default function AdminRoomsAndFacilitiesPage() {
 
             setFixBusy(true)
             try {
-                await databases.updateDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASS_MEETINGS,
-                    meetingId,
-                    {
-                        roomId: fixRoomId,
-                    }
-                )
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meetingId, {
+                    roomId: fixRoomId,
+                })
                 toast.success("Conflicted schedule moved to another available room.")
                 setFixDialogOpen(false)
                 await Promise.all([refreshRooms(), loadPrintableSchedule()])
@@ -1381,14 +1373,9 @@ export default function AdminRoomsAndFacilitiesPage() {
                 newRoomPayload
             )
 
-            await databases.updateDocument(
-                DATABASE_ID,
-                COLLECTIONS.CLASS_MEETINGS,
-                meetingId,
-                {
-                    roomId: str(createdRoom?.$id),
-                }
-            )
+            await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meetingId, {
+                roomId: str(createdRoom?.$id),
+            })
 
             toast.success("New room created and conflict moved to it.")
             setFixDialogOpen(false)
@@ -1403,7 +1390,7 @@ export default function AdminRoomsAndFacilitiesPage() {
     return (
         <DashboardLayout
             title="Rooms & Facilities"
-            subtitle="Add or update rooms, manage availability, detect schedule conflicts, fix them in the database, and export the official room monitoring sheet."
+            subtitle="Add or update rooms, manage availability, detect schedule conflicts, fix them, and export the official room monitoring sheet."
             actions={
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => void refreshRooms()}>
@@ -1576,17 +1563,13 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         {uniquePrintInstructors.length === 1 ? "" : "s"}
                                     </Badge>
                                     <Badge
-                                        variant={
-                                            visibleConflicts.length > 0 ? "destructive" : "outline"
-                                        }
+                                        variant={visibleConflicts.length > 0 ? "destructive" : "outline"}
                                     >
                                         {visibleConflicts.length} conflict
                                         {visibleConflicts.length === 1 ? "" : "s"}
                                     </Badge>
                                     {uniquePrintPeriods.length > 0 ? (
-                                        <Badge variant="outline">
-                                            {uniquePrintPeriods.join(" • ")}
-                                        </Badge>
+                                        <Badge variant="outline">{uniquePrintPeriods.join(" • ")}</Badge>
                                     ) : null}
                                 </div>
                             </div>
@@ -1635,8 +1618,8 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             Found {visibleConflicts.length} conflict
                                             {visibleConflicts.length === 1 ? "" : "s"}. Conflicts are
                                             kept visible. Use the conflict fixer below to update the
-                                            schedule in the database, transfer the meeting to an available
-                                            room, or create a new room when needed.
+                                            schedule, transfer the meeting to an available room, or create
+                                            a new room when needed.
                                         </AlertDescription>
                                     </Alert>
                                 ) : (
@@ -1657,15 +1640,19 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         <div className="text-sm font-medium">
                                             Conflict detector and fixer
                                         </div>
+
                                         <div className="overflow-x-auto rounded-md border bg-background">
-                                            <Table className="min-w-245 table-fixed">
+                                            <Table className={CONFLICT_TABLE_CLASS}>
                                                 <TableHeader>
                                                     <TableRow>
                                                         <TableHead className="w-28">Type</TableHead>
-                                                        <TableHead className="w-32">Day</TableHead>
-                                                        <TableHead className="w-52">Time</TableHead>
-                                                        <TableHead>Kept Entry</TableHead>
-                                                        <TableHead>Conflicting Entries</TableHead>
+                                                        <TableHead className="w-28">Day</TableHead>
+                                                        <TableHead className="w-44">Time</TableHead>
+                                                        <TableHead className="w-40">Section</TableHead>
+                                                        <TableHead className="w-72">Kept Entry</TableHead>
+                                                        <TableHead className="w-90">
+                                                            Conflicting Entries
+                                                        </TableHead>
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
@@ -1689,19 +1676,30 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                           : "Overlap"}
                                                                 </Badge>
                                                             </TableCell>
+
                                                             <TableCell className="align-top font-medium">
                                                                 {conflict.dayOfWeek}
                                                             </TableCell>
+
                                                             <TableCell className="align-top text-muted-foreground">
-                                                                <div className="wrap-break-word leading-tight">
+                                                                <div className={WRAP_TEXT_CLASS}>
                                                                     {conflict.displayTime}
                                                                 </div>
                                                             </TableCell>
+
+                                                            <TableCell className="align-top text-muted-foreground">
+                                                                <div className={WRAP_TEXT_CLASS}>
+                                                                    {buildConflictSectionText(conflict)}
+                                                                </div>
+                                                            </TableCell>
+
                                                             <TableCell className="align-top">
                                                                 {conflict.keptItem ? (
                                                                     <div className="space-y-2">
                                                                         <div className="space-y-1">
-                                                                            <div className="wrap-break-word font-medium leading-tight">
+                                                                            <div
+                                                                                className={`font-medium ${WRAP_TEXT_CLASS}`}
+                                                                            >
                                                                                 {buildPrintableConflictTitle(
                                                                                     conflict.keptItem
                                                                                 )}
@@ -1712,6 +1710,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                                 )}
                                                                             </div>
                                                                         </div>
+
                                                                         <Button
                                                                             variant="outline"
                                                                             size="sm"
@@ -1731,6 +1730,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                     </div>
                                                                 )}
                                                             </TableCell>
+
                                                             <TableCell className="align-top">
                                                                 <div className="space-y-2">
                                                                     {conflict.conflictingItems.map((item) => (
@@ -1738,7 +1738,9 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                             key={buildPrintableItemIdentity(item)}
                                                                             className="rounded-md border bg-muted/30 p-2"
                                                                         >
-                                                                            <div className="wrap-break-word text-sm font-medium leading-tight">
+                                                                            <div
+                                                                                className={`text-sm font-medium ${WRAP_TEXT_CLASS}`}
+                                                                            >
                                                                                 {buildPrintableConflictTitle(item)}
                                                                             </div>
                                                                             <div className="mb-2 text-xs text-muted-foreground">
@@ -1775,7 +1777,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         </div>
 
                                         <div className="overflow-x-auto rounded-md border bg-background">
-                                            <Table className="min-w-245 table-fixed">
+                                            <Table className="min-w-270 table-fixed">
                                                 <TableHeader>
                                                     <TableRow>
                                                         <TableHead className="w-40">Period</TableHead>
@@ -1795,9 +1797,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                             }
                                                         >
                                                             <TableCell className="align-top">
-                                                                <Badge
-                                                                    variant={roomSchedulePeriodBadgeVariant(item)}
-                                                                >
+                                                                <Badge variant={roomSchedulePeriodBadgeVariant(item)}>
                                                                     {buildPrintablePeriodText(item)}
                                                                 </Badge>
                                                             </TableCell>
@@ -1805,29 +1805,33 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                 {normalizeDayLabel(item.dayOfWeek)}
                                                             </TableCell>
                                                             <TableCell className="align-top">
-                                                                <div className="wrap-break-word whitespace-normal leading-tight">
+                                                                <div className={WRAP_TEXT_CLASS}>
                                                                     {buildPrintableTimeText(item)}
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="align-top">
                                                                 <div className="space-y-1">
-                                                                    <div className="wrap-break-word whitespace-normal font-medium leading-tight">
+                                                                    <div
+                                                                        className={`font-medium ${WRAP_TEXT_CLASS}`}
+                                                                    >
                                                                         {buildPrintableInstructorText(item)}
                                                                     </div>
                                                                     {str(item.notes) ? (
-                                                                        <div className="wrap-break-word whitespace-normal text-xs leading-tight text-muted-foreground">
+                                                                        <div
+                                                                            className={`text-xs text-muted-foreground ${WRAP_TEXT_CLASS}`}
+                                                                        >
                                                                             {str(item.notes)}
                                                                         </div>
                                                                     ) : null}
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="align-top text-muted-foreground">
-                                                                <div className="wrap-break-word whitespace-normal leading-tight">
+                                                                <div className={WRAP_TEXT_CLASS}>
                                                                     {buildPrintableSubjectLabel(item)}
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="align-top text-muted-foreground">
-                                                                <div className="wrap-break-word whitespace-normal leading-tight">
+                                                                <div className={WRAP_TEXT_CLASS}>
                                                                     {buildPrintableSectionText(item)}
                                                                 </div>
                                                             </TableCell>
@@ -2076,9 +2080,9 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 Conflict Fixer
                             </DialogTitle>
                             <DialogDescription>
-                                Update the conflicted meeting in the database by changing its
-                                schedule, transferring it to another available room, or creating a
-                                new room when no existing room is available.
+                                Update the conflicted meeting by changing its schedule, transferring it
+                                to another available room, or creating a new room when no existing room
+                                is available.
                             </DialogDescription>
                         </DialogHeader>
 
@@ -2106,9 +2110,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             <SelectValue placeholder="Select fix action" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="RESCHEDULE">
-                                                Change schedule in database
-                                            </SelectItem>
+                                            <SelectItem value="RESCHEDULE">Change schedule</SelectItem>
                                             <SelectItem value="MOVE_ROOM">
                                                 Change to available room
                                             </SelectItem>
@@ -2129,10 +2131,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         <div className="grid gap-4 sm:grid-cols-3">
                                             <div className="grid gap-2">
                                                 <Label>Day</Label>
-                                                <Select
-                                                    value={fixDayOfWeek}
-                                                    onValueChange={setFixDayOfWeek}
-                                                >
+                                                <Select value={fixDayOfWeek} onValueChange={setFixDayOfWeek}>
                                                     <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
                                                         <SelectValue placeholder="Select day" />
                                                     </SelectTrigger>
@@ -2177,10 +2176,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         <div className="grid gap-4 sm:grid-cols-3">
                                             <div className="grid gap-2">
                                                 <Label>Day</Label>
-                                                <Select
-                                                    value={fixDayOfWeek}
-                                                    onValueChange={setFixDayOfWeek}
-                                                >
+                                                <Select value={fixDayOfWeek} onValueChange={setFixDayOfWeek}>
                                                     <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
                                                         <SelectValue placeholder="Select day" />
                                                     </SelectTrigger>
@@ -2245,8 +2241,8 @@ export default function AdminRoomsAndFacilitiesPage() {
                                             <Alert>
                                                 <AlertTitle>No available room found</AlertTitle>
                                                 <AlertDescription>
-                                                    There is no available room for the selected
-                                                    schedule yet. You can switch the action to{" "}
+                                                    There is no available room for the selected schedule
+                                                    yet. You can switch the action to{" "}
                                                     <span className="font-medium">
                                                         Create new room and assign
                                                     </span>
@@ -2336,7 +2332,11 @@ export default function AdminRoomsAndFacilitiesPage() {
                         ) : null}
 
                         <DialogFooter>
-                            <Button variant="outline" onClick={() => setFixDialogOpen(false)} disabled={fixBusy}>
+                            <Button
+                                variant="outline"
+                                onClick={() => setFixDialogOpen(false)}
+                                disabled={fixBusy}
+                            >
                                 Cancel
                             </Button>
                             <Button onClick={() => void applyConflictFix()} disabled={fixBusy}>
