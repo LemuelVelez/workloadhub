@@ -806,7 +806,7 @@ export function RecordsExcelActions({
 
                     <div className="mt-3 rounded-md border min-w-0 max-w-full">
                         <ScrollArea className="h-[60vh] w-full min-w-0">
-                            <Table containerClassName="w-max overflow-visible" className="w-full">
+                            <Table className="w-full">
                                 <TableHeader>
                                     <TableRow>
                                         {previewColumns.map((column) => (
