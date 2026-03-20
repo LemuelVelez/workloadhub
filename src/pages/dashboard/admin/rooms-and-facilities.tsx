@@ -12,6 +12,10 @@ import {
     Printer,
     AlertTriangle,
     ShieldCheck,
+    Wrench,
+    ArrowRightLeft,
+    Clock3,
+    Building2,
 } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
@@ -156,6 +160,8 @@ type RoomScheduleConflict = {
     conflictingItems: RoomSchedulePrintItem[]
 }
 
+type ConflictFixAction = "RESCHEDULE" | "MOVE_ROOM" | "CREATE_ROOM"
+
 const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
 const PRINT_FILTER_TRIGGER_CLASS = "w-full max-w-none"
 
@@ -272,6 +278,18 @@ function formatClockTo12Hour(value: any) {
     const hh12 = hh24 % 12 || 12
 
     return `${hh12}:${String(mm).padStart(2, "0")} ${suffix}`
+}
+
+function normalizeTimeInputToStorage(value: string) {
+    const raw = str(value)
+    if (!raw) return ""
+    const match = raw.match(/^(\d{1,2}):(\d{2})$/)
+    if (!match) return raw
+    const hh = Number(match[1])
+    const mm = Number(match[2])
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return raw
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`
 }
 
 function scheduleScopeLabel(scope: RoomScheduleScope | "") {
@@ -450,9 +468,7 @@ function buildPrintableConflictTitle(item: RoomSchedulePrintItem) {
 
 function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
     const sorted = [...items].sort(comparePrintableItems)
-    const sanitizedItems: RoomSchedulePrintItem[] = []
     const conflicts: RoomScheduleConflict[] = []
-    const removedIds = new Set<string>()
 
     const itemsByDay = new Map<string, RoomSchedulePrintItem[]>()
     for (const item of sorted) {
@@ -464,15 +480,8 @@ function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
     }
 
     for (const [day, dayItems] of itemsByDay.entries()) {
-        const validItems: RoomSchedulePrintItem[] = []
-
-        for (const item of dayItems) {
-            if (isValidPrintableTimeRange(item)) {
-                validItems.push(item)
-                continue
-            }
-
-            removedIds.add(buildPrintableItemIdentity(item))
+        const invalidItems = dayItems.filter((item) => !isValidPrintableTimeRange(item))
+        for (const item of invalidItems) {
             conflicts.push({
                 id: `invalid-${buildPrintableItemIdentity(item)}`,
                 type: "INVALID_TIME",
@@ -483,6 +492,8 @@ function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
             })
         }
 
+        const validItems = dayItems.filter(isValidPrintableTimeRange)
+
         const duplicateBuckets = new Map<string, RoomSchedulePrintItem[]>()
         for (const item of validItems) {
             const key = buildPrintableDuplicateKey(item)
@@ -492,18 +503,10 @@ function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
             duplicateBuckets.get(key)?.push(item)
         }
 
-        const dedupedItems: RoomSchedulePrintItem[] = []
         for (const bucket of duplicateBuckets.values()) {
+            if (bucket.length <= 1) continue
             const [keptItem, ...duplicateItems] = bucket
             if (!keptItem) continue
-
-            dedupedItems.push(keptItem)
-
-            if (duplicateItems.length === 0) continue
-
-            for (const item of duplicateItems) {
-                removedIds.add(buildPrintableItemIdentity(item))
-            }
 
             conflicts.push({
                 id: `duplicate-${buildPrintableItemIdentity(keptItem)}`,
@@ -515,41 +518,39 @@ function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
             })
         }
 
-        dedupedItems.sort(comparePrintableItems)
+        const overlapChecked = new Set<string>()
+        for (let i = 0; i < validItems.length; i += 1) {
+            for (let j = i + 1; j < validItems.length; j += 1) {
+                const a = validItems[i]
+                const b = validItems[j]
+                if (!a || !b) continue
+                if (!doPrintableItemsOverlap(a, b)) continue
 
-        const keepers: RoomSchedulePrintItem[] = []
-        for (const item of dedupedItems) {
-            const overlappedKeeper = keepers.find((keeper) => doPrintableItemsOverlap(keeper, item))
+                const pairKey = [
+                    buildPrintableItemIdentity(a),
+                    buildPrintableItemIdentity(b),
+                ]
+                    .sort()
+                    .join("::")
 
-            if (!overlappedKeeper) {
-                keepers.push(item)
-                continue
+                if (overlapChecked.has(pairKey)) continue
+                overlapChecked.add(pairKey)
+
+                conflicts.push({
+                    id: `overlap-${pairKey}`,
+                    type: "OVERLAP",
+                    dayOfWeek: day,
+                    displayTime: `${buildPrintableTimeText(a)} / ${buildPrintableTimeText(b)}`,
+                    keptItem: a,
+                    conflictingItems: [b],
+                })
             }
-
-            removedIds.add(buildPrintableItemIdentity(item))
-            conflicts.push({
-                id: `overlap-${buildPrintableItemIdentity(overlappedKeeper)}-${buildPrintableItemIdentity(item)}`,
-                type: "OVERLAP",
-                dayOfWeek: day,
-                displayTime: `${buildPrintableTimeText(overlappedKeeper)} / ${buildPrintableTimeText(item)}`,
-                keptItem: overlappedKeeper,
-                conflictingItems: [item],
-            })
         }
-
-        sanitizedItems.push(...keepers)
     }
 
-    sanitizedItems.sort(comparePrintableItems)
-
-    const removedItems = sorted.filter((item) => removedIds.has(buildPrintableItemIdentity(item)))
-
     return {
-        sanitizedItems,
         conflicts,
-        removedItems,
         totalConflicts: conflicts.length,
-        totalRemoved: removedItems.length,
         hasConflicts: conflicts.length > 0,
     }
 }
@@ -619,7 +620,7 @@ async function listDocsByField(
     for (const part of parts) {
         const docs = await listDocs(collectionId, [
             Query.equal(field, part),
-            Query.limit(100),
+            Query.limit(5000),
             ...extraQueries,
         ])
         results.push(...docs)
@@ -628,15 +629,7 @@ async function listDocsByField(
     return results
 }
 
-async function fetchRoomPrintableSchedule(params: {
-    roomId: string
-    termId: string
-}) {
-    const roomId = str(params.roomId)
-    const termId = str(params.termId)
-
-    if (!roomId || !termId) return [] as RoomSchedulePrintItem[]
-
+async function fetchPreferredTermVersionIds(termId: string) {
     const versionDocs = (await listDocs(COLLECTIONS.SCHEDULE_VERSIONS, [
         Query.equal("termId", termId),
         Query.limit(5000),
@@ -656,7 +649,104 @@ async function fetchRoomPrintableSchedule(params: {
         )
     )
 
-    const versionIds = preferredVersions.map((version) => version.$id).filter(Boolean)
+    return preferredVersions.map((version) => version.$id).filter(Boolean)
+}
+
+async function fetchMeetingsForVersionIds(versionIds: string[]) {
+    const meetingDocs = (await listDocsByField(COLLECTIONS.CLASS_MEETINGS, "versionId", versionIds)) as any[]
+
+    return meetingDocs.map(
+        (meeting: any) =>
+            ({
+                $id: meeting.$id,
+                versionId: str(meeting.versionId),
+                classId: str(meeting.classId),
+                dayOfWeek: normalizeDayLabel(meeting.dayOfWeek),
+                startTime: str(meeting.startTime),
+                endTime: str(meeting.endTime),
+                roomId: meeting.roomId ? str(meeting.roomId) : null,
+                meetingType: meeting.meetingType ? str(meeting.meetingType) : null,
+                notes: meeting.notes ? str(meeting.notes) : null,
+            }) as ClassMeetingLite
+    )
+}
+
+async function findAvailableRoomsForMeeting(params: {
+    termId: string
+    meetingId: string
+    dayOfWeek: string
+    startTime: string
+    endTime: string
+    preferredRoomType?: string | null
+}) {
+    const termId = str(params.termId)
+    if (!termId) return [] as RoomDoc[]
+
+    const [allRoomsDocs, versionIds] = await Promise.all([
+        listDocs(COLLECTIONS.ROOMS, [Query.orderAsc("code"), Query.limit(5000)]),
+        fetchPreferredTermVersionIds(termId),
+    ])
+
+    const rooms = allRoomsDocs
+        .map(
+            (r: any) =>
+                ({
+                    $id: r.$id,
+                    code: str(r.code),
+                    name: r.name ?? null,
+                    building: r.building ?? null,
+                    floor: r.floor ?? null,
+                    capacity: num(r.capacity, 0),
+                    type: str(r.type) || "OTHER",
+                    isActive: toBool(r.isActive),
+                }) as RoomDoc
+        )
+        .filter((room) => room.isActive)
+
+    const allMeetings = versionIds.length > 0 ? await fetchMeetingsForVersionIds(versionIds) : []
+
+    const normalizedDay = normalizeDayLabel(params.dayOfWeek)
+    const candidateStart = parseClockMinutes(params.startTime)
+    const candidateEnd = parseClockMinutes(params.endTime)
+    const preferredType = str(params.preferredRoomType).toUpperCase()
+
+    const matchesType = (room: RoomDoc) => {
+        if (!preferredType || preferredType === "OTHER") return true
+        if (preferredType === "LECTURE") return str(room.type).toUpperCase() !== "LAB"
+        return str(room.type).toUpperCase() === preferredType
+    }
+
+    return rooms.filter((room) => {
+        if (!matchesType(room)) return false
+
+        const roomMeetings = allMeetings.filter(
+            (meeting) => str(meeting.roomId) === room.$id && str(meeting.$id) !== str(params.meetingId)
+        )
+
+        const hasConflict = roomMeetings.some((meeting) => {
+            if (normalizeDayLabel(meeting.dayOfWeek) !== normalizedDay) return false
+
+            const start = parseClockMinutes(meeting.startTime)
+            const end = parseClockMinutes(meeting.endTime)
+
+            if (![start, end, candidateStart, candidateEnd].every(Number.isFinite)) return true
+            return candidateStart < end && start < candidateEnd
+        })
+
+        return !hasConflict
+    })
+}
+
+async function fetchRoomPrintableSchedule(params: {
+    roomId: string
+    termId: string
+}) {
+    const roomId = str(params.roomId)
+    const termId = str(params.termId)
+
+    if (!roomId || !termId) return [] as RoomSchedulePrintItem[]
+
+    const versionIds = await fetchPreferredTermVersionIds(termId)
     if (versionIds.length === 0) {
         return [] as RoomSchedulePrintItem[]
     }
@@ -828,7 +918,23 @@ export default function AdminRoomsAndFacilitiesPage() {
     const [printScope, setPrintScope] = React.useState<RoomScheduleScope>("BOTH")
     const [scheduleBusy, setScheduleBusy] = React.useState(false)
     const [printItems, setPrintItems] = React.useState<RoomSchedulePrintItem[]>([])
-    const [conflictFixEnabled, setConflictFixEnabled] = React.useState(true)
+
+    const [fixDialogOpen, setFixDialogOpen] = React.useState(false)
+    const [fixBusy, setFixBusy] = React.useState(false)
+    const [availableRoomBusy, setAvailableRoomBusy] = React.useState(false)
+    const [fixTargetItem, setFixTargetItem] = React.useState<RoomSchedulePrintItem | null>(null)
+    const [fixAction, setFixAction] = React.useState<ConflictFixAction>("MOVE_ROOM")
+    const [fixDayOfWeek, setFixDayOfWeek] = React.useState("Monday")
+    const [fixStartTime, setFixStartTime] = React.useState("08:00")
+    const [fixEndTime, setFixEndTime] = React.useState("09:00")
+    const [fixRoomId, setFixRoomId] = React.useState("")
+    const [availableRoomsForFix, setAvailableRoomsForFix] = React.useState<RoomDoc[]>([])
+    const [createRoomCode, setCreateRoomCode] = React.useState("")
+    const [createRoomName, setCreateRoomName] = React.useState("")
+    const [createRoomBuilding, setCreateRoomBuilding] = React.useState("")
+    const [createRoomFloor, setCreateRoomFloor] = React.useState("")
+    const [createRoomCapacity, setCreateRoomCapacity] = React.useState("30")
+    const [createRoomType, setCreateRoomType] = React.useState("LECTURE")
 
     const refreshRooms = React.useCallback(async () => {
         setLoading(true)
@@ -1006,17 +1112,9 @@ export default function AdminRoomsAndFacilitiesPage() {
         [printItems]
     )
 
-    const previewPrintItems = React.useMemo(
-        () =>
-            conflictFixEnabled
-                ? printableScheduleAnalysis.sanitizedItems
-                : [...printItems].sort(comparePrintableItems),
-        [conflictFixEnabled, printItems, printableScheduleAnalysis.sanitizedItems]
-    )
-
     const filteredPrintItems = React.useMemo(
-        () => previewPrintItems.filter((item) => matchesRoomScheduleScope(item, printScope)),
-        [previewPrintItems, printScope]
+        () => printItems.filter((item) => matchesRoomScheduleScope(item, printScope)),
+        [printItems, printScope]
     )
 
     const uniquePrintInstructors = React.useMemo(
@@ -1081,10 +1179,231 @@ export default function AdminRoomsAndFacilitiesPage() {
     const labs = rooms.filter((r) => String(r.type || "").toUpperCase() === "LAB").length
     const lectures = rooms.filter((r) => String(r.type || "").toUpperCase() === "LECTURE").length
 
+    const refreshAvailableRoomsForFix = React.useCallback(
+        async (params?: {
+            targetItem?: RoomSchedulePrintItem | null
+            nextDay?: string
+            nextStart?: string
+            nextEnd?: string
+        }) => {
+            const targetItem = params?.targetItem ?? fixTargetItem
+            const dayValue = params?.nextDay ?? fixDayOfWeek
+            const startValue = params?.nextStart ?? fixStartTime
+            const endValue = params?.nextEnd ?? fixEndTime
+
+            if (!targetItem || !printTermId) {
+                setAvailableRoomsForFix([])
+                setFixRoomId("")
+                return
+            }
+
+            setAvailableRoomBusy(true)
+            try {
+                const roomsFound = await findAvailableRoomsForMeeting({
+                    termId: printTermId,
+                    meetingId: str(targetItem.id),
+                    dayOfWeek: dayValue,
+                    startTime: startValue,
+                    endTime: endValue,
+                    preferredRoomType: str(targetItem.notes).toUpperCase().includes("LAB")
+                        ? "LAB"
+                        : "LECTURE",
+                })
+
+                setAvailableRoomsForFix(roomsFound)
+                setFixRoomId((current) => {
+                    if (current && roomsFound.some((room) => room.$id === current)) return current
+                    return roomsFound[0]?.$id ?? ""
+                })
+            } catch (e: any) {
+                setAvailableRoomsForFix([])
+                setFixRoomId("")
+                toast.error(e?.message || "Failed to load available rooms.")
+            } finally {
+                setAvailableRoomBusy(false)
+            }
+        },
+        [fixDayOfWeek, fixEndTime, fixStartTime, fixTargetItem, printTermId]
+    )
+
+    function openConflictFixDialog(item: RoomSchedulePrintItem) {
+        const normalizedStart = normalizeTimeInputToStorage(str(item.startTime)) || "08:00"
+        const normalizedEnd = normalizeTimeInputToStorage(str(item.endTime)) || "09:00"
+        const inferredType =
+            str(item.notes).toUpperCase().includes("LAB") ||
+            str(item.subjectTitle).toUpperCase().includes("LAB")
+                ? "LAB"
+                : "LECTURE"
+
+        setFixTargetItem(item)
+        setFixAction("MOVE_ROOM")
+        setFixDayOfWeek(normalizeDayLabel(item.dayOfWeek) || "Monday")
+        setFixStartTime(normalizedStart)
+        setFixEndTime(normalizedEnd)
+        setCreateRoomCode("")
+        setCreateRoomName("")
+        setCreateRoomBuilding("")
+        setCreateRoomFloor("")
+        setCreateRoomCapacity("30")
+        setCreateRoomType(inferredType)
+        setAvailableRoomsForFix([])
+        setFixRoomId("")
+        setFixDialogOpen(true)
+
+        void refreshAvailableRoomsForFix({
+            targetItem: item,
+            nextDay: normalizeDayLabel(item.dayOfWeek) || "Monday",
+            nextStart: normalizedStart,
+            nextEnd: normalizedEnd,
+        })
+    }
+
+    React.useEffect(() => {
+        if (!fixDialogOpen || !fixTargetItem) return
+        if (fixAction !== "MOVE_ROOM") return
+
+        void refreshAvailableRoomsForFix()
+    }, [
+        fixAction,
+        fixDayOfWeek,
+        fixDialogOpen,
+        fixEndTime,
+        fixStartTime,
+        fixTargetItem,
+        refreshAvailableRoomsForFix,
+    ])
+
+    async function applyConflictFix() {
+        if (!fixTargetItem?.id) {
+            toast.error("No conflicting schedule selected.")
+            return
+        }
+
+        const meetingId = str(fixTargetItem.id)
+
+        if (fixAction === "RESCHEDULE") {
+            const normalizedStart = normalizeTimeInputToStorage(fixStartTime)
+            const normalizedEnd = normalizeTimeInputToStorage(fixEndTime)
+            const startMinutes = parseClockMinutes(normalizedStart)
+            const endMinutes = parseClockMinutes(normalizedEnd)
+
+            if (!fixDayOfWeek) {
+                toast.error("Day is required.")
+                return
+            }
+
+            if (!normalizedStart || !normalizedEnd) {
+                toast.error("Start time and end time are required.")
+                return
+            }
+
+            if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+                toast.error("Please provide a valid schedule range.")
+                return
+            }
+
+            setFixBusy(true)
+            try {
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASS_MEETINGS,
+                    meetingId,
+                    {
+                        dayOfWeek: fixDayOfWeek,
+                        startTime: normalizedStart,
+                        endTime: normalizedEnd,
+                    }
+                )
+                toast.success("Conflicted schedule updated in database.")
+                setFixDialogOpen(false)
+                await loadPrintableSchedule()
+            } catch (e: any) {
+                toast.error(e?.message || "Failed to update conflicted schedule.")
+            } finally {
+                setFixBusy(false)
+            }
+            return
+        }
+
+        if (fixAction === "MOVE_ROOM") {
+            if (!fixRoomId) {
+                toast.error("Select an available room first.")
+                return
+            }
+
+            setFixBusy(true)
+            try {
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASS_MEETINGS,
+                    meetingId,
+                    {
+                        roomId: fixRoomId,
+                    }
+                )
+                toast.success("Conflicted schedule moved to another available room.")
+                setFixDialogOpen(false)
+                await Promise.all([refreshRooms(), loadPrintableSchedule()])
+            } catch (e: any) {
+                toast.error(e?.message || "Failed to move schedule to another room.")
+            } finally {
+                setFixBusy(false)
+            }
+            return
+        }
+
+        const newRoomPayload = {
+            code: str(createRoomCode),
+            name: str(createRoomName) || null,
+            building: str(createRoomBuilding) || null,
+            floor: str(createRoomFloor) || null,
+            capacity: num(createRoomCapacity, 0),
+            type: str(createRoomType) || "OTHER",
+            isActive: true,
+        }
+
+        if (!newRoomPayload.code) {
+            toast.error("New room code is required.")
+            return
+        }
+
+        if (!Number.isFinite(newRoomPayload.capacity) || newRoomPayload.capacity <= 0) {
+            toast.error("New room capacity must be greater than 0.")
+            return
+        }
+
+        setFixBusy(true)
+        try {
+            const createdRoom = await databases.createDocument(
+                DATABASE_ID,
+                COLLECTIONS.ROOMS,
+                ID.unique(),
+                newRoomPayload
+            )
+
+            await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.CLASS_MEETINGS,
+                meetingId,
+                {
+                    roomId: str(createdRoom?.$id),
+                }
+            )
+
+            toast.success("New room created and conflict moved to it.")
+            setFixDialogOpen(false)
+            await Promise.all([refreshRooms(), loadPrintableSchedule()])
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to create a new room for the conflict.")
+        } finally {
+            setFixBusy(false)
+        }
+    }
+
     return (
         <DashboardLayout
             title="Rooms & Facilities"
-            subtitle="Add or update rooms, manage availability, detect schedule conflicts, and export the official room monitoring sheet."
+            subtitle="Add or update rooms, manage availability, detect schedule conflicts, fix them in the database, and export the official room monitoring sheet."
             actions={
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => void refreshRooms()}>
@@ -1264,11 +1583,6 @@ export default function AdminRoomsAndFacilitiesPage() {
                                         {visibleConflicts.length} conflict
                                         {visibleConflicts.length === 1 ? "" : "s"}
                                     </Badge>
-                                    {conflictFixEnabled ? (
-                                        <Badge variant="default">
-                                            {printableScheduleAnalysis.totalRemoved} fixed for preview/export
-                                        </Badge>
-                                    ) : null}
                                     {uniquePrintPeriods.length > 0 ? (
                                         <Badge variant="outline">
                                             {uniquePrintPeriods.join(" • ")}
@@ -1292,22 +1606,9 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     Refresh Schedule Data
                                 </Button>
 
-                                <div className="flex items-center gap-2 rounded-md border px-3 py-2">
-                                    <Checkbox
-                                        checked={conflictFixEnabled}
-                                        onCheckedChange={(checked) =>
-                                            setConflictFixEnabled(Boolean(checked))
-                                        }
-                                        id="apply-conflict-fixer"
-                                    />
-                                    <Label htmlFor="apply-conflict-fixer" className="text-sm">
-                                        Apply conflict fixer to preview and export
-                                    </Label>
-                                </div>
-
                                 <RoomSchedulePrintSheet
                                     roomLabel={displayRoomLabel(selectedPrintRoom)}
-                                    items={previewPrintItems}
+                                    items={printItems}
                                     schoolYear={selectedPrintTerm?.schoolYear ?? ""}
                                     semester={selectedPrintTerm?.semester ?? ""}
                                     timeSlots={[...DEFAULT_PRINT_TIME_SLOTS]}
@@ -1327,17 +1628,15 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 {visibleConflicts.length > 0 ? (
                                     <Alert>
                                         <AlertTitle className="flex items-center gap-2">
-                                            {conflictFixEnabled ? (
-                                                <ShieldCheck className="h-4 w-4" />
-                                            ) : (
-                                                <AlertTriangle className="h-4 w-4" />
-                                            )}
+                                            <AlertTriangle className="h-4 w-4" />
                                             Room schedule conflicts detected
                                         </AlertTitle>
                                         <AlertDescription>
-                                            {conflictFixEnabled
-                                                ? `Found ${visibleConflicts.length} conflict${visibleConflicts.length === 1 ? "" : "s"}. The conflict fixer removed ${printableScheduleAnalysis.totalRemoved} invalid, duplicate, or overlapping schedule block${printableScheduleAnalysis.totalRemoved === 1 ? "" : "s"} from preview and export so the print sheet stays clean.`
-                                                : `Found ${visibleConflicts.length} conflict${visibleConflicts.length === 1 ? "" : "s"}. Turn on the conflict fixer to automatically remove invalid, duplicate, or overlapping schedule blocks from preview and export.`}
+                                            Found {visibleConflicts.length} conflict
+                                            {visibleConflicts.length === 1 ? "" : "s"}. Conflicts are
+                                            kept visible. Use the conflict fixer below to update the
+                                            schedule in the database, transfer the meeting to an available
+                                            room, or create a new room when needed.
                                         </AlertDescription>
                                     </Alert>
                                 ) : (
@@ -1356,7 +1655,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 {visibleConflicts.length > 0 ? (
                                     <div className="space-y-3">
                                         <div className="text-sm font-medium">
-                                            Conflict detector results
+                                            Conflict detector and fixer
                                         </div>
                                         <div className="overflow-x-auto rounded-md border bg-background">
                                             <Table className="min-w-245 table-fixed">
@@ -1366,7 +1665,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                         <TableHead className="w-32">Day</TableHead>
                                                         <TableHead className="w-52">Time</TableHead>
                                                         <TableHead>Kept Entry</TableHead>
-                                                        <TableHead>Removed / Conflicting Entries</TableHead>
+                                                        <TableHead>Conflicting Entries</TableHead>
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
@@ -1400,17 +1699,31 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                             </TableCell>
                                                             <TableCell className="align-top">
                                                                 {conflict.keptItem ? (
-                                                                    <div className="space-y-1">
-                                                                        <div className="wrap-break-word font-medium leading-tight">
-                                                                            {buildPrintableConflictTitle(
-                                                                                conflict.keptItem
-                                                                            )}
+                                                                    <div className="space-y-2">
+                                                                        <div className="space-y-1">
+                                                                            <div className="wrap-break-word font-medium leading-tight">
+                                                                                {buildPrintableConflictTitle(
+                                                                                    conflict.keptItem
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="text-xs text-muted-foreground">
+                                                                                {buildPrintableTimeText(
+                                                                                    conflict.keptItem
+                                                                                )}
+                                                                            </div>
                                                                         </div>
-                                                                        <div className="text-xs text-muted-foreground">
-                                                                            {buildPrintableTimeText(
-                                                                                conflict.keptItem
-                                                                            )}
-                                                                        </div>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() =>
+                                                                                openConflictFixDialog(
+                                                                                    conflict.keptItem as RoomSchedulePrintItem
+                                                                                )
+                                                                            }
+                                                                        >
+                                                                            <Wrench className="mr-2 h-4 w-4" />
+                                                                            Fix This Entry
+                                                                        </Button>
                                                                     </div>
                                                                 ) : (
                                                                     <div className="text-sm text-muted-foreground">
@@ -1428,9 +1741,19 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                                             <div className="wrap-break-word text-sm font-medium leading-tight">
                                                                                 {buildPrintableConflictTitle(item)}
                                                                             </div>
-                                                                            <div className="text-xs text-muted-foreground">
+                                                                            <div className="mb-2 text-xs text-muted-foreground">
                                                                                 {buildPrintableTimeText(item)}
                                                                             </div>
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() =>
+                                                                                    openConflictFixDialog(item)
+                                                                                }
+                                                                            >
+                                                                                <Wrench className="mr-2 h-4 w-4" />
+                                                                                Fix This Entry
+                                                                            </Button>
                                                                         </div>
                                                                     ))}
                                                                 </div>
@@ -1741,6 +2064,284 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 Cancel
                             </Button>
                             <Button onClick={() => void saveRoom()}>Save</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                <Dialog open={fixDialogOpen} onOpenChange={setFixDialogOpen}>
+                    <DialogContent className={DIALOG_CONTENT_CLASS}>
+                        <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                                <Wrench className="h-4 w-4" />
+                                Conflict Fixer
+                            </DialogTitle>
+                            <DialogDescription>
+                                Update the conflicted meeting in the database by changing its
+                                schedule, transferring it to another available room, or creating a
+                                new room when no existing room is available.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        {fixTargetItem ? (
+                            <div className="space-y-4">
+                                <div className="rounded-md border bg-muted/20 p-3">
+                                    <div className="text-sm font-medium">
+                                        {buildPrintableConflictTitle(fixTargetItem)}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                        {normalizeDayLabel(fixTargetItem.dayOfWeek)} •{" "}
+                                        {buildPrintableTimeText(fixTargetItem)}
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label>Fix Action</Label>
+                                    <Select
+                                        value={fixAction}
+                                        onValueChange={(value) =>
+                                            setFixAction(value as ConflictFixAction)
+                                        }
+                                    >
+                                        <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
+                                            <SelectValue placeholder="Select fix action" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="RESCHEDULE">
+                                                Change schedule in database
+                                            </SelectItem>
+                                            <SelectItem value="MOVE_ROOM">
+                                                Change to available room
+                                            </SelectItem>
+                                            <SelectItem value="CREATE_ROOM">
+                                                Create new room and assign
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {fixAction === "RESCHEDULE" ? (
+                                    <div className="space-y-4 rounded-md border p-4">
+                                        <div className="flex items-center gap-2 text-sm font-medium">
+                                            <Clock3 className="h-4 w-4" />
+                                            Reschedule conflicted meeting
+                                        </div>
+
+                                        <div className="grid gap-4 sm:grid-cols-3">
+                                            <div className="grid gap-2">
+                                                <Label>Day</Label>
+                                                <Select
+                                                    value={fixDayOfWeek}
+                                                    onValueChange={setFixDayOfWeek}
+                                                >
+                                                    <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
+                                                        <SelectValue placeholder="Select day" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {DAY_ORDER.map((day) => (
+                                                            <SelectItem key={day} value={day}>
+                                                                {day}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>Start Time</Label>
+                                                <Input
+                                                    type="time"
+                                                    value={fixStartTime}
+                                                    onChange={(e) => setFixStartTime(e.target.value)}
+                                                />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>End Time</Label>
+                                                <Input
+                                                    type="time"
+                                                    value={fixEndTime}
+                                                    onChange={(e) => setFixEndTime(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : null}
+
+                                {fixAction === "MOVE_ROOM" ? (
+                                    <div className="space-y-4 rounded-md border p-4">
+                                        <div className="flex items-center gap-2 text-sm font-medium">
+                                            <ArrowRightLeft className="h-4 w-4" />
+                                            Move to another available room
+                                        </div>
+
+                                        <div className="grid gap-4 sm:grid-cols-3">
+                                            <div className="grid gap-2">
+                                                <Label>Day</Label>
+                                                <Select
+                                                    value={fixDayOfWeek}
+                                                    onValueChange={setFixDayOfWeek}
+                                                >
+                                                    <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
+                                                        <SelectValue placeholder="Select day" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {DAY_ORDER.map((day) => (
+                                                            <SelectItem key={day} value={day}>
+                                                                {day}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>Start Time</Label>
+                                                <Input
+                                                    type="time"
+                                                    value={fixStartTime}
+                                                    onChange={(e) => setFixStartTime(e.target.value)}
+                                                />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>End Time</Label>
+                                                <Input
+                                                    type="time"
+                                                    value={fixEndTime}
+                                                    onChange={(e) => setFixEndTime(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label>Available Room</Label>
+                                            <Select
+                                                value={fixRoomId}
+                                                onValueChange={setFixRoomId}
+                                                disabled={availableRoomBusy || availableRoomsForFix.length === 0}
+                                            >
+                                                <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
+                                                    <SelectValue
+                                                        placeholder={
+                                                            availableRoomBusy
+                                                                ? "Loading available rooms..."
+                                                                : availableRoomsForFix.length > 0
+                                                                  ? "Select available room"
+                                                                  : "No available room found"
+                                                        }
+                                                    />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {availableRoomsForFix.map((room) => (
+                                                        <SelectItem key={room.$id} value={room.$id}>
+                                                            {displayRoomSubLabel(room)}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        {availableRoomsForFix.length === 0 && !availableRoomBusy ? (
+                                            <Alert>
+                                                <AlertTitle>No available room found</AlertTitle>
+                                                <AlertDescription>
+                                                    There is no available room for the selected
+                                                    schedule yet. You can switch the action to{" "}
+                                                    <span className="font-medium">
+                                                        Create new room and assign
+                                                    </span>
+                                                    .
+                                                </AlertDescription>
+                                            </Alert>
+                                        ) : null}
+                                    </div>
+                                ) : null}
+
+                                {fixAction === "CREATE_ROOM" ? (
+                                    <div className="space-y-4 rounded-md border p-4">
+                                        <div className="flex items-center gap-2 text-sm font-medium">
+                                            <Building2 className="h-4 w-4" />
+                                            Create a new room and assign the conflict
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label>Room Code</Label>
+                                            <Input
+                                                value={createRoomCode}
+                                                onChange={(e) => setCreateRoomCode(e.target.value)}
+                                                placeholder="e.g. TEMP-ROOM-01"
+                                            />
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label>Room Name (optional)</Label>
+                                            <Input
+                                                value={createRoomName}
+                                                onChange={(e) => setCreateRoomName(e.target.value)}
+                                                placeholder="e.g. Temporary Lecture Room"
+                                            />
+                                        </div>
+
+                                        <div className="grid gap-4 sm:grid-cols-2">
+                                            <div className="grid gap-2">
+                                                <Label>Building (optional)</Label>
+                                                <Input
+                                                    value={createRoomBuilding}
+                                                    onChange={(e) => setCreateRoomBuilding(e.target.value)}
+                                                    placeholder="e.g. Main Building"
+                                                />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>Floor (optional)</Label>
+                                                <Input
+                                                    value={createRoomFloor}
+                                                    onChange={(e) => setCreateRoomFloor(e.target.value)}
+                                                    placeholder="e.g. 1"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid gap-4 sm:grid-cols-2">
+                                            <div className="grid gap-2">
+                                                <Label>Capacity</Label>
+                                                <Input
+                                                    value={createRoomCapacity}
+                                                    onChange={(e) => setCreateRoomCapacity(e.target.value)}
+                                                    inputMode="numeric"
+                                                    placeholder="e.g. 30"
+                                                />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>Room Type</Label>
+                                                <Select
+                                                    value={createRoomType}
+                                                    onValueChange={setCreateRoomType}
+                                                >
+                                                    <SelectTrigger className={PRINT_FILTER_TRIGGER_CLASS}>
+                                                        <SelectValue placeholder="Select room type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="LECTURE">Lecture</SelectItem>
+                                                        <SelectItem value="LAB">Lab</SelectItem>
+                                                        <SelectItem value="OTHER">Other</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setFixDialogOpen(false)} disabled={fixBusy}>
+                                Cancel
+                            </Button>
+                            <Button onClick={() => void applyConflictFix()} disabled={fixBusy}>
+                                {fixBusy ? "Saving..." : "Apply Fix"}
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
