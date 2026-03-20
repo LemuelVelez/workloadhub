@@ -165,7 +165,7 @@ const DEFAULT_PRINT_TIME_SLOTS = [
 
 const MORNING_LABEL = "Morning"
 const AFTERNOON_LABEL = "Afternoon"
-const BOTH_LABEL = "Both"
+const BOTH_LABEL = "Morning & Afternoon"
 const MORNING_END_MINUTES = 12 * 60
 const AFTERNOON_START_MINUTES = 13 * 60
 
@@ -226,24 +226,39 @@ function parseClockMinutes(value: any) {
     const raw = str(value)
     if (!raw) return Number.POSITIVE_INFINITY
 
-    const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+    const ampm = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
     if (ampm) {
         let hh = Number(ampm[1])
         const mm = Number(ampm[2])
         const suffix = ampm[3].toUpperCase()
         if (!Number.isFinite(hh) || !Number.isFinite(mm)) return Number.POSITIVE_INFINITY
+        if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return Number.POSITIVE_INFINITY
         if (suffix === "AM" && hh === 12) hh = 0
         if (suffix === "PM" && hh !== 12) hh += 12
         return hh * 60 + mm
     }
 
-    const hhmm = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
-    if (!hhmm) return Number.POSITIVE_INFINITY
+    const timeMatch = raw.match(/(\d{1,2}):(\d{2})(?::\d{2})?/)
+    if (!timeMatch) return Number.POSITIVE_INFINITY
 
-    const hh = Number(hhmm[1])
-    const mm = Number(hhmm[2])
+    const hh = Number(timeMatch[1])
+    const mm = Number(timeMatch[2])
     if (!Number.isFinite(hh) || !Number.isFinite(mm)) return Number.POSITIVE_INFINITY
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return Number.POSITIVE_INFINITY
     return hh * 60 + mm
+}
+
+function formatClockTo12Hour(value: any) {
+    const minutes = parseClockMinutes(value)
+    if (!Number.isFinite(minutes)) return str(value)
+
+    const normalized = ((minutes % (24 * 60)) + 24 * 60) % (24 * 60)
+    const hh24 = Math.floor(normalized / 60)
+    const mm = normalized % 60
+    const suffix = hh24 >= 12 ? "PM" : "AM"
+    const hh12 = hh24 % 12 || 12
+
+    return `${hh12}:${String(mm).padStart(2, "0")} ${suffix}`
 }
 
 function scheduleScopeLabel(scope: RoomScheduleScope | "") {
@@ -334,6 +349,14 @@ function buildPrintableSectionText(item: RoomSchedulePrintItem) {
 
 function buildPrintableInstructorText(item: RoomSchedulePrintItem) {
     return str(item.facultyName) || "Unassigned Instructor"
+}
+
+function buildPrintableTimeText(item: RoomSchedulePrintItem) {
+    const start = str(item.displayStartTime) || formatClockTo12Hour(item.startTime)
+    const end = str(item.displayEndTime) || formatClockTo12Hour(item.endTime)
+
+    if (start && end) return `${start} - ${end}`
+    return `${str(item.startTime)} - ${str(item.endTime)}`
 }
 
 function choosePreferredVersions(versions: ScheduleVersionLite[]) {
@@ -547,6 +570,8 @@ async function fetchRoomPrintableSchedule(params: {
         const sectionLabel = buildSectionLabel(section)
         const scheduleScope = inferRoomScheduleScope(meeting.startTime, meeting.endTime)
         const periodLabel = scheduleScopeLabel(scheduleScope)
+        const displayStartTime = formatClockTo12Hour(meeting.startTime)
+        const displayEndTime = formatClockTo12Hour(meeting.endTime)
 
         const lineTwoParts = [subjectCode, sectionLabel].filter(Boolean)
         const lineThree = subjectTitle || str(klass?.classCode)
@@ -563,6 +588,8 @@ async function fetchRoomPrintableSchedule(params: {
             dayOfWeek: meeting.dayOfWeek,
             startTime: meeting.startTime,
             endTime: meeting.endTime,
+            displayStartTime,
+            displayEndTime,
             facultyName,
             subjectCode: subjectCode || null,
             subjectTitle: subjectTitle || null,
@@ -924,7 +951,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                 </CardTitle>
                                 <CardDescription>
                                     Preview and export a room monitoring sheet for Morning, Afternoon,
-                                    or Both schedules.
+                                    or combined Morning & Afternoon schedules.
                                 </CardDescription>
                             </div>
 
@@ -1026,8 +1053,9 @@ export default function AdminRoomsAndFacilitiesPage() {
                             <p className="text-sm text-muted-foreground">
                                 The generated PDF follows the official room monitoring layout with aligned
                                 top logos, a corrected table header, sign columns, a noon break row,
-                                color-coded schedule blocks, visible instructor assignments, and selectable
-                                morning, afternoon, or both schedule output.
+                                color-coded schedule blocks, visible instructor assignments, selectable
+                                morning, afternoon, or combined Morning & Afternoon schedule output, and
+                                12-hour time display.
                             </p>
 
                             <div className="flex items-center gap-2">
@@ -1074,7 +1102,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                     <TableRow>
                                                         <TableHead className="w-40">Period</TableHead>
                                                         <TableHead className="w-36">Day</TableHead>
-                                                        <TableHead className="w-40">Time</TableHead>
+                                                        <TableHead className="w-48">Time</TableHead>
                                                         <TableHead>Instructor</TableHead>
                                                         <TableHead>Subject</TableHead>
                                                         <TableHead className="w-28">Section</TableHead>
@@ -1098,9 +1126,7 @@ export default function AdminRoomsAndFacilitiesPage() {
                                                             <TableCell className="font-medium">
                                                                 {normalizeDayLabel(item.dayOfWeek)}
                                                             </TableCell>
-                                                            <TableCell>
-                                                                {item.startTime} - {item.endTime}
-                                                            </TableCell>
+                                                            <TableCell>{buildPrintableTimeText(item)}</TableCell>
                                                             <TableCell>
                                                                 <div className="font-medium">
                                                                     {buildPrintableInstructorText(item)}

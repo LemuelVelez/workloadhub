@@ -22,6 +22,8 @@ export type RoomSchedulePrintItem = {
     dayOfWeek: string
     startTime: string
     endTime: string
+    displayStartTime?: string | null
+    displayEndTime?: string | null
     facultyName?: string | null
     subjectCode?: string | null
     subjectTitle?: string | null
@@ -79,7 +81,7 @@ const NOON_BREAK_SLOT = "12:01-1:00"
 
 const MORNING_LABEL = "Morning"
 const AFTERNOON_LABEL = "Afternoon"
-const BOTH_LABEL = "Both"
+const BOTH_LABEL = "Morning & Afternoon"
 const MORNING_END_MINUTES = 12 * 60
 const AFTERNOON_START_MINUTES = 13 * 60
 
@@ -161,13 +163,11 @@ function parseClockMinutes(value: string) {
     const raw = normalizeText(value)
     if (!raw) return null
 
-    if (/\b(am|pm)\b/i.test(raw)) {
-        const m = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
-        if (!m) return null
-
-        let hh = Number(m[1])
-        const mm = Number(m[2])
-        const suffix = m[3].toUpperCase()
+    const ampm = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+    if (ampm) {
+        let hh = Number(ampm[1])
+        const mm = Number(ampm[2])
+        const suffix = ampm[3].toUpperCase()
 
         if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
         if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null
@@ -178,11 +178,11 @@ function parseClockMinutes(value: string) {
         return hh * 60 + mm
     }
 
-    const m = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
-    if (!m) return null
+    const timeMatch = raw.match(/(\d{1,2}):(\d{2})(?::\d{2})?/)
+    if (!timeMatch) return null
 
-    const hh = Number(m[1])
-    const mm = Number(m[2])
+    const hh = Number(timeMatch[1])
+    const mm = Number(timeMatch[2])
 
     if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
     if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
@@ -195,6 +195,13 @@ function scheduleScopeLabel(scope: RoomScheduleScope | "") {
     if (scope === "AFTERNOON") return AFTERNOON_LABEL
     if (scope === "BOTH") return BOTH_LABEL
     return ""
+}
+
+function scheduleScopeFilenameLabel(scope: RoomScheduleScope | "") {
+    if (scope === "MORNING") return "morning"
+    if (scope === "AFTERNOON") return "afternoon"
+    if (scope === "BOTH") return "morning-afternoon"
+    return "schedule"
 }
 
 function inferScheduleScope(startTime: string, endTime: string): RoomScheduleScope | "" {
@@ -545,6 +552,10 @@ export function RoomSchedulePrintSheet({
         () => scheduleScopeLabel(scheduleScope),
         [scheduleScope]
     )
+    const selectedScheduleFileLabel = React.useMemo(
+        () => scheduleScopeFilenameLabel(scheduleScope),
+        [scheduleScope]
+    )
     const filteredItems = React.useMemo(
         () => items.filter((item) => matchesScheduleScope(item, scheduleScope)),
         [items, scheduleScope]
@@ -602,7 +613,7 @@ export function RoomSchedulePrintSheet({
             .trim()
             .replace(/[^a-zA-Z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "")
-            .toLowerCase() || "room"}_${selectedScheduleLabel.toLowerCase() || "schedule"}_${formatTimestamp(
+            .toLowerCase() || "room"}_${selectedScheduleFileLabel}_${formatTimestamp(
             generatedAt
         )}.pdf`
 
@@ -1016,6 +1027,7 @@ export function RoomSchedulePrintSheet({
         yearBadge,
         meetingBlocks,
         selectedScheduleLabel,
+        selectedScheduleFileLabel,
     ])
 
     const ensurePdfPreview = React.useCallback(async () => {
@@ -1123,7 +1135,8 @@ export function RoomSchedulePrintSheet({
                         </DialogTitle>
                         <DialogDescription>
                             A4 landscape room monitoring sheet filtered to the selected schedule with
-                            visible instructor assignments and clear morning, afternoon, or both labels.
+                            visible instructor assignments and clear morning, afternoon, or combined
+                            labels.
                         </DialogDescription>
                     </DialogHeader>
 
