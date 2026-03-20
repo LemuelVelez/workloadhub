@@ -408,11 +408,19 @@ export default function AdminSchedulesPage() {
             }
 
             const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
+            const selectedVersionTermId = String(selectedVersion.termId || "").trim()
+            const selectedVersionDeptId = String(selectedVersion.departmentId || "").trim()
+
             const scopedSubjects = allSubjects
+                .filter((s) => s.isActive !== false)
                 .filter((s) => {
-                    const sid = String(s.departmentId || "").trim()
-                    if (!sid) return true
-                    return sid === String(selectedVersion.departmentId)
+                    const subjectDeptId = String(s.departmentId || "").trim()
+                    if (subjectDeptId && subjectDeptId !== selectedVersionDeptId) return false
+
+                    const subjectTermId = String(s.termId || "").trim()
+                    if (!selectedVersionTermId) return !subjectTermId
+
+                    return subjectTermId === selectedVersionTermId
                 })
                 .sort((a, b) => {
                     const ac = String(a.code || "").toLowerCase()
@@ -458,6 +466,13 @@ export default function AdminSchedulesPage() {
     React.useEffect(() => {
         void fetchScheduleContext()
     }, [fetchScheduleContext])
+
+    React.useEffect(() => {
+        setFormSubjectId((prev) => {
+            if (prev && subjects.some((subject) => subject.$id === prev)) return prev
+            return subjects[0]?.$id || ""
+        })
+    }, [subjects])
 
     const scheduleRows = React.useMemo<ScheduleRow[]>(() => {
         const classMap = new Map<string, ClassDoc>()
