@@ -800,8 +800,8 @@ function SchedulePdfDocument({
                                         type === "LAB"
                                             ? styles.typePillLab
                                             : type === "LECTURE"
-                                                ? styles.typePillLecture
-                                                : styles.typePillOther
+                                              ? styles.typePillLecture
+                                              : styles.typePillOther
 
                                     return (
                                         <View
@@ -932,6 +932,7 @@ export function PlannerManagementSection({
     onConfirmDeleteEntry,
 }: Props) {
     const [pdfPreviewOpen, setPdfPreviewOpen] = React.useState(false)
+    const [actionMenuMeetingId, setActionMenuMeetingId] = React.useState<string | null>(null)
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
@@ -944,6 +945,25 @@ export function PlannerManagementSection({
         if (!selectedSection) return "—"
         return sectionDisplayLookup[selectedSection.$id] || "—"
     }, [selectedSection, sectionDisplayLookup])
+
+    const queueRowAction = React.useCallback((action: () => void) => {
+        setActionMenuMeetingId(null)
+        window.setTimeout(action, 0)
+    }, [])
+
+    const handleEditEntrySelect = React.useCallback(
+        (row: ScheduleRow) => {
+            queueRowAction(() => onOpenEditEntry(row))
+        },
+        [onOpenEditEntry, queueRowAction]
+    )
+
+    const handleDeleteEntrySelect = React.useCallback(
+        (row: ScheduleRow) => {
+            queueRowAction(() => setDeleteTarget(row))
+        },
+        [queueRowAction, setDeleteTarget]
+    )
 
     const renderConflictBadges = (flags?: ConflictFlags) => {
         if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
@@ -1167,7 +1187,7 @@ export function PlannerManagementSection({
                                 Drag left or right anywhere in the table to scroll horizontally.
                             </div>
 
-                            <Table dragScroll className="min-w-max table-fixed">
+                            <Table className="min-w-max table-fixed">
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Day</TableHead>
@@ -1241,7 +1261,14 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="align-top text-right">
-                                                    <DropdownMenu>
+                                                    <DropdownMenu
+                                                        open={actionMenuMeetingId === row.meetingId}
+                                                        onOpenChange={(open) =>
+                                                            setActionMenuMeetingId((current) =>
+                                                                open ? row.meetingId : current === row.meetingId ? null : current
+                                                            )
+                                                        }
+                                                    >
                                                         <DropdownMenuTrigger asChild>
                                                             <Button variant="ghost" size="icon" className="rounded-xl">
                                                                 <MoreHorizontal className="size-4" />
@@ -1250,13 +1277,13 @@ export function PlannerManagementSection({
                                                         <DropdownMenuContent align="end" className="w-56">
                                                             <DropdownMenuLabel>Entry Actions</DropdownMenuLabel>
                                                             <DropdownMenuSeparator />
-                                                            <DropdownMenuItem onClick={() => onOpenEditEntry(row)}>
+                                                            <DropdownMenuItem onSelect={() => handleEditEntrySelect(row)}>
                                                                 <Pencil className="mr-2 size-4" />
                                                                 Edit entry
                                                             </DropdownMenuItem>
                                                             <DropdownMenuItem
-                                                                onClick={() => setDeleteTarget(row)}
-                                                                className="text-destructive"
+                                                                variant="destructive"
+                                                                onSelect={() => handleDeleteEntrySelect(row)}
                                                             >
                                                                 <Trash2 className="mr-2 size-4" />
                                                                 Delete entry
@@ -1303,7 +1330,7 @@ export function PlannerManagementSection({
                                 Drag left or right anywhere in the table to scroll horizontally.
                             </div>
 
-                            <Table dragScroll className="min-w-max table-fixed">
+                            <Table className="min-w-max table-fixed">
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Laboratory Room</TableHead>
