@@ -63,7 +63,7 @@ export type RoomSchedulePrintSheetProps = {
 }
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
-const NOON_BREAK_SLOT = "12:01-1:00"
+const NOON_BREAK_SLOT = "12:00-1:00"
 
 const MORNING_LABEL = "Morning"
 const AFTERNOON_LABEL = "Afternoon"
@@ -72,6 +72,7 @@ const MORNING_END_MINUTES = 12 * 60
 const AFTERNOON_START_MINUTES = 13 * 60
 const MINUTES_PER_HALF_DAY = 12 * 60
 const MINUTES_PER_DAY = 24 * 60
+const SLOT_EDGE_TOLERANCE_MINUTES = 1
 
 const PAGE_PADDING_TOP = 18
 const PAGE_PADDING_RIGHT = 22
@@ -125,6 +126,12 @@ type SlotDescriptor = {
     start: number
     end: number
     isNoonBreak: boolean
+}
+
+type SlotLayoutDescriptor = SlotDescriptor & {
+    rowIndex: number
+    top: number
+    bottom: number
 }
 
 type PdfLayoutMetrics = {
@@ -420,14 +427,34 @@ function parseSlotRange(slotLabel: string) {
     return { start, end }
 }
 
-function isNoonBreakSlot(slotLabel: string) {
-    return normalizeText(slotLabel) === NOON_BREAK_SLOT
+function isNoonBreakRange(start: number, end: number) {
+    return start === MORNING_END_MINUTES && end === AFTERNOON_START_MINUTES
 }
 
-function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+function isNoonBreakSlot(slotLabel: string) {
+    const parsed = parseSlotRange(slotLabel)
+    if (!parsed) return normalizeText(slotLabel) === NOON_BREAK_SLOT
+
+    const normalizedEnd =
+        parsed.end <= parsed.start ? parsed.end + MINUTES_PER_HALF_DAY : parsed.end
+
+    return isNoonBreakRange(parsed.start, normalizedEnd)
+}
+
+function rangesOverlap(
+    aStart: number,
+    aEnd: number,
+    bStart: number,
+    bEnd: number,
+    toleranceMinutes = 0
+) {
     const normalizedAEnd = aEnd <= aStart ? aStart + 1 : aEnd
     const normalizedBEnd = bEnd <= bStart ? bStart + 1 : bEnd
-    return aStart < normalizedBEnd && bStart < normalizedAEnd
+
+    return (
+        aStart < normalizedBEnd + toleranceMinutes &&
+        bStart < normalizedAEnd + toleranceMinutes
+    )
 }
 
 function parseOrderedSlotDescriptors(timeSlots: string[]) {
@@ -441,8 +468,9 @@ function parseOrderedSlotDescriptors(timeSlots: string[]) {
             let start = parsed.start
             let end = parsed.end
 
-            while (previousEnd >= 0 && start <= previousEnd) {
+            while (previousEnd >= 0 && start < previousEnd) {
                 start += MINUTES_PER_HALF_DAY
+                end += MINUTES_PER_HALF_DAY
             }
 
             while (end <= start) {
@@ -455,7 +483,7 @@ function parseOrderedSlotDescriptors(timeSlots: string[]) {
                 label: slot,
                 start,
                 end,
-                isNoonBreak: isNoonBreakSlot(slot),
+                isNoonBreak: isNoonBreakRange(start, end),
             } satisfies SlotDescriptor
         })
         .filter(Boolean) as SlotDescriptor[]
@@ -488,6 +516,44 @@ function buildSlotMeta(
             end,
         }
     })
+}
+
+function buildSlotLayoutDescriptors(
+    timeSlots: string[],
+    scheduleScope: RoomScheduleScope,
+    rowHeight: number
+) {
+    const slotMeta = buildSlotMeta(timeSlots, scheduleScope)
+    let currentTop = 0
+
+    return slotMeta.map((slot, rowIndex) => {
+        const top = currentTop
+        const bottom = top + rowHeight
+        currentTop = bottom
+
+        return {
+            ...slot,
+            rowIndex,
+            top,
+            bottom,
+        } satisfies SlotLayoutDescriptor
+    })
+}
+
+function resolveMinutePositionWithinSlot(slot: SlotLayoutDescriptor, minute: number) {
+    const duration = Math.max(slot.end - slot.start, 1)
+    let normalizedMinute = minute
+
+    if (Math.abs(normalizedMinute - slot.start) <= SLOT_EDGE_TOLERANCE_MINUTES) {
+        normalizedMinute = slot.start
+    } else if (Math.abs(normalizedMinute - slot.end) <= SLOT_EDGE_TOLERANCE_MINUTES) {
+        normalizedMinute = slot.end
+    }
+
+    const clampedMinute = Math.min(Math.max(normalizedMinute, slot.start), slot.end)
+    const ratio = (clampedMinute - slot.start) / duration
+
+    return slot.top + ratio * (slot.bottom - slot.top)
 }
 
 function resolveItemTimeRange(
@@ -535,7 +601,14 @@ function resolveItemTimeRange(
     const matchesAnySlot = (range: { start: number; end: number }) =>
         slotMeta.some(
             (slot) =>
-                !slot.isNoonBreak && rangesOverlap(range.start, range.end, slot.start, slot.end)
+                !slot.isNoonBreak &&
+                rangesOverlap(
+                    range.start,
+                    range.end,
+                    slot.start,
+                    slot.end,
+                    SLOT_EDGE_TOLERANCE_MINUTES
+                )
         )
 
     if (slotMeta.length > 0) {
@@ -620,6 +693,58 @@ function buildLabelsFromBoundaries(boundaries: number[], preferredDuration: numb
     return labels
 }
 
+function formatSlotDescriptorLabel(slot: SlotDescriptor) {
+    if (slot.isNoonBreak) return NOON_BREAK_SLOT
+    return `${formatMinutesToSlotClock(slot.start)}-${formatMinutesToSlotClock(slot.end)}`
+}
+
+function splitSlotDescriptorAtBoundaries(slot: SlotDescriptor, boundaries: number[]) {
+    if (slot.isNoonBreak) {
+        return [
+            {
+                ...slot,
+                label: formatSlotDescriptorLabel(slot),
+            },
+        ] satisfies SlotDescriptor[]
+    }
+
+    const relevantBoundaries = Array.from(
+        new Set(
+            boundaries.filter((boundary) => boundary > slot.start && boundary < slot.end)
+        )
+    ).sort((a, b) => a - b)
+
+    if (relevantBoundaries.length === 0) {
+        return [
+            {
+                ...slot,
+                label: formatSlotDescriptorLabel(slot),
+            },
+        ] satisfies SlotDescriptor[]
+    }
+
+    const edges = [slot.start, ...relevantBoundaries, slot.end]
+    const segments: SlotDescriptor[] = []
+
+    for (let index = 0; index < edges.length - 1; index += 1) {
+        const start = edges[index]
+        const end = edges[index + 1]
+
+        if (end <= start) continue
+
+        const segment = {
+            label: `${formatMinutesToSlotClock(start)}-${formatMinutesToSlotClock(end)}`,
+            start,
+            end,
+            isNoonBreak: isNoonBreakRange(start, end),
+        } satisfies SlotDescriptor
+
+        segments.push(segment)
+    }
+
+    return segments
+}
+
 function resolveAutoTimeSlots(items: RoomSchedulePrintItem[], timeSlots?: string[]) {
     const explicitSlots = parseOrderedSlotDescriptors(timeSlots ?? [])
     const preferredDuration = inferPreferredSlotDuration(items, explicitSlots)
@@ -633,11 +758,18 @@ function resolveAutoTimeSlots(items: RoomSchedulePrintItem[], timeSlots?: string
         return buildLabelsFromBoundaries(boundaries, preferredDuration)
     }
 
+    const itemBoundaries = Array.from(
+        new Set(itemRanges.flatMap((range) => [range.start, range.end]))
+    ).sort((a, b) => a - b)
+
+    const descriptors = explicitSlots.flatMap((slot) =>
+        splitSlotDescriptorAtBoundaries(slot, itemBoundaries)
+    )
+
     if (itemRanges.length === 0) {
-        return explicitSlots.map((slot) => slot.label)
+        return descriptors.map((slot) => slot.label)
     }
 
-    const descriptors = [...explicitSlots]
     const minItemStart = Math.min(...itemRanges.map((range) => range.start))
     const maxItemEnd = Math.max(...itemRanges.map((range) => range.end))
 
@@ -647,12 +779,18 @@ function resolveAutoTimeSlots(items: RoomSchedulePrintItem[], timeSlots?: string
 
         while (minItemStart < firstStart) {
             const nextStart = Math.max(minItemStart, firstStart - preferredDuration)
-            prepended.unshift({
+            const slot = {
                 label: `${formatMinutesToSlotClock(nextStart)}-${formatMinutesToSlotClock(firstStart)}`,
                 start: nextStart,
                 end: firstStart,
-                isNoonBreak: false,
+                isNoonBreak: isNoonBreakRange(nextStart, firstStart),
+            } satisfies SlotDescriptor
+
+            prepended.unshift({
+                ...slot,
+                label: formatSlotDescriptorLabel(slot),
             })
+
             if (nextStart === firstStart) break
             firstStart = nextStart
         }
@@ -662,12 +800,18 @@ function resolveAutoTimeSlots(items: RoomSchedulePrintItem[], timeSlots?: string
 
         while (maxItemEnd > lastEnd) {
             const nextEnd = Math.min(maxItemEnd, lastEnd + preferredDuration)
-            appended.push({
+            const slot = {
                 label: `${formatMinutesToSlotClock(lastEnd)}-${formatMinutesToSlotClock(nextEnd)}`,
                 start: lastEnd,
                 end: nextEnd,
-                isNoonBreak: false,
+                isNoonBreak: isNoonBreakRange(lastEnd, nextEnd),
+            } satisfies SlotDescriptor
+
+            appended.push({
+                ...slot,
+                label: formatSlotDescriptorLabel(slot),
             })
+
             if (nextEnd === lastEnd) break
             lastEnd = nextEnd
         }
@@ -675,7 +819,7 @@ function resolveAutoTimeSlots(items: RoomSchedulePrintItem[], timeSlots?: string
         return [...prepended, ...descriptors, ...appended].map((slot) => slot.label)
     }
 
-    const boundaries = [...explicitSlots.flatMap((slot) => [slot.start, slot.end])]
+    const boundaries = [...descriptors.flatMap((slot) => [slot.start, slot.end])]
     for (const range of itemRanges) {
         boundaries.push(range.start, range.end)
     }
@@ -938,7 +1082,7 @@ function buildMeetingBlocks(
     rowHeight: number,
     blockScale: number
 ) {
-    const slotMeta = buildSlotMeta(timeSlots, scheduleScope)
+    const slotLayouts = buildSlotLayoutDescriptors(timeSlots, scheduleScope, rowHeight)
     const blocks: Array<{
         id: string
         day: string
@@ -963,35 +1107,39 @@ function buildMeetingBlocks(
         const dayIndex = DAYS.findIndex((d) => d === day)
         if (dayIndex < 0) continue
 
-        const range = resolveItemTimeRange(item, slotMeta)
+        const range = resolveItemTimeRange(item, slotLayouts)
         if (!range) continue
 
-        const matchedRows: number[] = []
-        for (let rowIndex = 0; rowIndex < slotMeta.length; rowIndex += 1) {
-            const slot = slotMeta[rowIndex]
-            if (slot.isNoonBreak) continue
+        const matchedSlots = slotLayouts.filter(
+            (slot) =>
+                !slot.isNoonBreak &&
+                rangesOverlap(
+                    range.start,
+                    range.end,
+                    slot.start,
+                    slot.end,
+                    SLOT_EDGE_TOLERANCE_MINUTES
+                )
+        )
 
-            if (rangesOverlap(range.start, range.end, slot.start, slot.end)) {
-                matchedRows.push(rowIndex)
-            }
-        }
+        if (matchedSlots.length === 0) continue
 
-        if (matchedRows.length === 0) continue
+        const firstSlot = matchedSlots[0]
+        const lastSlot = matchedSlots[matchedSlots.length - 1]
 
-        const rowIndex = matchedRows[0]
-        const rowSpan = matchedRows.length
+        const top = resolveMinutePositionWithinSlot(firstSlot, range.start)
+        const bottom = resolveMinutePositionWithinSlot(lastSlot, range.end)
         const left = dayIndex * (DAY_COL_WIDTH + SIGN_COL_WIDTH)
-        const top = rowIndex * rowHeight
         const width = DAY_COL_WIDTH
-        const height = Math.max(rowSpan * rowHeight - 1, rowHeight)
+        const height = Math.max(bottom - top, 1)
         const blockContent = resolveScaledBlockContent(item, width, height, blockScale)
 
         blocks.push({
             id: normalizeText(item.id) || `${day}-${item.startTime}-${item.endTime}-${index}`,
             day,
             dayIndex,
-            rowIndex,
-            rowSpan,
+            rowIndex: firstSlot.rowIndex,
+            rowSpan: matchedSlots.length,
             top,
             left,
             width,
