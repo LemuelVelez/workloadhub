@@ -359,11 +359,32 @@ function inferScheduleScope(startTime: string, endTime: string): RoomScheduleSco
 }
 
 function resolveItemScheduleScopeFromLabel(item: RoomSchedulePrintItem): RoomScheduleScope | "" {
-    const raw = normalizeText(item.groupLabel).toLowerCase()
+    const candidates = [
+        item.groupLabel,
+        item.displayLabel,
+        ...(item.contentLines ?? []),
+    ]
+        .map((value) => normalizeScheduleMarkerText(String(value ?? "")))
+        .filter(Boolean)
 
-    if (raw.includes("morning")) return "MORNING"
-    if (raw.includes("afternoon")) return "AFTERNOON"
-    if (raw.includes("combined") || raw.includes("both")) return "BOTH"
+    if (candidates.length === 0) return ""
+
+    for (const raw of candidates) {
+        if (
+            raw === "both" ||
+            raw === "combined" ||
+            raw === "morning and afternoon" ||
+            raw === "afternoon and morning" ||
+            (raw.includes("morning") && raw.includes("afternoon"))
+        ) {
+            return "BOTH"
+        }
+    }
+
+    for (const raw of candidates) {
+        if (raw.includes("morning")) return "MORNING"
+        if (raw.includes("afternoon")) return "AFTERNOON"
+    }
 
     return ""
 }
