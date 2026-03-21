@@ -189,6 +189,10 @@ const AFTERNOON_LABEL = "Afternoon"
 const BOTH_LABEL = "Morning & Afternoon"
 const MORNING_END_MINUTES = 12 * 60
 const AFTERNOON_START_MINUTES = 13 * 60
+const MINUTES_PER_DAY = 24 * 60
+const PRINTABLE_TIME_DAY_START_MINUTES = 6 * 60
+const PRINTABLE_TIME_DAY_END_MINUTES = 22 * 60
+const MAX_REASONABLE_CLASS_DURATION_MINUTES = 8 * 60
 
 function str(v: any) {
     return String(v ?? "").trim()
@@ -269,11 +273,153 @@ function parseClockMinutes(value: any) {
     return hh * 60 + mm
 }
 
+function parsePrintableClockMinutes(value: any) {
+    return parseClockMinutes(value)
+}
+
+function parsePrintableClockCandidateMinutes(value: any) {
+    const raw = str(value)
+    if (!raw) return [] as number[]
+
+    const parsed = parseClockMinutes(raw)
+    if (!Number.isFinite(parsed)) return [] as number[]
+
+    const hasMeridiem = /\b(?:AM|PM)\b/i.test(raw)
+    const plain = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
+
+    if (hasMeridiem || !plain) {
+        return [parsed]
+    }
+
+    const hh = Number(plain[1])
+    const mm = Number(plain[2])
+
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) {
+        return [parsed]
+    }
+
+    const candidates = new Set<number>([hh * 60 + mm])
+
+    if (hh >= 1 && hh <= 11) {
+        const shifted = (hh + 12) * 60 + mm
+        if (shifted < MINUTES_PER_DAY) {
+            candidates.add(shifted)
+        }
+    }
+
+    return Array.from(candidates).sort((a, b) => a - b)
+}
+
+function formatMinutesTo24Hour(totalMinutes: number) {
+    const normalized = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY
+    const hh = Math.floor(normalized / 60)
+    const mm = normalized % 60
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`
+}
+
+function normalizePrintableTimeTo24Hour(value: any) {
+    const minutes = parsePrintableClockMinutes(value)
+    if (!Number.isFinite(minutes)) return str(value)
+    return formatMinutesTo24Hour(minutes)
+}
+
+function scorePrintableTimeRange(startMinutes: number, endMinutes: number) {
+    if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+        return Number.NEGATIVE_INFINITY
+    }
+
+    const duration = endMinutes - startMinutes
+    let score = 0
+
+    if (
+        startMinutes >= PRINTABLE_TIME_DAY_START_MINUTES &&
+        endMinutes <= PRINTABLE_TIME_DAY_END_MINUTES
+    ) {
+        score += 6
+    }
+
+    if (duration >= 30 && duration <= MAX_REASONABLE_CLASS_DURATION_MINUTES) {
+        score += 5
+    } else if (duration > 0 && duration <= 12 * 60) {
+        score += 2
+    } else {
+        score -= 6
+    }
+
+    if (startMinutes < PRINTABLE_TIME_DAY_START_MINUTES) {
+        score -= 3
+    }
+
+    if (endMinutes > PRINTABLE_TIME_DAY_END_MINUTES) {
+        score -= 3
+    }
+
+    return score
+}
+
+function normalizePrintableTimeRangeTo24Hour(startValue: any, endValue: any) {
+    const startCandidates = parsePrintableClockCandidateMinutes(startValue)
+    const endCandidates = parsePrintableClockCandidateMinutes(endValue)
+
+    if (startCandidates.length === 0 || endCandidates.length === 0) {
+        return {
+            normalizedStartTime: normalizePrintableTimeTo24Hour(startValue),
+            normalizedEndTime: normalizePrintableTimeTo24Hour(endValue),
+        }
+    }
+
+    let bestRange:
+        | {
+              startMinutes: number
+              endMinutes: number
+              score: number
+              duration: number
+          }
+        | null = null
+
+    for (const startMinutes of startCandidates) {
+        for (const endMinutes of endCandidates) {
+            if (endMinutes <= startMinutes) continue
+
+            const duration = endMinutes - startMinutes
+            const score = scorePrintableTimeRange(startMinutes, endMinutes)
+
+            if (
+                !bestRange ||
+                score > bestRange.score ||
+                (score === bestRange.score && duration < bestRange.duration) ||
+                (score === bestRange.score &&
+                    duration === bestRange.duration &&
+                    startMinutes < bestRange.startMinutes)
+            ) {
+                bestRange = {
+                    startMinutes,
+                    endMinutes,
+                    score,
+                    duration,
+                }
+            }
+        }
+    }
+
+    if (!bestRange) {
+        return {
+            normalizedStartTime: normalizePrintableTimeTo24Hour(startValue),
+            normalizedEndTime: normalizePrintableTimeTo24Hour(endValue),
+        }
+    }
+
+    return {
+        normalizedStartTime: formatMinutesTo24Hour(bestRange.startMinutes),
+        normalizedEndTime: formatMinutesTo24Hour(bestRange.endMinutes),
+    }
+}
+
 function formatClockTo12Hour(value: any) {
-    const minutes = parseClockMinutes(value)
+    const minutes = parsePrintableClockMinutes(value)
     if (!Number.isFinite(minutes)) return str(value)
 
-    const normalized = ((minutes % (24 * 60)) + 24 * 60) % (24 * 60)
+    const normalized = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY
     const hh24 = Math.floor(normalized / 60)
     const mm = normalized % 60
     const suffix = hh24 >= 12 ? "PM" : "AM"
@@ -302,8 +448,8 @@ function scheduleScopeLabel(scope: RoomScheduleScope | "") {
 }
 
 function inferRoomScheduleScope(startTime: any, endTime: any): RoomScheduleScope | "" {
-    const start = parseClockMinutes(startTime)
-    const end = parseClockMinutes(endTime)
+    const start = parsePrintableClockMinutes(startTime)
+    const end = parsePrintableClockMinutes(endTime)
 
     if (!Number.isFinite(start) || !Number.isFinite(end)) return ""
 
@@ -316,9 +462,16 @@ function inferRoomScheduleScope(startTime: any, endTime: any): RoomScheduleScope
 function resolveRoomScheduleScope(item: RoomSchedulePrintItem): RoomScheduleScope | "" {
     const raw = str(item.groupLabel).toLowerCase()
 
+    if (
+        raw.includes("combined") ||
+        raw.includes("both") ||
+        (raw.includes("morning") && raw.includes("afternoon"))
+    ) {
+        return "BOTH"
+    }
+
     if (raw.includes("morning")) return "MORNING"
     if (raw.includes("afternoon")) return "AFTERNOON"
-    if (raw.includes("combined") || raw.includes("both")) return "BOTH"
 
     return inferRoomScheduleScope(item.startTime, item.endTime)
 }
@@ -396,8 +549,8 @@ function buildPrintableItemIdentity(item: RoomSchedulePrintItem) {
         str(item.id) ||
         [
             normalizeDayLabel(item.dayOfWeek),
-            str(item.startTime),
-            str(item.endTime),
+            normalizePrintableTimeTo24Hour(item.startTime),
+            normalizePrintableTimeTo24Hour(item.endTime),
             str(item.subjectCode),
             str(item.subjectTitle),
             str(item.sectionLabel),
@@ -410,8 +563,8 @@ function buildPrintableItemIdentity(item: RoomSchedulePrintItem) {
 function buildPrintableDuplicateKey(item: RoomSchedulePrintItem) {
     return [
         normalizeDayLabel(item.dayOfWeek).toLowerCase(),
-        str(item.startTime),
-        str(item.endTime),
+        normalizePrintableTimeTo24Hour(item.startTime),
+        normalizePrintableTimeTo24Hour(item.endTime),
         str(item.subjectCode).toLowerCase(),
         str(item.subjectTitle).toLowerCase(),
         str(item.sectionLabel).toLowerCase(),
@@ -426,10 +579,10 @@ function comparePrintableItems(a: RoomSchedulePrintItem, b: RoomSchedulePrintIte
 
     if (dayDiff !== 0) return dayDiff
 
-    const startDiff = parseClockMinutes(a.startTime) - parseClockMinutes(b.startTime)
+    const startDiff = parsePrintableClockMinutes(a.startTime) - parsePrintableClockMinutes(b.startTime)
     if (startDiff !== 0) return startDiff
 
-    const endDiff = parseClockMinutes(a.endTime) - parseClockMinutes(b.endTime)
+    const endDiff = parsePrintableClockMinutes(a.endTime) - parsePrintableClockMinutes(b.endTime)
     if (endDiff !== 0) return endDiff
 
     const subjectDiff = buildPrintableSubjectLabel(a).localeCompare(buildPrintableSubjectLabel(b))
@@ -442,18 +595,18 @@ function comparePrintableItems(a: RoomSchedulePrintItem, b: RoomSchedulePrintIte
 }
 
 function isValidPrintableTimeRange(item: RoomSchedulePrintItem) {
-    const start = parseClockMinutes(item.startTime)
-    const end = parseClockMinutes(item.endTime)
+    const start = parsePrintableClockMinutes(item.startTime)
+    const end = parsePrintableClockMinutes(item.endTime)
     return Number.isFinite(start) && Number.isFinite(end) && end > start
 }
 
 function doPrintableItemsOverlap(a: RoomSchedulePrintItem, b: RoomSchedulePrintItem) {
     if (normalizeDayLabel(a.dayOfWeek) !== normalizeDayLabel(b.dayOfWeek)) return false
 
-    const aStart = parseClockMinutes(a.startTime)
-    const aEnd = parseClockMinutes(a.endTime)
-    const bStart = parseClockMinutes(b.startTime)
-    const bEnd = parseClockMinutes(b.endTime)
+    const aStart = parsePrintableClockMinutes(a.startTime)
+    const aEnd = parsePrintableClockMinutes(a.endTime)
+    const bStart = parsePrintableClockMinutes(b.startTime)
+    const bEnd = parsePrintableClockMinutes(b.endTime)
 
     if (![aStart, aEnd, bStart, bEnd].every(Number.isFinite)) return false
     return aStart < bEnd && bStart < aEnd
@@ -862,14 +1015,19 @@ async function fetchRoomPrintableSchedule(params: {
         const faculty =
             klass && klass.facultyUserId ? facultyByLookupId.get(str(klass.facultyUserId)) : null
 
+        const { normalizedStartTime, normalizedEndTime } = normalizePrintableTimeRangeTo24Hour(
+            meeting.startTime,
+            meeting.endTime
+        )
+
         const facultyName = str(faculty?.name) || str(faculty?.email) || "Unassigned Instructor"
         const subjectCode = str(subject?.code)
         const subjectTitle = str(subject?.title)
         const sectionLabel = buildSectionLabel(section)
-        const scheduleScope = inferRoomScheduleScope(meeting.startTime, meeting.endTime)
+        const scheduleScope = inferRoomScheduleScope(normalizedStartTime, normalizedEndTime)
         const periodLabel = scheduleScopeLabel(scheduleScope)
-        const displayStartTime = formatClockTo12Hour(meeting.startTime)
-        const displayEndTime = formatClockTo12Hour(meeting.endTime)
+        const displayStartTime = formatClockTo12Hour(normalizedStartTime)
+        const displayEndTime = formatClockTo12Hour(normalizedEndTime)
 
         const lineTwoParts = [subjectCode, sectionLabel].filter(Boolean)
         const lineThree = subjectTitle || str(klass?.classCode)
@@ -879,8 +1037,8 @@ async function fetchRoomPrintableSchedule(params: {
         return {
             id: meeting.$id,
             dayOfWeek: meeting.dayOfWeek,
-            startTime: meeting.startTime,
-            endTime: meeting.endTime,
+            startTime: normalizedStartTime,
+            endTime: normalizedEndTime,
             displayStartTime,
             displayEndTime,
             facultyName,
