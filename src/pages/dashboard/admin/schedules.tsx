@@ -107,6 +107,7 @@ export default function AdminSchedulesPage() {
     const [formDeliveryMode, setFormDeliveryMode] = React.useState("")
     const [formRemarks, setFormRemarks] = React.useState("")
     const [formAllowConflictSave, setFormAllowConflictSave] = React.useState(false)
+    const [editingEntry, setEditingEntry] = React.useState<ScheduleRow | null>(null)
 
     const termMap = React.useMemo(() => {
         const m = new Map<string, AcademicTermDoc>()
@@ -646,10 +647,56 @@ export default function AdminSchedulesPage() {
         setFormAllowConflictSave(false)
     }, [sections, subjects, rooms])
 
+    const handleEntryDialogOpenChange = React.useCallback((nextOpen: boolean) => {
+        setEntryDialogOpen(nextOpen)
+        if (!nextOpen) {
+            setFormAllowConflictSave(false)
+            setEditingEntry(null)
+        }
+    }, [])
+
     const openCreateEntry = React.useCallback(() => {
+        setEditingEntry(null)
         resetEntryForm()
         setEntryDialogOpen(true)
     }, [resetEntryForm])
+
+    const openEditEntry = React.useCallback((row: ScheduleRow) => {
+        setEditingEntry(row)
+        setFormSectionId(String(row.sectionId || ""))
+        setFormSubjectId(String(row.subjectId || ""))
+        setFormFacultyChoice(
+            row.isManualFaculty
+                ? FACULTY_OPTION_MANUAL
+                : row.facultyUserId
+                  ? String(row.facultyUserId)
+                  : FACULTY_OPTION_NONE
+        )
+        setFormManualFaculty(String(row.manualFaculty || ""))
+        setFormRoomId(String(row.roomId || ""))
+        setFormDayOfWeek(String(row.dayOfWeek || "Monday"))
+        setFormStartTime(String(row.startTime || "07:00"))
+        setFormEndTime(String(row.endTime || "08:00"))
+        setFormMeetingType((row.meetingType || "LECTURE") as MeetingType)
+        setFormClassCode(String(row.classCode || ""))
+        setFormDeliveryMode(String(row.deliveryMode || ""))
+        setFormRemarks(String(row.classRemarks || ""))
+        setFormAllowConflictSave(false)
+        setEntryDialogOpen(true)
+    }, [
+        setFormSectionId,
+        setFormSubjectId,
+        setFormFacultyChoice,
+        setFormManualFaculty,
+        setFormRoomId,
+        setFormDayOfWeek,
+        setFormStartTime,
+        setFormEndTime,
+        setFormMeetingType,
+        setFormClassCode,
+        setFormDeliveryMode,
+        setFormRemarks,
+    ])
 
     const candidateConflicts = React.useMemo<CandidateConflict[]>(() => {
         if (!entryDialogOpen) return []
@@ -668,6 +715,9 @@ export default function AdminSchedulesPage() {
         const out: CandidateConflict[] = []
 
         for (const r of scheduleRows) {
+            if (editingEntry && (r.meetingId === editingEntry.meetingId || r.classId === editingEntry.classId)) {
+                continue
+            }
             if (normalizeText(r.dayOfWeek) !== normalizeText(formDayOfWeek)) continue
             if (!rangesOverlap(r.startTime, r.endTime, formStartTime, formEndTime)) continue
 
@@ -696,6 +746,7 @@ export default function AdminSchedulesPage() {
         formManualFaculty,
         formSectionId,
         scheduleRows,
+        editingEntry,
     ])
 
     const candidateConflictCounts = React.useMemo(() => {
@@ -772,32 +823,97 @@ export default function AdminSchedulesPage() {
                 facultyUserId,
                 classCode: formClassCode.trim() || null,
                 deliveryMode: formDeliveryMode.trim() || null,
-                status: "Planned",
                 remarks: composeRemarks(formRemarks, manualFaculty),
             }
 
-            const createdClass = await databases.createDocument(
-                DATABASE_ID,
-                COLLECTIONS.CLASSES,
-                ID.unique(),
-                classPayload
-            )
+            if (editingEntry) {
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASSES,
+                    editingEntry.classId,
+                    classPayload
+                )
 
-            await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                versionId: selectedVersion.$id,
-                classId: createdClass.$id,
-                dayOfWeek: formDayOfWeek,
-                startTime: formStartTime,
-                endTime: formEndTime,
-                roomId: formRoomId || null,
-                meetingType: formMeetingType,
-            })
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASS_MEETINGS,
+                    editingEntry.meetingId,
+                    {
+                        dayOfWeek: formDayOfWeek,
+                        startTime: formStartTime,
+                        endTime: formEndTime,
+                        roomId: formRoomId || null,
+                        meetingType: formMeetingType,
+                    }
+                )
 
-            toast.success("Schedule entry created.")
-            setEntryDialogOpen(false)
+                toast.success("Schedule entry updated.")
+            } else {
+                const createdClass = await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASSES,
+                    ID.unique(),
+                    {
+                        ...classPayload,
+                        status: "Planned",
+                    }
+                )
+
+                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                    versionId: selectedVersion.$id,
+                    classId: createdClass.$id,
+                    dayOfWeek: formDayOfWeek,
+                    startTime: formStartTime,
+                    endTime: formEndTime,
+                    roomId: formRoomId || null,
+                    meetingType: formMeetingType,
+                })
+
+                toast.success("Schedule entry created.")
+            }
+
+            handleEntryDialogOpenChange(false)
             await fetchScheduleContext()
         } catch (e: any) {
             toast.error(e?.message || "Failed to save schedule entry.")
+        } finally {
+            setEntrySaving(false)
+        }
+    }
+
+    const deleteEntry = async () => {
+        if (!editingEntry) {
+            toast.error("No schedule entry selected.")
+            return
+        }
+
+        setEntrySaving(true)
+        try {
+            const siblingMeetings = meetings.filter(
+                (meeting) =>
+                    String(meeting.classId || "") === String(editingEntry.classId || "") &&
+                    String(meeting.$id || "") !== String(editingEntry.meetingId || "")
+            )
+
+            await databases.deleteDocument(
+                DATABASE_ID,
+                COLLECTIONS.CLASS_MEETINGS,
+                editingEntry.meetingId
+            )
+
+            if (siblingMeetings.length === 0) {
+                await databases.deleteDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASSES,
+                    editingEntry.classId
+                )
+            }
+
+            toast.success("Schedule entry deleted.")
+            handleEntryDialogOpenChange(false)
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to delete schedule entry.")
         } finally {
             setEntrySaving(false)
         }
@@ -934,7 +1050,8 @@ export default function AdminSchedulesPage() {
                     selectedTermLabel={selectedTermLabel}
                     selectedDeptLabel={selectedDeptLabel}
                     entryDialogOpen={entryDialogOpen}
-                    setEntryDialogOpen={setEntryDialogOpen}
+                    setEntryDialogOpen={handleEntryDialogOpenChange}
+                    editingEntry={editingEntry}
                     formSectionId={formSectionId}
                     setFormSectionId={setFormSectionId}
                     formSubjectId={formSubjectId}
@@ -968,7 +1085,9 @@ export default function AdminSchedulesPage() {
                     subjects={subjects}
                     facultyProfiles={facultyProfiles}
                     rooms={rooms}
+                    onEditEntry={openEditEntry}
                     onSaveEntry={saveEntry}
+                    onDeleteEntry={deleteEntry}
                 />
             </div>
         </DashboardLayout>

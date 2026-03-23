@@ -7,12 +7,18 @@ import { useNavigate } from "react-router-dom"
 import {
     AlertTriangle,
     ArrowRight,
+    ArrowUpDown,
     CalendarDays,
     Eye,
     FlaskConical,
+    PencilLine,
     Plus,
     RefreshCcw,
+    Search,
+    SlidersHorizontal,
+    Trash2,
     UserCircle2,
+    X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Document, Image, Page, PDFViewer, StyleSheet, Text, View, pdf } from "@react-pdf/renderer"
@@ -20,6 +26,17 @@ import { Document, Image, Page, PDFViewer, StyleSheet, Text, View, pdf } from "@
 import { cn } from "@/lib/utils"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -58,7 +75,7 @@ import {
     FACULTY_OPTION_MANUAL,
     FACULTY_OPTION_NONE,
 } from "./schedule-types"
-import { fmtDate, formatTimeRange, meetingTypeLabel, roomTypeLabel, TIME_OPTIONS } from "./schedule-utils"
+import { dayOrder, fmtDate, formatTimeRange, meetingTypeLabel, roomTypeLabel, TIME_OPTIONS } from "./schedule-utils"
 
 type Props = {
     selectedVersion: ScheduleVersionDoc | null
@@ -87,6 +104,7 @@ type Props = {
 
     entryDialogOpen: boolean
     setEntryDialogOpen: (v: boolean) => void
+    editingEntry: ScheduleRow | null
 
     formSectionId: string
     setFormSectionId: (v: string) => void
@@ -124,10 +142,36 @@ type Props = {
     facultyProfiles: UserProfileDoc[]
     rooms: RoomDoc[]
 
+    onEditEntry: (row: ScheduleRow) => void
     onSaveEntry: () => Promise<void> | void
+    onDeleteEntry: () => Promise<void> | void
 }
 
 type SectionDisplayLookup = Record<string, string>
+type PlannerSortKey = "day" | "time" | "subject" | "section" | "faculty" | "room" | "type" | "conflicts"
+type PlannerSortDirection = "asc" | "desc"
+
+const PLANNER_SORT_OPTIONS: Array<{ value: PlannerSortKey; label: string }> = [
+    { value: "day", label: "Day" },
+    { value: "time", label: "Time" },
+    { value: "subject", label: "Subject" },
+    { value: "section", label: "Section" },
+    { value: "faculty", label: "Faculty" },
+    { value: "room", label: "Room" },
+    { value: "type", label: "Meeting Type" },
+    { value: "conflicts", label: "Conflict Count" },
+]
+
+function comparePlannerText(a?: string | number | null, b?: string | number | null) {
+    return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+    })
+}
+
+function countConflictFlags(flags?: ConflictFlags) {
+    return Number(Boolean(flags?.room)) + Number(Boolean(flags?.faculty)) + Number(Boolean(flags?.section))
+}
 
 const PDF_LEFT_LOGO_SRC = "/logo.png"
 const PDF_RIGHT_LOGO_SRC = "/CCS.png"
@@ -864,6 +908,7 @@ export function PlannerManagementSection({
     selectedDeptLabel,
     entryDialogOpen,
     setEntryDialogOpen,
+    editingEntry,
     formSectionId,
     setFormSectionId,
     formSubjectId,
@@ -897,10 +942,19 @@ export function PlannerManagementSection({
     subjects,
     facultyProfiles,
     rooms,
+    onEditEntry,
     onSaveEntry,
+    onDeleteEntry,
 }: Props) {
     const navigate = useNavigate()
     const [pdfPreviewOpen, setPdfPreviewOpen] = React.useState(false)
+    const [plannerSearch, setPlannerSearch] = React.useState("")
+    const [plannerDayFilter, setPlannerDayFilter] = React.useState("all")
+    const [plannerMeetingTypeFilter, setPlannerMeetingTypeFilter] = React.useState("all")
+    const [plannerRoomTypeFilter, setPlannerRoomTypeFilter] = React.useState("all")
+    const [plannerFacultyFilter, setPlannerFacultyFilter] = React.useState("all")
+    const [plannerSortKey, setPlannerSortKey] = React.useState<PlannerSortKey>("day")
+    const [plannerSortDirection, setPlannerSortDirection] = React.useState<PlannerSortDirection>("asc")
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
@@ -921,6 +975,20 @@ export function PlannerManagementSection({
     const goToRoomsAndFacilities = React.useCallback(() => {
         navigate(ROOMS_AND_FACILITIES_ROUTE)
     }, [navigate])
+
+    const resetPlannerViewControls = React.useCallback(() => {
+        setPlannerSearch("")
+        setPlannerDayFilter("all")
+        setPlannerMeetingTypeFilter("all")
+        setPlannerRoomTypeFilter("all")
+        setPlannerFacultyFilter("all")
+        setPlannerSortKey("day")
+        setPlannerSortDirection("asc")
+    }, [])
+
+    React.useEffect(() => {
+        resetPlannerViewControls()
+    }, [selectedVersionId, resetPlannerViewControls])
 
     const renderConflictBadges = (flags?: ConflictFlags) => {
         if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
@@ -948,12 +1016,147 @@ export function PlannerManagementSection({
         )
     }
 
+    const plannerMeetingTypeOptions = React.useMemo(() => {
+        return Array.from(new Set(visibleRows.map((row) => meetingTypeLabel(row.meetingType)).filter(Boolean))).sort(
+            comparePlannerText
+        )
+    }, [visibleRows])
+
+    const plannerRoomTypeOptions = React.useMemo(() => {
+        return Array.from(new Set(visibleRows.map((row) => roomTypeLabel(row.roomType)).filter(Boolean))).sort(
+            comparePlannerText
+        )
+    }, [visibleRows])
+
+    const displayedPlannerRows = React.useMemo(() => {
+        const query = plannerSearch.trim().toLowerCase()
+        const direction = plannerSortDirection === "asc" ? 1 : -1
+
+        const filteredRows = visibleRows.filter((row) => {
+            const flags = conflictFlagsByMeetingId.get(row.meetingId)
+            const rowMeetingType = meetingTypeLabel(row.meetingType)
+            const rowRoomType = roomTypeLabel(row.roomType)
+            const sectionLabel = getRowSectionDisplayLabel(row, sectionDisplayLookup)
+            const facultyMode = row.isManualFaculty ? "manual" : row.facultyUserId ? "assigned" : "unassigned"
+            const searchText = [
+                row.dayOfWeek,
+                formatTimeLabel(row.startTime),
+                formatTimeLabel(row.endTime),
+                row.subjectLabel,
+                sectionLabel,
+                row.facultyName,
+                row.roomLabel,
+                rowMeetingType,
+                rowRoomType,
+                row.classCode,
+                row.deliveryMode,
+                row.classRemarks,
+                flags?.room ? "room conflict" : "",
+                flags?.faculty ? "faculty conflict" : "",
+                flags?.section ? "section conflict" : "",
+            ]
+                .join(" ")
+                .toLowerCase()
+
+            if (query && !searchText.includes(query)) return false
+            if (plannerDayFilter !== "all" && row.dayOfWeek !== plannerDayFilter) return false
+            if (plannerMeetingTypeFilter !== "all" && rowMeetingType !== plannerMeetingTypeFilter) return false
+            if (plannerRoomTypeFilter !== "all" && rowRoomType !== plannerRoomTypeFilter) return false
+            if (plannerFacultyFilter !== "all" && facultyMode !== plannerFacultyFilter) return false
+
+            return true
+        })
+
+        const sortedRows = filteredRows.slice().sort((a, b) => {
+            const aFlags = conflictFlagsByMeetingId.get(a.meetingId)
+            const bFlags = conflictFlagsByMeetingId.get(b.meetingId)
+            let result = 0
+
+            switch (plannerSortKey) {
+                case "time":
+                    result = comparePlannerText(a.startTime, b.startTime)
+                    if (result === 0) {
+                        result = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
+                    }
+                    break
+                case "subject":
+                    result = comparePlannerText(a.subjectLabel, b.subjectLabel)
+                    break
+                case "section":
+                    result = comparePlannerText(
+                        getRowSectionDisplayLabel(a, sectionDisplayLookup),
+                        getRowSectionDisplayLabel(b, sectionDisplayLookup)
+                    )
+                    break
+                case "faculty":
+                    result = comparePlannerText(a.facultyName, b.facultyName)
+                    break
+                case "room":
+                    result = comparePlannerText(a.roomLabel, b.roomLabel)
+                    break
+                case "type":
+                    result = comparePlannerText(meetingTypeLabel(a.meetingType), meetingTypeLabel(b.meetingType))
+                    break
+                case "conflicts":
+                    result = countConflictFlags(aFlags) - countConflictFlags(bFlags)
+                    break
+                case "day":
+                default:
+                    result = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
+                    if (result === 0) {
+                        result = comparePlannerText(a.startTime, b.startTime)
+                    }
+                    break
+            }
+
+            if (result === 0) {
+                const fallbackDay = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
+                if (fallbackDay !== 0) return fallbackDay * direction
+
+                const fallbackTime = comparePlannerText(a.startTime, b.startTime)
+                if (fallbackTime !== 0) return fallbackTime * direction
+
+                return comparePlannerText(a.subjectLabel, b.subjectLabel) * direction
+            }
+
+            return result * direction
+        })
+
+        return sortedRows
+    }, [
+        visibleRows,
+        plannerSearch,
+        plannerDayFilter,
+        plannerMeetingTypeFilter,
+        plannerRoomTypeFilter,
+        plannerFacultyFilter,
+        plannerSortKey,
+        plannerSortDirection,
+        conflictFlagsByMeetingId,
+        sectionDisplayLookup,
+    ])
+
     const generatedAt = React.useMemo(() => {
         return fmtDate(new Date().toISOString())
-    }, [visibleRows.length, selectedVersionId, showConflictsOnly])
+    }, [
+        displayedPlannerRows.length,
+        selectedVersionId,
+        showConflictsOnly,
+        plannerSearch,
+        plannerDayFilter,
+        plannerMeetingTypeFilter,
+        plannerRoomTypeFilter,
+        plannerFacultyFilter,
+        plannerSortKey,
+        plannerSortDirection,
+    ])
+
+    const activeSortLabel = React.useMemo(() => {
+        return PLANNER_SORT_OPTIONS.find((option) => option.value === plannerSortKey)?.label || "Day"
+    }, [plannerSortKey])
 
     const downloadPdf = async () => {
-        if (!selectedVersion || visibleRows.length === 0) {
+        if (!selectedVersion || displayedPlannerRows.length === 0) {
             toast.error("No schedule entries to export.")
             return
         }
@@ -961,7 +1164,7 @@ export function PlannerManagementSection({
         try {
             const documentNode = (
                 <SchedulePdfDocument
-                    rows={visibleRows}
+                    rows={displayedPlannerRows}
                     versionLabel={selectedVersionLabel}
                     termLabel={selectedTermLabel}
                     deptLabel={selectedDeptLabel}
@@ -1051,7 +1254,7 @@ export function PlannerManagementSection({
                                 variant="outline"
                                 className="w-full rounded-xl sm:w-auto"
                                 onClick={() => setPdfPreviewOpen(true)}
-                                disabled={!selectedVersion || visibleRows.length === 0}
+                                disabled={!selectedVersion || displayedPlannerRows.length === 0}
                             >
                                 <Eye className="mr-2 size-4" />
                                 Preview PDF
@@ -1061,7 +1264,7 @@ export function PlannerManagementSection({
                                 variant="outline"
                                 className="w-full rounded-xl sm:w-auto"
                                 onClick={() => void downloadPdf()}
-                                disabled={!selectedVersion || visibleRows.length === 0}
+                                disabled={!selectedVersion || displayedPlannerRows.length === 0}
                             >
                                 Export PDF
                             </Button>
@@ -1131,6 +1334,152 @@ export function PlannerManagementSection({
 
                     <Separator />
 
+                    {selectedVersion ? (
+                        <div className="rounded-2xl border bg-muted/20 p-4">
+                            <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2 text-sm font-semibold">
+                                        <SlidersHorizontal className="size-4" />
+                                        Table filters & sorting
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                        Search, filter, and sort visible planner rows before reviewing or exporting.
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <Badge variant="secondary" className="rounded-lg">
+                                        {displayedPlannerRows.length} shown
+                                    </Badge>
+                                    <span>of {visibleRows.length} visible entries</span>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+                                <div className="space-y-1 xl:col-span-2">
+                                    <Label>Search</Label>
+                                    <div className="relative">
+                                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                                        <Input
+                                            value={plannerSearch}
+                                            onChange={(e) => setPlannerSearch(e.target.value)}
+                                            placeholder="Subject, section, faculty, room, class code..."
+                                            className="rounded-xl pl-9"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label>Day</Label>
+                                    <Select value={plannerDayFilter} onValueChange={setPlannerDayFilter}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="All days" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All days</SelectItem>
+                                            {DAY_OPTIONS.map((day) => (
+                                                <SelectItem key={day} value={day}>
+                                                    {day}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label>Meeting Type</Label>
+                                    <Select value={plannerMeetingTypeFilter} onValueChange={setPlannerMeetingTypeFilter}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="All meeting types" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All meeting types</SelectItem>
+                                            {plannerMeetingTypeOptions.map((option) => (
+                                                <SelectItem key={option} value={option}>
+                                                    {option}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label>Room Type</Label>
+                                    <Select value={plannerRoomTypeFilter} onValueChange={setPlannerRoomTypeFilter}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="All room types" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All room types</SelectItem>
+                                            {plannerRoomTypeOptions.map((option) => (
+                                                <SelectItem key={option} value={option}>
+                                                    {option}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label>Faculty Mode</Label>
+                                    <Select value={plannerFacultyFilter} onValueChange={setPlannerFacultyFilter}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="All faculty modes" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All faculty modes</SelectItem>
+                                            <SelectItem value="assigned">Assigned profile</SelectItem>
+                                            <SelectItem value="manual">Manual faculty</SelectItem>
+                                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label>Sort By</Label>
+                                    <Select value={plannerSortKey} onValueChange={(value) => setPlannerSortKey(value as PlannerSortKey)}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="Sort planner rows" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {PLANNER_SORT_OPTIONS.map((option) => (
+                                                <SelectItem key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <ArrowUpDown className="size-4" />
+                                    <span>
+                                        {activeSortLabel} • {plannerSortDirection === "asc" ? "Ascending" : "Descending"}
+                                    </span>
+                                    <Select
+                                        value={plannerSortDirection}
+                                        onValueChange={(value) => setPlannerSortDirection(value as PlannerSortDirection)}
+                                    >
+                                        <SelectTrigger className="h-8 w-[140px] rounded-xl">
+                                            <SelectValue placeholder="Order" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="asc">Ascending</SelectItem>
+                                            <SelectItem value="desc">Descending</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <Button type="button" variant="ghost" className="rounded-xl" onClick={resetPlannerViewControls}>
+                                    <X className="mr-2 size-4" />
+                                    Reset filters & sort
+                                </Button>
+                            </div>
+                        </div>
+                    ) : null}
+
                     {!selectedVersion ? (
                         <div className="rounded-xl border border-dashed p-8 text-center">
                             <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
@@ -1162,10 +1511,23 @@ export function PlannerManagementSection({
                                 {showConflictsOnly ? "No conflicts detected for this version." : "Create your first schedule entry to begin."}
                             </div>
                         </div>
+                    ) : displayedPlannerRows.length === 0 ? (
+                        <div className="rounded-xl border border-dashed p-8 text-center">
+                            <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
+                                <Search className="size-5" />
+                            </div>
+                            <div className="mt-3 font-medium">No planner entries matched</div>
+                            <div className="text-sm text-muted-foreground">
+                                Adjust the current planner filters or reset the sort controls to see more entries.
+                            </div>
+                        </div>
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
-                            <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                                Drag left or right anywhere in the table to scroll horizontally.
+                            <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                                <span>Drag left or right anywhere in the table to scroll horizontally.</span>
+                                <span>
+                                    Showing {displayedPlannerRows.length} of {visibleRows.length} visible planner entries
+                                </span>
                             </div>
 
                             <Table className="min-w-max table-fixed">
@@ -1179,10 +1541,11 @@ export function PlannerManagementSection({
                                         <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Room</TableHead>
                                         <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Type</TableHead>
                                         <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Conflicts</TableHead>
+                                        <TableHead className="w-36 whitespace-normal wrap-break-word align-top">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {visibleRows.map((row) => {
+                                    {displayedPlannerRows.map((row) => {
                                         const flags = conflictFlagsByMeetingId.get(row.meetingId)
                                         const rowHasConflict = hasConflict(flags)
 
@@ -1255,6 +1618,19 @@ export function PlannerManagementSection({
                                                         ) : null}
                                                     </div>
                                                 </TableCell>
+
+                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="rounded-lg"
+                                                        onClick={() => onEditEntry(row)}
+                                                    >
+                                                        <PencilLine className="mr-2 size-4" />
+                                                        Edit
+                                                    </Button>
+                                                </TableCell>
                                             </TableRow>
                                         )
                                     })}
@@ -1304,6 +1680,7 @@ export function PlannerManagementSection({
                                         <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Subject</TableHead>
                                         <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Section</TableHead>
                                         <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Conflicts</TableHead>
+                                        <TableHead className="w-36 whitespace-normal wrap-break-word align-top">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1351,6 +1728,19 @@ export function PlannerManagementSection({
                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
                                                     {renderConflictBadges(flags)}
                                                 </TableCell>
+
+                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="rounded-lg"
+                                                        onClick={() => onEditEntry(row)}
+                                                    >
+                                                        <PencilLine className="mr-2 size-4" />
+                                                        Edit
+                                                    </Button>
+                                                </TableCell>
                                             </TableRow>
                                         )
                                     })}
@@ -1373,7 +1763,7 @@ export function PlannerManagementSection({
                     <div className="h-[66vh] overflow-hidden rounded-xl border">
                         <PDFViewer style={{ width: "100%", height: "100%" }}>
                             <SchedulePdfDocument
-                                rows={visibleRows}
+                                rows={displayedPlannerRows}
                                 versionLabel={selectedVersionLabel}
                                 termLabel={selectedTermLabel}
                                 deptLabel={selectedDeptLabel}
@@ -1389,7 +1779,7 @@ export function PlannerManagementSection({
                         <Button variant="outline" onClick={() => setPdfPreviewOpen(false)}>
                             Close
                         </Button>
-                        <Button onClick={() => void downloadPdf()} disabled={!selectedVersion || visibleRows.length === 0}>
+                        <Button onClick={() => void downloadPdf()} disabled={!selectedVersion || displayedPlannerRows.length === 0}>
                             Export PDF
                         </Button>
                     </DialogFooter>
@@ -1407,13 +1797,28 @@ export function PlannerManagementSection({
             >
                 <DialogContent className="z-120 max-h-[78vh] overflow-y-auto sm:max-w-4xl">
                     <DialogHeader>
-                        <DialogTitle>Create Schedule Entry</DialogTitle>
+                        <DialogTitle>{editingEntry ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
                         <DialogDescription>
-                            Use dropdowns for section, subject, faculty, and room. Section labels follow the same display format used in Master Data.
+                            {editingEntry
+                                ? "Update the selected schedule entry. Section labels follow the same display format used in Master Data."
+                                : "Use dropdowns for section, subject, faculty, and room. Section labels follow the same display format used in Master Data."}
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
+                        {editingEntry ? (
+                            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
+                                <Badge variant="secondary" className="rounded-lg">
+                                    Editing entry
+                                </Badge>
+                                <span>{editingEntry.subjectLabel}</span>
+                                <span>•</span>
+                                <span>{editingEntry.dayOfWeek}</span>
+                                <span>•</span>
+                                <span>{formatTimeRange(editingEntry.startTime, editingEntry.endTime)}</span>
+                            </div>
+                        ) : null}
+
                         <div className="grid gap-3 md:grid-cols-2">
                             <div className="space-y-3">
                                 <div className="space-y-1">
@@ -1697,10 +2102,54 @@ export function PlannerManagementSection({
                         )}
                     </div>
 
-                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                        <Button type="button" variant="outline" onClick={() => setEntryDialogOpen(false)} disabled={entrySaving}>
-                            Cancel
-                        </Button>
+                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            {editingEntry ? (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button type="button" variant="destructive" disabled={entrySaving}>
+                                            <Trash2 className="mr-2 size-4" />
+                                            Delete Entry
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent className="z-[210]">
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Delete this schedule entry?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                This will permanently remove the selected schedule entry from the planner. This action cannot be undone.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel disabled={entrySaving}>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction
+                                                onClick={(event) => {
+                                                    event.preventDefault()
+                                                    void onDeleteEntry()
+                                                }}
+                                                disabled={entrySaving}
+                                                className={cn(entrySaving && "pointer-events-none opacity-90")}
+                                            >
+                                                {entrySaving ? (
+                                                    <>
+                                                        <RefreshCcw className="mr-2 size-4 animate-spin" />
+                                                        Deleting...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Trash2 className="mr-2 size-4" />
+                                                        Confirm Delete
+                                                    </>
+                                                )}
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            ) : null}
+
+                            <Button type="button" variant="outline" onClick={() => setEntryDialogOpen(false)} disabled={entrySaving}>
+                                Cancel
+                            </Button>
+                        </div>
 
                         <Button
                             type="button"
@@ -1711,7 +2160,12 @@ export function PlannerManagementSection({
                             {entrySaving ? (
                                 <>
                                     <RefreshCcw className="mr-2 size-4 animate-spin" />
-                                    Saving...
+                                    {editingEntry ? "Saving..." : "Creating..."}
+                                </>
+                            ) : editingEntry ? (
+                                <>
+                                    <PencilLine className="mr-2 size-4" />
+                                    Update Entry
                                 </>
                             ) : (
                                 <>
