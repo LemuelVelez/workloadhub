@@ -2112,7 +2112,7 @@ export function PlannerManagementSection({
                                             Delete Entry
                                         </Button>
                                     </AlertDialogTrigger>
-                                    <AlertDialogContent className="z-[210]">
+                                    <AlertDialogContent className="z-210">
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Delete this schedule entry?</AlertDialogTitle>
                                             <AlertDialogDescription>
