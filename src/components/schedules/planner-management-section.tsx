@@ -132,6 +132,7 @@ type SectionDisplayLookup = Record<string, string>
 const PDF_LEFT_LOGO_SRC = "/logo.png"
 const PDF_RIGHT_LOGO_SRC = "/CCS.png"
 const ROOMS_AND_FACILITIES_ROUTE = "/dashboard/admin/rooms-and-facilities"
+const ENTRY_DIALOG_SELECT_CONTENT_CLASS = "z-[200]"
 
 function getPdfAssetUrl(path: string) {
     if (!path) return ""
@@ -1421,7 +1422,7 @@ export function PlannerManagementSection({
                                         <SelectTrigger className="rounded-xl">
                                             <SelectValue placeholder="Select section" />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                             {sections.map((s) => (
                                                 <SelectItem key={s.$id} value={s.$id}>
                                                     {sectionDisplayLookup[s.$id] || s.$id}
@@ -1446,7 +1447,7 @@ export function PlannerManagementSection({
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="Select subject" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {subjects.map((s) => {
                                             const code = String(s.code || "").trim()
                                             const title = String(s.title || "").trim()
@@ -1471,7 +1472,7 @@ export function PlannerManagementSection({
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="Select faculty" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         <SelectItem value={FACULTY_OPTION_NONE}>Unassigned</SelectItem>
                                         <SelectItem value={FACULTY_OPTION_MANUAL}>Manual encode faculty</SelectItem>
                                         {facultyProfiles.map((f) => {
@@ -1496,7 +1497,7 @@ export function PlannerManagementSection({
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="Select room" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {rooms.map((r) => {
                                             const code = String(r.code || "").trim()
                                             const name = String(r.name || "").trim()
@@ -1555,7 +1556,7 @@ export function PlannerManagementSection({
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="Select day" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {DAY_OPTIONS.map((d) => (
                                             <SelectItem key={d} value={d}>
                                                 {d}
@@ -1571,7 +1572,7 @@ export function PlannerManagementSection({
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="Select start time" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {TIME_OPTIONS.map((t) => (
                                             <SelectItem key={`st-${t.value}`} value={t.value}>
                                                 {t.label}
@@ -1587,7 +1588,7 @@ export function PlannerManagementSection({
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="Select end time" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {TIME_OPTIONS.map((t) => (
                                             <SelectItem key={`et-${t.value}`} value={t.value}>
                                                 {t.label}
@@ -1603,7 +1604,7 @@ export function PlannerManagementSection({
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="Select type" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         <SelectItem value="LECTURE">LECTURE</SelectItem>
                                         <SelectItem value="LAB">LAB</SelectItem>
                                         <SelectItem value="OTHER">OTHER</SelectItem>

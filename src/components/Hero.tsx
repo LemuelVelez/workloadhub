@@ -115,7 +115,7 @@ export default function Hero() {
                     <div className="relative">
                         <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/40 p-4">
                             <img
-                                src="/Hero.webp"
+                                src="/Hero.jpg"
                                 alt="WorkloadHub hero illustration"
                                 className="h-auto w-full"
                                 draggable={false}
