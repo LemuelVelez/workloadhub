@@ -1462,7 +1462,7 @@ export function PlannerManagementSection({
                                         value={plannerSortDirection}
                                         onValueChange={(value) => setPlannerSortDirection(value as PlannerSortDirection)}
                                     >
-                                        <SelectTrigger className="h-8 w-[140px] rounded-xl">
+                                        <SelectTrigger className="h-8 w-35 rounded-xl">
                                             <SelectValue placeholder="Order" />
                                         </SelectTrigger>
                                         <SelectContent>
