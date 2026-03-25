@@ -180,12 +180,15 @@ type PlannerCourseAccordionGroup = {
     rows: ScheduleRow[]
 }
 
+type PdfTableVariant = "default" | "course-group"
+
 type PdfPreviewState = {
     title: string
     description: string
     rows: ScheduleRow[]
     fileNameBase: string
     scopeLabel?: string
+    tableVariant?: PdfTableVariant
 }
 
 const PLANNER_SORT_OPTIONS: Array<{ value: PlannerSortKey; label: string }> = [
@@ -814,6 +817,27 @@ const styles = StyleSheet.create({
     colType: {
         width: "10%",
     },
+    colCourseCode: {
+        width: "11%",
+    },
+    colCourseTitle: {
+        width: "25%",
+    },
+    colCourseType: {
+        width: "10%",
+    },
+    colCourseDay: {
+        width: "10%",
+    },
+    colCourseTime: {
+        width: "14%",
+    },
+    colCourseRoom: {
+        width: "15%",
+    },
+    colCourseInstructor: {
+        width: "15%",
+    },
 
     typePill: {
         borderRadius: 999,
@@ -863,6 +887,7 @@ function SchedulePdfDocument({
     filteredByConflict,
     sectionDisplayLookup,
     scopeLabel,
+    tableVariant = "default",
 }: {
     rows: ScheduleRow[]
     versionLabel: string
@@ -873,9 +898,11 @@ function SchedulePdfDocument({
     filteredByConflict: boolean
     sectionDisplayLookup: SectionDisplayLookup
     scopeLabel?: string
+    tableVariant?: PdfTableVariant
 }) {
     const leftLogoSrc = getPdfAssetUrl(PDF_LEFT_LOGO_SRC)
     const rightLogoSrc = getPdfAssetUrl(PDF_RIGHT_LOGO_SRC)
+    const isCourseGroupPdf = tableVariant === "course-group"
 
     return (
         <Document>
@@ -953,27 +980,61 @@ function SchedulePdfDocument({
 
                         <View style={styles.tableWrap}>
                             <View style={styles.tableHeader}>
-                                <View style={[styles.tableHeaderCell, styles.colDay]}>
-                                    <Text style={styles.tableHeaderText}>Day</Text>
-                                </View>
-                                <View style={[styles.tableHeaderCell, styles.colTime]}>
-                                    <Text style={styles.tableHeaderText}>Time</Text>
-                                </View>
-                                <View style={[styles.tableHeaderCell, styles.colSubject]}>
-                                    <Text style={styles.tableHeaderText}>Subject</Text>
-                                </View>
-                                <View style={[styles.tableHeaderCell, styles.colSection]}>
-                                    <Text style={styles.tableHeaderText}>Section</Text>
-                                </View>
-                                <View style={[styles.tableHeaderCell, styles.colFaculty]}>
-                                    <Text style={styles.tableHeaderText}>Faculty</Text>
-                                </View>
-                                <View style={[styles.tableHeaderCell, styles.colRoom]}>
-                                    <Text style={styles.tableHeaderText}>Room</Text>
-                                </View>
-                                <View style={[styles.tableHeaderCell, styles.colType, styles.tableHeaderCellLast]}>
-                                    <Text style={styles.tableHeaderText}>Type</Text>
-                                </View>
+                                {isCourseGroupPdf ? (
+                                    <>
+                                        <View style={[styles.tableHeaderCell, styles.colCourseCode]}>
+                                            <Text style={styles.tableHeaderText}>Code</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colCourseTitle]}>
+                                            <Text style={styles.tableHeaderText}>Descriptive Title</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colCourseType]}>
+                                            <Text style={styles.tableHeaderText}>Type</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colCourseDay]}>
+                                            <Text style={styles.tableHeaderText}>Day</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colCourseTime]}>
+                                            <Text style={styles.tableHeaderText}>Time</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colCourseRoom]}>
+                                            <Text style={styles.tableHeaderText}>Room</Text>
+                                        </View>
+                                        <View
+                                            style={[
+                                                styles.tableHeaderCell,
+                                                styles.colCourseInstructor,
+                                                styles.tableHeaderCellLast,
+                                            ]}
+                                        >
+                                            <Text style={styles.tableHeaderText}>Instructor</Text>
+                                        </View>
+                                    </>
+                                ) : (
+                                    <>
+                                        <View style={[styles.tableHeaderCell, styles.colDay]}>
+                                            <Text style={styles.tableHeaderText}>Day</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colTime]}>
+                                            <Text style={styles.tableHeaderText}>Time</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colSubject]}>
+                                            <Text style={styles.tableHeaderText}>Subject</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colSection]}>
+                                            <Text style={styles.tableHeaderText}>Section</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colFaculty]}>
+                                            <Text style={styles.tableHeaderText}>Faculty</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colRoom]}>
+                                            <Text style={styles.tableHeaderText}>Room</Text>
+                                        </View>
+                                        <View style={[styles.tableHeaderCell, styles.colType, styles.tableHeaderCellLast]}>
+                                            <Text style={styles.tableHeaderText}>Type</Text>
+                                        </View>
+                                    </>
+                                )}
                             </View>
 
                             {rows.length === 0 ? (
@@ -988,6 +1049,7 @@ function SchedulePdfDocument({
                                             : type === "LECTURE"
                                               ? styles.typePillLecture
                                               : styles.typePillOther
+                                    const { code, descriptiveTitle } = splitSubjectLabelParts(r.subjectLabel)
 
                                     return (
                                         <View
@@ -998,48 +1060,101 @@ function SchedulePdfDocument({
                                             ]}
                                             wrap={false}
                                         >
-                                            <View style={[styles.tableCell, styles.colDay]}>
-                                                <Text style={styles.cellText}>{formatDayDisplayLabel(r.dayOfWeek)}</Text>
-                                            </View>
+                                            {isCourseGroupPdf ? (
+                                                <>
+                                                    <View style={[styles.tableCell, styles.colCourseCode]}>
+                                                        <Text style={styles.cellText}>{code}</Text>
+                                                    </View>
 
-                                            <View style={[styles.tableCell, styles.colTime]}>
-                                                <Text style={[styles.cellText, styles.timeText]}>
-                                                    {formatPdfTimeText(r.startTime, r.endTime)}
-                                                </Text>
-                                            </View>
+                                                    <View style={[styles.tableCell, styles.colCourseTitle]}>
+                                                        <Text style={styles.cellText}>{descriptiveTitle}</Text>
+                                                        <Text style={[styles.cellText, styles.cellSubtle]}>
+                                                            Units: {r.subjectUnits ?? "—"}
+                                                        </Text>
+                                                    </View>
 
-                                            <View style={[styles.tableCell, styles.colSubject]}>
-                                                <Text style={styles.cellText}>{r.subjectLabel || "—"}</Text>
-                                                <Text style={[styles.cellText, styles.cellSubtle]}>
-                                                    Units: {r.subjectUnits ?? "—"}
-                                                </Text>
-                                            </View>
+                                                    <View style={[styles.tableCell, styles.colCourseType]}>
+                                                        <View style={[styles.typePill, typeStyle]}>
+                                                            <Text style={styles.typePillText}>{displayType}</Text>
+                                                        </View>
+                                                    </View>
 
-                                            <View style={[styles.tableCell, styles.colSection]}>
-                                                <Text style={styles.cellText}>
-                                                    {getRowSectionDisplayLabel(r, sectionDisplayLookup)}
-                                                </Text>
-                                            </View>
+                                                    <View style={[styles.tableCell, styles.colCourseDay]}>
+                                                        <Text style={styles.cellText}>{formatDayDisplayLabel(r.dayOfWeek)}</Text>
+                                                    </View>
 
-                                            <View style={[styles.tableCell, styles.colFaculty]}>
-                                                <Text style={styles.cellText}>{r.facultyName || "—"}</Text>
-                                                {r.isManualFaculty ? (
-                                                    <Text style={[styles.cellText, styles.cellSubtle]}>Manual entry</Text>
-                                                ) : null}
-                                            </View>
+                                                    <View style={[styles.tableCell, styles.colCourseTime]}>
+                                                        <Text style={[styles.cellText, styles.timeText]}>
+                                                            {formatPdfTimeText(r.startTime, r.endTime)}
+                                                        </Text>
+                                                    </View>
 
-                                            <View style={[styles.tableCell, styles.colRoom]}>
-                                                <Text style={styles.cellText}>{r.roomLabel || "—"}</Text>
-                                                <Text style={[styles.cellText, styles.cellSubtle]}>
-                                                    {r.roomType ? roomTypeLabel(r.roomType) : "—"}
-                                                </Text>
-                                            </View>
+                                                    <View style={[styles.tableCell, styles.colCourseRoom]}>
+                                                        <Text style={styles.cellText}>{r.roomLabel || "—"}</Text>
+                                                        <Text style={[styles.cellText, styles.cellSubtle]}>
+                                                            {r.roomType ? roomTypeLabel(r.roomType) : "—"}
+                                                        </Text>
+                                                    </View>
 
-                                            <View style={[styles.tableCell, styles.colType, styles.tableCellLast]}>
-                                                <View style={[styles.typePill, typeStyle]}>
-                                                    <Text style={styles.typePillText}>{displayType}</Text>
-                                                </View>
-                                            </View>
+                                                    <View
+                                                        style={[
+                                                            styles.tableCell,
+                                                            styles.colCourseInstructor,
+                                                            styles.tableCellLast,
+                                                        ]}
+                                                    >
+                                                        <Text style={styles.cellText}>{r.facultyName || "—"}</Text>
+                                                        {r.isManualFaculty ? (
+                                                            <Text style={[styles.cellText, styles.cellSubtle]}>Manual entry</Text>
+                                                        ) : null}
+                                                    </View>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <View style={[styles.tableCell, styles.colDay]}>
+                                                        <Text style={styles.cellText}>{formatDayDisplayLabel(r.dayOfWeek)}</Text>
+                                                    </View>
+
+                                                    <View style={[styles.tableCell, styles.colTime]}>
+                                                        <Text style={[styles.cellText, styles.timeText]}>
+                                                            {formatPdfTimeText(r.startTime, r.endTime)}
+                                                        </Text>
+                                                    </View>
+
+                                                    <View style={[styles.tableCell, styles.colSubject]}>
+                                                        <Text style={styles.cellText}>{r.subjectLabel || "—"}</Text>
+                                                        <Text style={[styles.cellText, styles.cellSubtle]}>
+                                                            Units: {r.subjectUnits ?? "—"}
+                                                        </Text>
+                                                    </View>
+
+                                                    <View style={[styles.tableCell, styles.colSection]}>
+                                                        <Text style={styles.cellText}>
+                                                            {getRowSectionDisplayLabel(r, sectionDisplayLookup)}
+                                                        </Text>
+                                                    </View>
+
+                                                    <View style={[styles.tableCell, styles.colFaculty]}>
+                                                        <Text style={styles.cellText}>{r.facultyName || "—"}</Text>
+                                                        {r.isManualFaculty ? (
+                                                            <Text style={[styles.cellText, styles.cellSubtle]}>Manual entry</Text>
+                                                        ) : null}
+                                                    </View>
+
+                                                    <View style={[styles.tableCell, styles.colRoom]}>
+                                                        <Text style={styles.cellText}>{r.roomLabel || "—"}</Text>
+                                                        <Text style={[styles.cellText, styles.cellSubtle]}>
+                                                            {r.roomType ? roomTypeLabel(r.roomType) : "—"}
+                                                        </Text>
+                                                    </View>
+
+                                                    <View style={[styles.tableCell, styles.colType, styles.tableCellLast]}>
+                                                        <View style={[styles.typePill, typeStyle]}>
+                                                            <Text style={styles.typePillText}>{displayType}</Text>
+                                                        </View>
+                                                    </View>
+                                                </>
+                                            )}
                                         </View>
                                     )
                                 })
@@ -1435,7 +1550,17 @@ export function PlannerManagementSection({
     }, [])
 
     const downloadRowsPdf = React.useCallback(
-        async ({ rows, fileNameBase, scopeLabel }: { rows: ScheduleRow[]; fileNameBase: string; scopeLabel?: string }) => {
+        async ({
+            rows,
+            fileNameBase,
+            scopeLabel,
+            tableVariant,
+        }: {
+            rows: ScheduleRow[]
+            fileNameBase: string
+            scopeLabel?: string
+            tableVariant?: PdfTableVariant
+        }) => {
             if (!selectedVersion || rows.length === 0) {
                 toast.error("No schedule entries to export.")
                 return
@@ -1453,6 +1578,7 @@ export function PlannerManagementSection({
                         filteredByConflict={showConflictsOnly}
                         sectionDisplayLookup={sectionDisplayLookup}
                         scopeLabel={scopeLabel}
+                        tableVariant={tableVariant}
                     />
                 )
 
@@ -1566,6 +1692,7 @@ export function PlannerManagementSection({
                                         description: "Preview the generated PDF before export.",
                                         rows: displayedPlannerRows,
                                         fileNameBase: selectedVersion ? `schedule-report-${selectedVersion.$id}` : "schedule-report",
+                                        tableVariant: "default",
                                     })
                                 }
                                 disabled={!selectedVersion || displayedPlannerRows.length === 0}
@@ -1892,6 +2019,7 @@ export function PlannerManagementSection({
                                                             rows: courseGroup.rows,
                                                             fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
                                                             scopeLabel: courseGroup.label,
+                                                            tableVariant: "course-group",
                                                         })
                                                     }
                                                 >
@@ -1908,6 +2036,7 @@ export function PlannerManagementSection({
                                                             rows: courseGroup.rows,
                                                             fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
                                                             scopeLabel: courseGroup.label,
+                                                            tableVariant: "course-group",
                                                         })
                                                     }
                                                 >
@@ -2235,6 +2364,7 @@ export function PlannerManagementSection({
                                 filteredByConflict={showConflictsOnly}
                                 sectionDisplayLookup={sectionDisplayLookup}
                                 scopeLabel={pdfPreviewState?.scopeLabel}
+                                tableVariant={pdfPreviewState?.tableVariant}
                             />
                         </PDFViewer>
                     </div>
@@ -2250,6 +2380,7 @@ export function PlannerManagementSection({
                                           rows: pdfPreviewState.rows,
                                           fileNameBase: pdfPreviewState.fileNameBase,
                                           scopeLabel: pdfPreviewState.scopeLabel,
+                                          tableVariant: pdfPreviewState.tableVariant,
                                       })
                                     : undefined
                             }
