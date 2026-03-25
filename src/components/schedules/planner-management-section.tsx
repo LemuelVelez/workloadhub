@@ -167,25 +167,32 @@ type SectionDisplayLookup = Record<string, string>
 type PlannerSortKey = "day" | "time" | "subject" | "section" | "faculty" | "room" | "type" | "conflicts"
 type PlannerSortDirection = "asc" | "desc"
 
+type PlannerSectionAccordionGroup = {
+    key: string
+    label: string
+    rowCount: number
+    conflictedCount: number
+    rows: ScheduleRow[]
+}
+
 type PlannerCourseAccordionGroup = {
     key: string
     code: string
     name: string
-    yearLevel: string
     label: string
-    subtitle: string
     rowCount: number
     conflictedCount: number
-    instructorCount: number
     rows: ScheduleRow[]
+    sectionGroups: PlannerSectionAccordionGroup[]
 }
 
-type PdfPreviewState = {
-    title: string
-    description: string
+type PlannerFacultyAccordionGroup = {
+    key: string
+    label: string
+    rowCount: number
+    conflictedCount: number
     rows: ScheduleRow[]
-    fileNameBase: string
-    scopeLabel?: string
+    courseGroups: PlannerCourseAccordionGroup[]
 }
 
 const PLANNER_SORT_OPTIONS: Array<{ value: PlannerSortKey; label: string }> = [
@@ -266,36 +273,7 @@ function inferCourseNameFromCode(courseCode: string) {
     return ""
 }
 
-function extractYearLevelNumber(value?: string | number | null) {
-    const normalized = normalizeSectionYearLevelDisplay(value)
-    if (!normalized) return ""
-
-    const match = normalized.match(/([1-9]\d*)$/)
-    return match?.[1] || ""
-}
-
-function formatOrdinalYearLabel(yearLevel: string) {
-    const numericYear = Number(yearLevel)
-    if (!Number.isFinite(numericYear) || numericYear <= 0) return ""
-
-    const remainder100 = numericYear % 100
-    const remainder10 = numericYear % 10
-
-    const suffix =
-        remainder100 >= 11 && remainder100 <= 13
-            ? "th"
-            : remainder10 === 1
-              ? "st"
-              : remainder10 === 2
-                ? "nd"
-                : remainder10 === 3
-                  ? "rd"
-                  : "th"
-
-    return `${numericYear}${suffix} Year`
-}
-
-function resolveRowCourseGroupMeta(row: ScheduleRow, sectionDisplayLookup: SectionDisplayLookup) {
+function resolveRowCourseMeta(row: ScheduleRow, sectionDisplayLookup: SectionDisplayLookup) {
     const rowAny = row as any
     const sectionDisplayLabel = getRowSectionDisplayLabel(row, sectionDisplayLookup)
     const explicitCode = String(row.sectionProgramCode ?? rowAny.sectionProgramCode ?? rowAny.programCode ?? "").trim()
@@ -305,29 +283,12 @@ function resolveRowCourseGroupMeta(row: ScheduleRow, sectionDisplayLookup: Secti
     const explicitName = String(row.sectionProgramName ?? rowAny.sectionProgramName ?? rowAny.programName ?? "").trim()
     const inferredName = inferCourseNameFromCode(courseCode)
     const courseName = explicitName || inferredName || "Unspecified Course"
-
-    const explicitYearLevel = extractYearLevelNumber(row.sectionYearLevel ?? rowAny.sectionYearLevel ?? rowAny.yearLevel)
-    const inferredYearLevel = extractYearLevelNumber(sectionDisplayLabel.split(/\s*-\s*/)[0] || sectionDisplayLabel)
-    const yearLevel = explicitYearLevel || inferredYearLevel
-
-    const courseGroupCode =
-        courseCode === "UNSPECIFIED"
-            ? courseName
-            : yearLevel
-              ? `${courseCode}-${yearLevel}`
-              : courseCode
-
-    const courseLabel = courseCode === "UNSPECIFIED" ? courseName : `COURSE:${courseGroupCode}`
-    const yearLabel = formatOrdinalYearLabel(yearLevel)
-    const subtitleParts = [courseName, yearLabel].filter(Boolean)
+    const courseLabel = courseCode === "UNSPECIFIED" ? courseName : `COURSE: ${courseCode}`
 
     return {
         courseCode,
         courseName,
-        yearLevel,
-        courseGroupCode,
         courseLabel,
-        courseSubtitle: subtitleParts.join(" • "),
         sectionDisplayLabel,
     }
 }
@@ -1114,7 +1075,7 @@ export function PlannerManagementSection({
     onDeleteEntry,
 }: Props) {
     const navigate = useNavigate()
-    const [pdfPreviewState, setPdfPreviewState] = React.useState<PdfPreviewState | null>(null)
+    const [pdfPreviewOpen, setPdfPreviewOpen] = React.useState(false)
     const [plannerSearch, setPlannerSearch] = React.useState("")
     const [plannerDayFilter, setPlannerDayFilter] = React.useState("all")
     const [plannerMeetingTypeFilter, setPlannerMeetingTypeFilter] = React.useState("all")
@@ -1304,76 +1265,127 @@ export function PlannerManagementSection({
         sectionDisplayLookup,
     ])
 
-    const plannerCourseAccordionGroups = React.useMemo<PlannerCourseAccordionGroup[]>(() => {
-        const courseMap = new Map<
+    const plannerAccordionGroups = React.useMemo<PlannerFacultyAccordionGroup[]>(() => {
+        const facultyMap = new Map<
             string,
             {
                 key: string
-                code: string
-                name: string
-                yearLevel: string
                 label: string
-                subtitle: string
                 rowCount: number
                 conflictedCount: number
                 rows: ScheduleRow[]
-                instructorKeys: Set<string>
+                courseMap: Map<
+                    string,
+                    {
+                        key: string
+                        code: string
+                        name: string
+                        label: string
+                        rowCount: number
+                        conflictedCount: number
+                        rows: ScheduleRow[]
+                        sectionMap: Map<
+                            string,
+                            {
+                                key: string
+                                label: string
+                                rowCount: number
+                                conflictedCount: number
+                                rows: ScheduleRow[]
+                            }
+                        >
+                    }
+                >
             }
         >()
 
         for (const row of displayedPlannerRows) {
+            const facultyLabel = String(row.facultyName || "Unassigned").trim() || "Unassigned"
+            const facultyKey = String(row.facultyKey || `faculty:${facultyLabel.toLowerCase()}`).trim()
             const rowHasConflict = hasConflict(conflictFlagsByMeetingId.get(row.meetingId))
-            const { courseCode, courseName, yearLevel, courseGroupCode, courseLabel, courseSubtitle } =
-                resolveRowCourseGroupMeta(row, sectionDisplayLookup)
+            const { courseCode, courseName, courseLabel, sectionDisplayLabel } = resolveRowCourseMeta(
+                row,
+                sectionDisplayLookup
+            )
 
-            const courseKey = `${courseGroupCode}::${courseName}`
-            let courseGroup = courseMap.get(courseKey)
+            let facultyGroup = facultyMap.get(facultyKey)
+            if (!facultyGroup) {
+                facultyGroup = {
+                    key: facultyKey,
+                    label: facultyLabel,
+                    rowCount: 0,
+                    conflictedCount: 0,
+                    rows: [],
+                    courseMap: new Map(),
+                }
+                facultyMap.set(facultyKey, facultyGroup)
+            }
 
+            facultyGroup.rowCount += 1
+            if (rowHasConflict) facultyGroup.conflictedCount += 1
+            facultyGroup.rows.push(row)
+
+            const courseKey = `${facultyKey}::${courseCode}::${courseName}`
+            let courseGroup = facultyGroup.courseMap.get(courseKey)
             if (!courseGroup) {
                 courseGroup = {
                     key: courseKey,
                     code: courseCode,
                     name: courseName,
-                    yearLevel,
                     label: courseLabel,
-                    subtitle: courseSubtitle,
                     rowCount: 0,
                     conflictedCount: 0,
                     rows: [],
-                    instructorKeys: new Set(),
+                    sectionMap: new Map(),
                 }
-                courseMap.set(courseKey, courseGroup)
+                facultyGroup.courseMap.set(courseKey, courseGroup)
             }
 
             courseGroup.rowCount += 1
             if (rowHasConflict) courseGroup.conflictedCount += 1
             courseGroup.rows.push(row)
-            courseGroup.instructorKeys.add(String(row.facultyKey || row.facultyName || "Unassigned"))
+
+            const sectionKey = `${courseKey}::${sectionDisplayLabel}`
+            let sectionGroup = courseGroup.sectionMap.get(sectionKey)
+            if (!sectionGroup) {
+                sectionGroup = {
+                    key: sectionKey,
+                    label: sectionDisplayLabel,
+                    rowCount: 0,
+                    conflictedCount: 0,
+                    rows: [],
+                }
+                courseGroup.sectionMap.set(sectionKey, sectionGroup)
+            }
+
+            sectionGroup.rowCount += 1
+            if (rowHasConflict) sectionGroup.conflictedCount += 1
+            sectionGroup.rows.push(row)
         }
 
-        return Array.from(courseMap.values())
-            .map((courseGroup) => ({
+        return Array.from(facultyMap.values()).map((facultyGroup) => ({
+            key: facultyGroup.key,
+            label: facultyGroup.label,
+            rowCount: facultyGroup.rowCount,
+            conflictedCount: facultyGroup.conflictedCount,
+            rows: facultyGroup.rows,
+            courseGroups: Array.from(facultyGroup.courseMap.values()).map((courseGroup) => ({
                 key: courseGroup.key,
                 code: courseGroup.code,
                 name: courseGroup.name,
-                yearLevel: courseGroup.yearLevel,
                 label: courseGroup.label,
-                subtitle: courseGroup.subtitle,
                 rowCount: courseGroup.rowCount,
                 conflictedCount: courseGroup.conflictedCount,
-                instructorCount: courseGroup.instructorKeys.size,
                 rows: courseGroup.rows,
-            }))
-            .sort((a, b) => {
-                const codeCompare = comparePlannerText(a.code, b.code)
-                if (codeCompare !== 0) return codeCompare
-
-                const aYear = Number(a.yearLevel || Number.MAX_SAFE_INTEGER)
-                const bYear = Number(b.yearLevel || Number.MAX_SAFE_INTEGER)
-                if (aYear !== bYear) return aYear - bYear
-
-                return comparePlannerText(a.label, b.label)
-            })
+                sectionGroups: Array.from(courseGroup.sectionMap.values()).map((sectionGroup) => ({
+                    key: sectionGroup.key,
+                    label: sectionGroup.label,
+                    rowCount: sectionGroup.rowCount,
+                    conflictedCount: sectionGroup.conflictedCount,
+                    rows: sectionGroup.rows,
+                })),
+            })),
+        }))
     }, [displayedPlannerRows, conflictFlagsByMeetingId, hasConflict, sectionDisplayLookup])
 
     const generatedAt = React.useMemo(() => {
@@ -1416,22 +1428,6 @@ export function PlannerManagementSection({
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "") || "schedule"
-    }, [])
-
-    const openPdfPreview = React.useCallback(
-        (previewState: PdfPreviewState) => {
-            if (!selectedVersion || previewState.rows.length === 0) {
-                toast.error("No schedule entries to preview.")
-                return
-            }
-
-            setPdfPreviewState(previewState)
-        },
-        [selectedVersion]
-    )
-
-    const closePdfPreview = React.useCallback(() => {
-        setPdfPreviewState(null)
     }, [])
 
     const downloadRowsPdf = React.useCallback(
@@ -1493,9 +1489,6 @@ export function PlannerManagementSection({
             fileNameBase: `schedule-report-${selectedVersion.$id}`,
         })
     }
-
-    const activePdfPreviewRows = pdfPreviewState?.rows ?? displayedPlannerRows
-    const activePdfPreviewStats = buildPlannerStatsForRows(activePdfPreviewRows)
 
     return (
         <>
@@ -1560,14 +1553,7 @@ export function PlannerManagementSection({
                             <Button
                                 variant="outline"
                                 className="w-full rounded-xl sm:w-auto"
-                                onClick={() =>
-                                    openPdfPreview({
-                                        title: "Schedule PDF Preview",
-                                        description: "Preview the generated PDF before export.",
-                                        rows: displayedPlannerRows,
-                                        fileNameBase: selectedVersion ? `schedule-report-${selectedVersion.$id}` : "schedule-report",
-                                    })
-                                }
+                                onClick={() => setPdfPreviewOpen(true)}
                                 disabled={!selectedVersion || displayedPlannerRows.length === 0}
                             >
                                 <Eye className="mr-2 size-4" />
@@ -1838,41 +1824,41 @@ export function PlannerManagementSection({
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
                             <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                                <span>Review entries by course group. Each course accordion can preview or export its own PDF before printing.</span>
+                                <span>Review entries by Faculty → Course → Section, similar to the Master Data records accordion. Each faculty group can also be printed individually.</span>
                                 <span>
                                     Showing {displayedPlannerRows.length} of {visibleRows.length} visible planner entries
                                 </span>
                             </div>
 
                             <Accordion type="multiple" className="w-full">
-                                {plannerCourseAccordionGroups.map((courseGroup, courseIndex) => (
+                                {plannerAccordionGroups.map((facultyGroup, facultyIndex) => (
                                     <AccordionItem
-                                        key={`${courseGroup.key}-${courseIndex}`}
-                                        value={`${courseGroup.key}-${courseIndex}`}
+                                        key={`${facultyGroup.key}-${facultyIndex}`}
+                                        value={`${facultyGroup.key}-${facultyIndex}`}
                                         className="px-3 sm:px-4"
                                     >
                                         <AccordionTrigger className="min-w-0 gap-3 py-4 text-left hover:no-underline">
-                                            <div className="min-w-0 flex-1 text-left">
-                                                <div className="wrap-break-word text-sm font-semibold leading-5 sm:truncate">
-                                                    {courseGroup.label}
-                                                </div>
-                                                {courseGroup.subtitle ? (
-                                                    <div className="mt-1 text-xs text-muted-foreground">
-                                                        {courseGroup.subtitle}
+                                            <div className="flex min-w-0 flex-1 flex-col pr-2 text-left">
+                                                <div className="flex min-w-0 items-start gap-2">
+                                                    <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="wrap-break-word text-sm font-semibold leading-5 sm:truncate">
+                                                            {facultyGroup.label}
+                                                        </div>
+                                                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground">
+                                                            <span>
+                                                                {facultyGroup.rowCount} schedule entr{facultyGroup.rowCount === 1 ? "y" : "ies"}
+                                                            </span>
+                                                            <span>•</span>
+                                                            <span>
+                                                                {facultyGroup.courseGroups.length} course group{facultyGroup.courseGroups.length === 1 ? "" : "s"}
+                                                            </span>
+                                                            <span>•</span>
+                                                            <span>
+                                                                {facultyGroup.conflictedCount} conflict{facultyGroup.conflictedCount === 1 ? "" : "s"}
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                ) : null}
-                                                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground">
-                                                    <span>
-                                                        {courseGroup.rowCount} subject entr{courseGroup.rowCount === 1 ? "y" : "ies"}
-                                                    </span>
-                                                    <span>•</span>
-                                                    <span>
-                                                        {courseGroup.instructorCount} instructor{courseGroup.instructorCount === 1 ? "" : "s"}
-                                                    </span>
-                                                    <span>•</span>
-                                                    <span>
-                                                        {courseGroup.conflictedCount} conflict{courseGroup.conflictedCount === 1 ? "" : "s"}
-                                                    </span>
                                                 </div>
                                             </div>
                                         </AccordionTrigger>
@@ -1885,207 +1871,251 @@ export function PlannerManagementSection({
                                                     size="sm"
                                                     className="rounded-lg"
                                                     onClick={() =>
-                                                        openPdfPreview({
-                                                            title: `${courseGroup.label} PDF Preview`,
-                                                            description:
-                                                                "Preview the generated PDF for this course group before export.",
-                                                            rows: courseGroup.rows,
-                                                            fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
-                                                            scopeLabel: courseGroup.label,
-                                                        })
-                                                    }
-                                                >
-                                                    <Eye className="mr-2 size-4" />
-                                                    Preview PDF
-                                                </Button>
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="rounded-lg"
-                                                    onClick={() =>
                                                         void downloadRowsPdf({
-                                                            rows: courseGroup.rows,
-                                                            fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
-                                                            scopeLabel: courseGroup.label,
+                                                            rows: facultyGroup.rows,
+                                                            fileNameBase: `faculty-schedule-${sanitizeFileNamePart(facultyGroup.label)}`,
+                                                            scopeLabel: `Faculty: ${facultyGroup.label}`,
                                                         })
                                                     }
                                                 >
                                                     <Printer className="mr-2 size-4" />
-                                                    Export PDF
+                                                    Print Faculty
                                                 </Button>
                                             </div>
-
-                                            <div className="space-y-3 sm:hidden">
-                                                {courseGroup.rows.map((row) => {
-                                                    const flags = conflictFlagsByMeetingId.get(row.meetingId)
-                                                    const rowHasConflict = hasConflict(flags)
-                                                    const { code, descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
-
-                                                    return (
-                                                        <div key={`mobile-${courseGroup.key}-${row.meetingId}`} className="rounded-xl border bg-background p-3 shadow-sm">
-                                                            <div className="space-y-2">
-                                                                <div>
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</div>
-                                                                    <div className="font-semibold">{code}</div>
+                                            <Accordion type="multiple" className="w-full space-y-3">
+                                                {facultyGroup.courseGroups.map((courseGroup, courseIndex) => (
+                                                    <AccordionItem
+                                                        key={`${courseGroup.key}-${courseIndex}`}
+                                                        value={`${courseGroup.key}-${courseIndex}`}
+                                                        className="overflow-hidden rounded-xl border bg-background px-3 sm:px-4"
+                                                    >
+                                                        <AccordionTrigger className="min-w-0 gap-3 py-4 text-left hover:no-underline">
+                                                            <div className="min-w-0 flex-1 text-left">
+                                                                <div className="wrap-break-word text-sm font-semibold leading-5">
+                                                                    {courseGroup.label}
                                                                 </div>
-                                                                <div>
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Descriptive Title</div>
-                                                                    <div className="text-sm leading-relaxed">{descriptiveTitle}</div>
+                                                                <div className="mt-1 text-xs text-muted-foreground">
+                                                                    {courseGroup.name}
                                                                 </div>
-                                                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                                                    <div>
-                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</div>
-                                                                        <div>{meetingTypeLabel(row.meetingType)}</div>
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day</div>
-                                                                        <div>{formatDayDisplayLabel(row.dayOfWeek)}</div>
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Time</div>
-                                                                        <div>{formatTimeRange(row.startTime, row.endTime)}</div>
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Room</div>
-                                                                        <div>{row.roomLabel || "—"}</div>
-                                                                    </div>
-                                                                    <div className="col-span-2">
-                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Instructor</div>
-                                                                        <div>{row.facultyName || "—"}</div>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    {renderConflictBadges(flags)}
-                                                                    {row.isManualFaculty ? (
-                                                                        <Badge variant="secondary" className="rounded-lg">
-                                                                            Manual
-                                                                        </Badge>
-                                                                    ) : null}
-                                                                </div>
-                                                                <div className="flex flex-wrap gap-2 pt-1">
-                                                                    {rowHasConflict ? (
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className="rounded-lg"
-                                                                            onClick={goToRoomsAndFacilities}
-                                                                        >
-                                                                            <ArrowRight className="mr-2 size-4" />
-                                                                            Fix Conflict
-                                                                        </Button>
-                                                                    ) : null}
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="rounded-lg"
-                                                                        onClick={() => onEditEntry(row)}
-                                                                    >
-                                                                        <PencilLine className="mr-2 size-4" />
-                                                                        Edit
-                                                                    </Button>
+                                                                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground">
+                                                                    <span>
+                                                                        {courseGroup.rowCount} subject entr{courseGroup.rowCount === 1 ? "y" : "ies"}
+                                                                    </span>
+                                                                    <span>•</span>
+                                                                    <span>
+                                                                        {courseGroup.sectionGroups.length} section group{courseGroup.sectionGroups.length === 1 ? "" : "s"}
+                                                                    </span>
+                                                                    <span>•</span>
+                                                                    <span>
+                                                                        {courseGroup.conflictedCount} conflict{courseGroup.conflictedCount === 1 ? "" : "s"}
+                                                                    </span>
                                                                 </div>
                                                             </div>
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
+                                                        </AccordionTrigger>
 
-                                            <div className="hidden overflow-hidden rounded-xl border sm:block">
-                                                <Table className="table-fixed">
-                                                    <TableHeader>
-                                                        <TableRow>
-                                                            <TableHead className="w-28">Code</TableHead>
-                                                            <TableHead className="w-72">Descriptive Title</TableHead>
-                                                            <TableHead className="w-20">Type</TableHead>
-                                                            <TableHead className="w-24">Day</TableHead>
-                                                            <TableHead className="w-32">Time</TableHead>
-                                                            <TableHead className="w-44">Room</TableHead>
-                                                            <TableHead className="w-52">Instructor</TableHead>
-                                                            <TableHead className="w-32 text-right">Actions</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {courseGroup.rows.map((row) => {
-                                                            const flags = conflictFlagsByMeetingId.get(row.meetingId)
-                                                            const rowHasConflict = hasConflict(flags)
-                                                            const { code, descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
+                                                        <AccordionContent className="space-y-3 pb-4">
+                                                            <Accordion type="multiple" className="w-full space-y-3">
+                                                                {courseGroup.sectionGroups.map((sectionGroup, sectionIndex) => (
+                                                                    <AccordionItem
+                                                                        key={`${sectionGroup.key}-${sectionIndex}`}
+                                                                        value={`${sectionGroup.key}-${sectionIndex}`}
+                                                                        className="overflow-hidden rounded-xl border bg-muted/10 px-3 sm:px-4"
+                                                                    >
+                                                                        <AccordionTrigger className="min-w-0 gap-3 py-4 text-left hover:no-underline">
+                                                                            <div className="min-w-0 flex-1 text-left">
+                                                                                <div className="wrap-break-word text-sm font-semibold leading-5">
+                                                                                    {sectionGroup.label}
+                                                                                </div>
+                                                                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground">
+                                                                                    <span>
+                                                                                        {sectionGroup.rowCount} class meeting{sectionGroup.rowCount === 1 ? "" : "s"}
+                                                                                    </span>
+                                                                                    <span>•</span>
+                                                                                    <span>
+                                                                                        {sectionGroup.conflictedCount} conflict{sectionGroup.conflictedCount === 1 ? "" : "s"}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </AccordionTrigger>
 
-                                                            return (
-                                                                <TableRow key={`desktop-${courseGroup.key}-${row.meetingId}`}>
-                                                                    <TableCell className="font-medium align-top">{code}</TableCell>
-                                                                    <TableCell className="align-top">
-                                                                        <div className="space-y-1 leading-relaxed">
-                                                                            <div className="font-medium">{descriptiveTitle}</div>
-                                                                            <div className="text-xs text-muted-foreground">
-                                                                                Units: {row.subjectUnits ?? "—"}
+                                                                        <AccordionContent className="space-y-3 pb-4">
+                                                                            <div className="space-y-3 sm:hidden">
+                                                                                {sectionGroup.rows.map((row) => {
+                                                                                    const flags = conflictFlagsByMeetingId.get(row.meetingId)
+                                                                                    const rowHasConflict = hasConflict(flags)
+                                                                                    const { code, descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
+                                                                                    const sectionLabel = getRowSectionDisplayLabel(row, sectionDisplayLookup)
+
+                                                                                    return (
+                                                                                        <div key={`mobile-${row.meetingId}`} className="rounded-xl border bg-background p-3 shadow-sm">
+                                                                                            <div className="space-y-2">
+                                                                                                <div>
+                                                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</div>
+                                                                                                    <div className="font-semibold">{code}</div>
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Descriptive Title</div>
+                                                                                                    <div className="text-sm leading-relaxed">{descriptiveTitle}</div>
+                                                                                                </div>
+                                                                                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                                                                                    <div>
+                                                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</div>
+                                                                                                        <div>{meetingTypeLabel(row.meetingType)}</div>
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day</div>
+                                                                                                        <div>{formatDayDisplayLabel(row.dayOfWeek)}</div>
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Time</div>
+                                                                                                        <div>{formatTimeRange(row.startTime, row.endTime)}</div>
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Instructor</div>
+                                                                                                        <div>{row.facultyName || "—"}</div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Section</div>
+                                                                                                    <div>{sectionLabel}</div>
+                                                                                                    <div className="mt-1 text-xs text-muted-foreground">
+                                                                                                        Room: {row.roomLabel || "—"} • {roomTypeLabel(row.roomType)}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                                                    {renderConflictBadges(flags)}
+                                                                                                    {row.isManualFaculty ? (
+                                                                                                        <Badge variant="secondary" className="rounded-lg">
+                                                                                                            Manual
+                                                                                                        </Badge>
+                                                                                                    ) : null}
+                                                                                                </div>
+                                                                                                <div className="flex flex-wrap gap-2 pt-1">
+                                                                                                    {rowHasConflict ? (
+                                                                                                        <Button
+                                                                                                            type="button"
+                                                                                                            variant="outline"
+                                                                                                            size="sm"
+                                                                                                            className="rounded-lg"
+                                                                                                            onClick={goToRoomsAndFacilities}
+                                                                                                        >
+                                                                                                            <ArrowRight className="mr-2 size-4" />
+                                                                                                            Fix Conflict
+                                                                                                        </Button>
+                                                                                                    ) : null}
+                                                                                                    <Button
+                                                                                                        type="button"
+                                                                                                        variant="outline"
+                                                                                                        size="sm"
+                                                                                                        className="rounded-lg"
+                                                                                                        onClick={() => onEditEntry(row)}
+                                                                                                    >
+                                                                                                        <PencilLine className="mr-2 size-4" />
+                                                                                                        Edit
+                                                                                                    </Button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )
+                                                                                })}
                                                                             </div>
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="align-top">
-                                                                        <Badge variant="outline" className="rounded-lg">
-                                                                            {meetingTypeLabel(row.meetingType)}
-                                                                        </Badge>
-                                                                    </TableCell>
-                                                                    <TableCell className="align-top">
-                                                                        {formatDayDisplayLabel(row.dayOfWeek)}
-                                                                    </TableCell>
-                                                                    <TableCell className="align-top">
-                                                                        {formatTimeRange(row.startTime, row.endTime)}
-                                                                    </TableCell>
-                                                                    <TableCell className="align-top">
-                                                                        <div className="space-y-2 leading-relaxed">
-                                                                            <div>{row.roomLabel || "—"}</div>
-                                                                            <div className="text-xs text-muted-foreground">
-                                                                                {roomTypeLabel(row.roomType)}
+
+                                                                            <div className="hidden overflow-hidden rounded-xl border sm:block">
+                                                                                <Table className="w-full table-fixed">
+                                                                                    <TableHeader>
+                                                                                        <TableRow>
+                                                                                            <TableHead className="w-28 whitespace-normal wrap-break-word align-top">Code</TableHead>
+                                                                                            <TableHead className="w-72 whitespace-normal wrap-break-word align-top">Descriptive Title</TableHead>
+                                                                                            <TableHead className="w-20 whitespace-normal wrap-break-word align-top">Type</TableHead>
+                                                                                            <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Day</TableHead>
+                                                                                            <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Time</TableHead>
+                                                                                            <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Instructor</TableHead>
+                                                                                            <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Section</TableHead>
+                                                                                            <TableHead className="w-32 whitespace-normal wrap-break-word align-top text-right">Actions</TableHead>
+                                                                                        </TableRow>
+                                                                                    </TableHeader>
+                                                                                    <TableBody>
+                                                                                        {sectionGroup.rows.map((row) => {
+                                                                                            const flags = conflictFlagsByMeetingId.get(row.meetingId)
+                                                                                            const rowHasConflict = hasConflict(flags)
+                                                                                            const { code, descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
+                                                                                            const sectionLabel = getRowSectionDisplayLabel(row, sectionDisplayLookup)
+
+                                                                                            return (
+                                                                                                <TableRow key={`desktop-${row.meetingId}`}>
+                                                                                                    <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">{code}</TableCell>
+                                                                                                    <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                                                                        <div className="min-w-0 space-y-1 leading-relaxed">
+                                                                                                            <div className="wrap-break-word font-medium">{descriptiveTitle}</div>
+                                                                                                            <div className="text-xs text-muted-foreground">Units: {row.subjectUnits ?? "—"}</div>
+                                                                                                        </div>
+                                                                                                    </TableCell>
+                                                                                                    <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                                                                        <Badge variant="outline" className="max-w-full whitespace-normal rounded-lg text-center leading-relaxed">
+                                                                                                            {meetingTypeLabel(row.meetingType)}
+                                                                                                        </Badge>
+                                                                                                    </TableCell>
+                                                                                                    <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">{formatDayDisplayLabel(row.dayOfWeek)}</TableCell>
+                                                                                                    <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">{formatTimeRange(row.startTime, row.endTime)}</TableCell>
+                                                                                                    <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                                                                        <div className="min-w-0 space-y-1 leading-relaxed">
+                                                                                                            <div className="wrap-break-word">{row.facultyName || "—"}</div>
+                                                                                                            {row.isManualFaculty ? (
+                                                                                                                <Badge variant="secondary" className="rounded-lg">
+                                                                                                                    Manual
+                                                                                                                </Badge>
+                                                                                                            ) : null}
+                                                                                                        </div>
+                                                                                                    </TableCell>
+                                                                                                    <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                                                                        <div className="min-w-0 space-y-2 leading-relaxed">
+                                                                                                            <div className="wrap-break-word">{sectionLabel}</div>
+                                                                                                            <div className="wrap-break-word text-xs text-muted-foreground">
+                                                                                                                Room: {row.roomLabel || "—"} • {roomTypeLabel(row.roomType)}
+                                                                                                            </div>
+                                                                                                            <div>{renderConflictBadges(flags)}</div>
+                                                                                                        </div>
+                                                                                                    </TableCell>
+                                                                                                    <TableCell className="whitespace-normal wrap-break-word align-top text-right">
+                                                                                                        <div className="flex flex-col items-end gap-2">
+                                                                                                            {rowHasConflict ? (
+                                                                                                                <Button
+                                                                                                                    type="button"
+                                                                                                                    variant="outline"
+                                                                                                                    size="sm"
+                                                                                                                    className="rounded-lg"
+                                                                                                                    onClick={goToRoomsAndFacilities}
+                                                                                                                >
+                                                                                                                    <ArrowRight className="mr-2 size-4" />
+                                                                                                                    Fix
+                                                                                                                </Button>
+                                                                                                            ) : null}
+                                                                                                            <Button
+                                                                                                                type="button"
+                                                                                                                variant="outline"
+                                                                                                                size="sm"
+                                                                                                                className="rounded-lg"
+                                                                                                                onClick={() => onEditEntry(row)}
+                                                                                                            >
+                                                                                                                <PencilLine className="mr-2 size-4" />
+                                                                                                                Edit
+                                                                                                            </Button>
+                                                                                                        </div>
+                                                                                                    </TableCell>
+                                                                                                </TableRow>
+                                                                                            )
+                                                                                        })}
+                                                                                    </TableBody>
+                                                                                </Table>
                                                                             </div>
-                                                                            <div>{renderConflictBadges(flags)}</div>
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="align-top">
-                                                                        <div className="space-y-1 leading-relaxed">
-                                                                            <div>{row.facultyName || "—"}</div>
-                                                                            {row.isManualFaculty ? (
-                                                                                <Badge variant="secondary" className="rounded-lg">
-                                                                                    Manual
-                                                                                </Badge>
-                                                                            ) : null}
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="align-top text-right">
-                                                                        <div className="flex flex-col items-end gap-2">
-                                                                            {rowHasConflict ? (
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="rounded-lg"
-                                                                                    onClick={goToRoomsAndFacilities}
-                                                                                >
-                                                                                    <ArrowRight className="mr-2 size-4" />
-                                                                                    Fix
-                                                                                </Button>
-                                                                            ) : null}
-                                                                            <Button
-                                                                                type="button"
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="rounded-lg"
-                                                                                onClick={() => onEditEntry(row)}
-                                                                            >
-                                                                                <PencilLine className="mr-2 size-4" />
-                                                                                Edit
-                                                                            </Button>
-                                                                        </div>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            )
-                                                        })}
-                                                    </TableBody>
-                                                </Table>
-                                            </div>
+                                                                        </AccordionContent>
+                                                                    </AccordionItem>
+                                                                ))}
+                                                            </Accordion>
+                                                        </AccordionContent>
+                                                    </AccordionItem>
+                                                ))}
+                                            </Accordion>
                                         </AccordionContent>
                                     </AccordionItem>
                                 ))}
@@ -2205,54 +2235,35 @@ export function PlannerManagementSection({
                 </CardContent>
             </Card>
 
-            <Dialog
-                open={Boolean(pdfPreviewState)}
-                onOpenChange={(open) => {
-                    if (!open) {
-                        closePdfPreview()
-                    }
-                }}
-            >
+            <Dialog open={pdfPreviewOpen} onOpenChange={setPdfPreviewOpen}>
                 <DialogContent className="z-120 h-[82vh] max-h-[82vh] overflow-y-auto p-4 sm:max-w-6xl">
                     <DialogHeader>
-                        <DialogTitle>{pdfPreviewState?.title || "Schedule PDF Preview"}</DialogTitle>
+                        <DialogTitle>Schedule PDF Preview</DialogTitle>
                         <DialogDescription>
-                            {pdfPreviewState?.description || "Preview the generated PDF before export."}
+                            Preview the generated PDF before export.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="h-[66vh] overflow-hidden rounded-xl border">
                         <PDFViewer style={{ width: "100%", height: "100%" }}>
                             <SchedulePdfDocument
-                                rows={activePdfPreviewRows}
+                                rows={displayedPlannerRows}
                                 versionLabel={selectedVersionLabel}
                                 termLabel={selectedTermLabel}
                                 deptLabel={selectedDeptLabel}
                                 generatedAt={generatedAt}
-                                stats={activePdfPreviewStats}
+                                stats={buildPlannerStatsForRows(displayedPlannerRows)}
                                 filteredByConflict={showConflictsOnly}
                                 sectionDisplayLookup={sectionDisplayLookup}
-                                scopeLabel={pdfPreviewState?.scopeLabel}
                             />
                         </PDFViewer>
                     </div>
 
                     <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                        <Button variant="outline" onClick={closePdfPreview}>
+                        <Button variant="outline" onClick={() => setPdfPreviewOpen(false)}>
                             Close
                         </Button>
-                        <Button
-                            onClick={() =>
-                                pdfPreviewState
-                                    ? void downloadRowsPdf({
-                                          rows: pdfPreviewState.rows,
-                                          fileNameBase: pdfPreviewState.fileNameBase,
-                                          scopeLabel: pdfPreviewState.scopeLabel,
-                                      })
-                                    : undefined
-                            }
-                            disabled={!selectedVersion || activePdfPreviewRows.length === 0}
-                        >
+                        <Button onClick={() => void downloadPdf()} disabled={!selectedVersion || displayedPlannerRows.length === 0}>
                             Export PDF
                         </Button>
                     </DialogFooter>
