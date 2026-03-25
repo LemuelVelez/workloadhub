@@ -13,6 +13,7 @@ import {
     FlaskConical,
     PencilLine,
     Plus,
+    Printer,
     RefreshCcw,
     Search,
     SlidersHorizontal,
@@ -81,7 +82,16 @@ import {
     FACULTY_OPTION_MANUAL,
     FACULTY_OPTION_NONE,
 } from "./schedule-types"
-import { dayOrder, fmtDate, formatTimeRange, meetingTypeLabel, roomTypeLabel, TIME_OPTIONS } from "./schedule-utils"
+import {
+    dayExpressionsOverlap,
+    dayOrder,
+    fmtDate,
+    formatDayDisplayLabel,
+    formatTimeRange,
+    meetingTypeLabel,
+    roomTypeLabel,
+    TIME_OPTIONS,
+} from "./schedule-utils"
 
 type Props = {
     selectedVersion: ScheduleVersionDoc | null
@@ -813,6 +823,7 @@ function SchedulePdfDocument({
     stats,
     filteredByConflict,
     sectionDisplayLookup,
+    scopeLabel,
 }: {
     rows: ScheduleRow[]
     versionLabel: string
@@ -822,6 +833,7 @@ function SchedulePdfDocument({
     stats: PlannerStats
     filteredByConflict: boolean
     sectionDisplayLookup: SectionDisplayLookup
+    scopeLabel?: string
 }) {
     const leftLogoSrc = getPdfAssetUrl(PDF_LEFT_LOGO_SRC)
     const rightLogoSrc = getPdfAssetUrl(PDF_RIGHT_LOGO_SRC)
@@ -873,6 +885,12 @@ function SchedulePdfDocument({
                                 <Text style={styles.infoLabel}>Filter:</Text>
                                 <Text style={styles.infoValue}>{filteredByConflict ? "Conflicts only" : "All entries"}</Text>
                             </View>
+                            {scopeLabel ? (
+                                <View style={styles.infoRow}>
+                                    <Text style={styles.infoLabel}>Scope:</Text>
+                                    <Text style={styles.infoValue}>{scopeLabel}</Text>
+                                </View>
+                            ) : null}
                             <View style={styles.infoRow}>
                                 <Text style={styles.infoLabel}>Generated:</Text>
                                 <Text style={styles.infoValue}>{generatedAt}</Text>
@@ -942,7 +960,7 @@ function SchedulePdfDocument({
                                             wrap={false}
                                         >
                                             <View style={[styles.tableCell, styles.colDay]}>
-                                                <Text style={styles.cellText}>{r.dayOfWeek || "—"}</Text>
+                                                <Text style={styles.cellText}>{formatDayDisplayLabel(r.dayOfWeek)}</Text>
                                             </View>
 
                                             <View style={[styles.tableCell, styles.colTime]}>
@@ -1150,6 +1168,7 @@ export function PlannerManagementSection({
             const facultyMode = row.isManualFaculty ? "manual" : row.facultyUserId ? "assigned" : "unassigned"
             const searchText = [
                 row.dayOfWeek,
+                formatDayDisplayLabel(row.dayOfWeek),
                 formatTimeLabel(row.startTime),
                 formatTimeLabel(row.endTime),
                 row.subjectLabel,
@@ -1169,7 +1188,7 @@ export function PlannerManagementSection({
                 .toLowerCase()
 
             if (query && !searchText.includes(query)) return false
-            if (plannerDayFilter !== "all" && row.dayOfWeek !== plannerDayFilter) return false
+            if (plannerDayFilter !== "all" && !dayExpressionsOverlap(row.dayOfWeek, plannerDayFilter)) return false
             if (plannerMeetingTypeFilter !== "all" && rowMeetingType !== plannerMeetingTypeFilter) return false
             if (plannerRoomTypeFilter !== "all" && rowRoomType !== plannerRoomTypeFilter) return false
             if (plannerFacultyFilter !== "all" && facultyMode !== plannerFacultyFilter) return false
@@ -1388,39 +1407,87 @@ export function PlannerManagementSection({
         return PLANNER_SORT_OPTIONS.find((option) => option.value === plannerSortKey)?.label || "Day"
     }, [plannerSortKey])
 
+    const buildPlannerStatsForRows = React.useCallback(
+        (rows: ScheduleRow[]): PlannerStats => {
+            const total = rows.length
+            const conflicts = rows.filter((row) => hasConflict(conflictFlagsByMeetingId.get(row.meetingId))).length
+            const labs = rows.filter((row) => {
+                const rowMeetingType = meetingTypeLabel(row.meetingType)
+                const rowRoomType = roomTypeLabel(row.roomType)
+                return rowMeetingType === "LAB" || rowRoomType === "LAB"
+            }).length
+
+            return { total, conflicts, labs }
+        },
+        [conflictFlagsByMeetingId, hasConflict]
+    )
+
+    const sanitizeFileNamePart = React.useCallback((value: string) => {
+        return String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "schedule"
+    }, [])
+
+    const downloadRowsPdf = React.useCallback(
+        async ({ rows, fileNameBase, scopeLabel }: { rows: ScheduleRow[]; fileNameBase: string; scopeLabel?: string }) => {
+            if (!selectedVersion || rows.length === 0) {
+                toast.error("No schedule entries to export.")
+                return
+            }
+
+            try {
+                const documentNode = (
+                    <SchedulePdfDocument
+                        rows={rows}
+                        versionLabel={selectedVersionLabel}
+                        termLabel={selectedTermLabel}
+                        deptLabel={selectedDeptLabel}
+                        generatedAt={generatedAt}
+                        stats={buildPlannerStatsForRows(rows)}
+                        filteredByConflict={showConflictsOnly}
+                        sectionDisplayLookup={sectionDisplayLookup}
+                        scopeLabel={scopeLabel}
+                    />
+                )
+
+                const blob = await pdf(documentNode).toBlob()
+                const url = URL.createObjectURL(blob)
+
+                const a = document.createElement("a")
+                a.href = url
+                a.download = `${fileNameBase}-${new Date().toISOString().slice(0, 10)}.pdf`
+                a.click()
+
+                URL.revokeObjectURL(url)
+                toast.success("Schedule PDF exported.")
+            } catch (e: any) {
+                toast.error(e?.message || "Failed to export PDF.")
+            }
+        },
+        [
+            buildPlannerStatsForRows,
+            generatedAt,
+            sectionDisplayLookup,
+            selectedDeptLabel,
+            selectedTermLabel,
+            selectedVersion,
+            selectedVersionLabel,
+            showConflictsOnly,
+        ]
+    )
+
     const downloadPdf = async () => {
         if (!selectedVersion || displayedPlannerRows.length === 0) {
             toast.error("No schedule entries to export.")
             return
         }
 
-        try {
-            const documentNode = (
-                <SchedulePdfDocument
-                    rows={displayedPlannerRows}
-                    versionLabel={selectedVersionLabel}
-                    termLabel={selectedTermLabel}
-                    deptLabel={selectedDeptLabel}
-                    generatedAt={generatedAt}
-                    stats={plannerStats}
-                    filteredByConflict={showConflictsOnly}
-                    sectionDisplayLookup={sectionDisplayLookup}
-                />
-            )
-
-            const blob = await pdf(documentNode).toBlob()
-            const url = URL.createObjectURL(blob)
-
-            const a = document.createElement("a")
-            a.href = url
-            a.download = `schedule-report-${selectedVersion.$id}-${new Date().toISOString().slice(0, 10)}.pdf`
-            a.click()
-
-            URL.revokeObjectURL(url)
-            toast.success("Schedule PDF exported.")
-        } catch (e: any) {
-            toast.error(e?.message || "Failed to export PDF.")
-        }
+        await downloadRowsPdf({
+            rows: displayedPlannerRows,
+            fileNameBase: `schedule-report-${selectedVersion.$id}`,
+        })
     }
 
     return (
@@ -1612,7 +1679,7 @@ export function PlannerManagementSection({
                                             <SelectItem value="all">All days</SelectItem>
                                             {DAY_OPTIONS.map((day) => (
                                                 <SelectItem key={day} value={day}>
-                                                    {day}
+                                                    {formatDayDisplayLabel(day)}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -1757,7 +1824,7 @@ export function PlannerManagementSection({
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
                             <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                                <span>Review entries by Faculty → Course → Section, similar to the Master Data records accordion.</span>
+                                <span>Review entries by Faculty → Course → Section, similar to the Master Data records accordion. Each faculty group can also be printed individually.</span>
                                 <span>
                                     Showing {displayedPlannerRows.length} of {visibleRows.length} visible planner entries
                                 </span>
@@ -1797,6 +1864,24 @@ export function PlannerManagementSection({
                                         </AccordionTrigger>
 
                                         <AccordionContent className="space-y-4 pb-4">
+                                            <div className="flex flex-wrap items-center justify-end gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="rounded-lg"
+                                                    onClick={() =>
+                                                        void downloadRowsPdf({
+                                                            rows: facultyGroup.rows,
+                                                            fileNameBase: `faculty-schedule-${sanitizeFileNamePart(facultyGroup.label)}`,
+                                                            scopeLabel: `Faculty: ${facultyGroup.label}`,
+                                                        })
+                                                    }
+                                                >
+                                                    <Printer className="mr-2 size-4" />
+                                                    Print Faculty
+                                                </Button>
+                                            </div>
                                             <Accordion type="multiple" className="w-full space-y-3">
                                                 {facultyGroup.courseGroups.map((courseGroup, courseIndex) => (
                                                     <AccordionItem
@@ -1879,7 +1964,7 @@ export function PlannerManagementSection({
                                                                                                     </div>
                                                                                                     <div>
                                                                                                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day</div>
-                                                                                                        <div>{row.dayOfWeek || "—"}</div>
+                                                                                                        <div>{formatDayDisplayLabel(row.dayOfWeek)}</div>
                                                                                                     </div>
                                                                                                     <div>
                                                                                                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Time</div>
@@ -1970,7 +2055,7 @@ export function PlannerManagementSection({
                                                                                                             {meetingTypeLabel(row.meetingType)}
                                                                                                         </Badge>
                                                                                                     </TableCell>
-                                                                                                    <TableCell className="align-top">{row.dayOfWeek || "—"}</TableCell>
+                                                                                                    <TableCell className="align-top">{formatDayDisplayLabel(row.dayOfWeek)}</TableCell>
                                                                                                     <TableCell className="align-top">{formatTimeRange(row.startTime, row.endTime)}</TableCell>
                                                                                                     <TableCell className="align-top">
                                                                                                         <div className="space-y-1 leading-relaxed">
@@ -2092,7 +2177,7 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {row.dayOfWeek}
+                                                    {formatDayDisplayLabel(row.dayOfWeek)}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
@@ -2167,7 +2252,7 @@ export function PlannerManagementSection({
                                 termLabel={selectedTermLabel}
                                 deptLabel={selectedDeptLabel}
                                 generatedAt={generatedAt}
-                                stats={plannerStats}
+                                stats={buildPlannerStatsForRows(displayedPlannerRows)}
                                 filteredByConflict={showConflictsOnly}
                                 sectionDisplayLookup={sectionDisplayLookup}
                             />
@@ -2212,7 +2297,7 @@ export function PlannerManagementSection({
                                 </Badge>
                                 <span>{editingEntry.subjectLabel}</span>
                                 <span>•</span>
-                                <span>{editingEntry.dayOfWeek}</span>
+                                <span>{formatDayDisplayLabel(editingEntry.dayOfWeek)}</span>
                                 <span>•</span>
                                 <span>{formatTimeRange(editingEntry.startTime, editingEntry.endTime)}</span>
                             </div>
@@ -2293,6 +2378,9 @@ export function PlannerManagementSection({
                                         })}
                                     </SelectContent>
                                 </Select>
+                                <div className="text-xs text-muted-foreground">
+                                    Supports single or paired days such as Monday, M-W, and T-TH.
+                                </div>
                             </div>
 
                             <div className="space-y-1">
@@ -2358,12 +2446,12 @@ export function PlannerManagementSection({
                                 <Label>Day</Label>
                                 <Select value={formDayOfWeek} onValueChange={setFormDayOfWeek}>
                                     <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select day" />
+                                        <SelectValue placeholder="Select day or pair" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {DAY_OPTIONS.map((d) => (
                                             <SelectItem key={d} value={d}>
-                                                {d}
+                                                {formatDayDisplayLabel(d)}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -2400,6 +2488,9 @@ export function PlannerManagementSection({
                                         ))}
                                     </SelectContent>
                                 </Select>
+                                <div className="text-xs text-muted-foreground">
+                                    Supports single or paired days such as Monday, M-W, and T-TH.
+                                </div>
                             </div>
 
                             <div className="space-y-1">
@@ -2462,7 +2553,7 @@ export function PlannerManagementSection({
                                     <ul className="list-disc space-y-1 pl-4 text-xs">
                                         {candidateConflicts.slice(0, 6).map((c, idx) => (
                                             <li key={`${c.type}-${c.row.meetingId}-${idx}`}>
-                                                [{c.type.toUpperCase()}] {c.row.dayOfWeek} {formatTimeRange(c.row.startTime, c.row.endTime)} •{" "}
+                                                [{c.type.toUpperCase()}] {formatDayDisplayLabel(c.row.dayOfWeek)} {formatTimeRange(c.row.startTime, c.row.endTime)} •{" "}
                                                 {c.row.subjectLabel} • {getRowSectionDisplayLabel(c.row, sectionDisplayLookup)} • {c.row.roomLabel}
                                             </li>
                                         ))}
@@ -2579,5 +2670,3 @@ export function PlannerManagementSection({
         </>
     )
 }
-
-

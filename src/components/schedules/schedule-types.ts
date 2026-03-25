@@ -176,7 +176,7 @@ export type VersionSelectOption = {
     meta: string
 }
 
-export const DAY_OPTIONS = [
+export const BASE_DAY_OPTIONS = [
     "Monday",
     "Tuesday",
     "Wednesday",
@@ -185,6 +185,23 @@ export const DAY_OPTIONS = [
     "Saturday",
     "Sunday",
 ] as const
+
+export const DAY_ABBREVIATIONS: Record<(typeof BASE_DAY_OPTIONS)[number], string> = {
+    Monday: "M",
+    Tuesday: "T",
+    Wednesday: "W",
+    Thursday: "TH",
+    Friday: "F",
+    Saturday: "SAT",
+    Sunday: "SUN",
+}
+
+export const DAY_OPTIONS: ReadonlyArray<string> = [
+    ...BASE_DAY_OPTIONS,
+    ...BASE_DAY_OPTIONS.flatMap((day, index) =>
+        BASE_DAY_OPTIONS.slice(index + 1).map((otherDay) => `${DAY_ABBREVIATIONS[day]}-${DAY_ABBREVIATIONS[otherDay]}`)
+    ),
+]
 
 export const FACULTY_OPTION_NONE = "__none__"
 export const FACULTY_OPTION_MANUAL = "__manual__"

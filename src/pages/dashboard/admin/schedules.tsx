@@ -37,9 +37,11 @@ import {
 } from "@/components/schedules/schedule-types"
 import {
     composeRemarks,
+    dayExpressionsOverlap,
     dayOrder,
     deptLabel,
     extractManualFaculty,
+    getCanonicalDayValue,
     hhmmToMinutes,
     meetingTypeLabel,
     normalizeText,
@@ -521,7 +523,7 @@ export default function AdminSchedulesPage() {
                 termId: String(c.termId || ""),
                 departmentId: String(c.departmentId || ""),
 
-                dayOfWeek: String(m.dayOfWeek || ""),
+                dayOfWeek: getCanonicalDayValue(String(m.dayOfWeek || "")),
                 startTime: String(m.startTime || ""),
                 endTime: String(m.endTime || ""),
                 meetingType: (m.meetingType || "LECTURE") as MeetingType,
@@ -589,7 +591,7 @@ export default function AdminSchedulesPage() {
                 const a = scheduleRows[i]
                 const b = scheduleRows[j]
 
-                if (normalizeText(a.dayOfWeek) !== normalizeText(b.dayOfWeek)) continue
+                if (!dayExpressionsOverlap(a.dayOfWeek, b.dayOfWeek)) continue
                 if (!rangesOverlap(a.startTime, a.endTime, b.startTime, b.endTime)) continue
 
                 if (a.roomId && b.roomId && a.roomId === b.roomId) {
@@ -647,7 +649,7 @@ export default function AdminSchedulesPage() {
         setFormFacultyChoice(FACULTY_OPTION_NONE)
         setFormManualFaculty("")
         setFormRoomId(rooms[0]?.$id || "")
-        setFormDayOfWeek("Monday")
+        setFormDayOfWeek(getCanonicalDayValue("Monday"))
         setFormStartTime("07:00")
         setFormEndTime("08:00")
         setFormMeetingType("LECTURE")
@@ -684,7 +686,7 @@ export default function AdminSchedulesPage() {
         )
         setFormManualFaculty(String(row.manualFaculty || ""))
         setFormRoomId(String(row.roomId || ""))
-        setFormDayOfWeek(String(row.dayOfWeek || "Monday"))
+        setFormDayOfWeek(getCanonicalDayValue(String(row.dayOfWeek || "Monday")))
         setFormStartTime(String(row.startTime || "07:00"))
         setFormEndTime(String(row.endTime || "08:00"))
         setFormMeetingType((row.meetingType || "LECTURE") as MeetingType)
@@ -728,7 +730,7 @@ export default function AdminSchedulesPage() {
             if (editingEntry && (r.meetingId === editingEntry.meetingId || r.classId === editingEntry.classId)) {
                 continue
             }
-            if (normalizeText(r.dayOfWeek) !== normalizeText(formDayOfWeek)) continue
+            if (!dayExpressionsOverlap(r.dayOfWeek, formDayOfWeek)) continue
             if (!rangesOverlap(r.startTime, r.endTime, formStartTime, formEndTime)) continue
 
             if (formRoomId && r.roomId && formRoomId === r.roomId) {
@@ -849,7 +851,7 @@ export default function AdminSchedulesPage() {
                     COLLECTIONS.CLASS_MEETINGS,
                     editingEntry.meetingId,
                     {
-                        dayOfWeek: formDayOfWeek,
+                        dayOfWeek: getCanonicalDayValue(formDayOfWeek),
                         startTime: formStartTime,
                         endTime: formEndTime,
                         roomId: formRoomId || null,
@@ -872,7 +874,7 @@ export default function AdminSchedulesPage() {
                 await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
                     versionId: selectedVersion.$id,
                     classId: createdClass.$id,
-                    dayOfWeek: formDayOfWeek,
+                    dayOfWeek: getCanonicalDayValue(formDayOfWeek),
                     startTime: formStartTime,
                     endTime: formEndTime,
                     roomId: formRoomId || null,
@@ -1103,5 +1105,3 @@ export default function AdminSchedulesPage() {
         </DashboardLayout>
     )
 }
-
-
