@@ -499,9 +499,15 @@ export default function AdminSchedulesPage() {
             const subjectTitle = String(subject?.title || "").trim()
             const subjectLabel = [subjectCode, subjectTitle].filter(Boolean).join(" • ") || c.subjectId
 
+            const sectionAny = (section || {}) as any
             const secName = String(section?.name || "").trim()
-            const secYear = Number(section?.yearLevel || 0)
-            const sectionLabel = secName ? `Y${secYear || "?"} - ${secName}` : c.sectionId
+            const secYearRaw = section?.yearLevel ?? sectionAny.yearLevel ?? null
+            const secYearText = String(secYearRaw ?? "").trim()
+            const secProgramCode = String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim()
+            const secProgramName = String(sectionAny.programName || sectionAny.sectionProgramName || "").trim()
+            const sectionLabel =
+                String(section?.label || sectionAny.sectionLabel || "").trim() ||
+                (secName ? `${secYearText ? `Y${secYearText}` : "Y?"} - ${secName}` : c.sectionId)
 
             const roomCode = String(room?.code || "").trim()
             const roomName = String(room?.name || "").trim()
@@ -526,6 +532,10 @@ export default function AdminSchedulesPage() {
 
                 sectionId: String(c.sectionId || ""),
                 sectionLabel,
+                sectionYearLevel: secYearRaw,
+                sectionName: secName || null,
+                sectionProgramCode: secProgramCode || null,
+                sectionProgramName: secProgramName || null,
 
                 subjectId: String(c.subjectId || ""),
                 subjectLabel,
@@ -1093,3 +1103,5 @@ export default function AdminSchedulesPage() {
         </DashboardLayout>
     )
 }
+
+
