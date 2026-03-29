@@ -2613,9 +2613,6 @@ export function PlannerManagementSection({
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                <div className="text-xs text-muted-foreground">
-                                    Create one entry per day. For Tuesday/Thursday schedules with different times, add separate entries.
-                                </div>
                             </div>
 
                             <div className="space-y-1">
