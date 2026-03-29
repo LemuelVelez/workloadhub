@@ -192,7 +192,7 @@ export default function NavMain({ className }: { className?: string }) {
 
     const adminMenu: NavItem[] = [
         {
-            title: "Overview",
+            title: "Dashboard",
             href: "/dashboard/admin/overview",
             icon: LayoutDashboard,
             roles: ["admin"],
@@ -244,7 +244,7 @@ export default function NavMain({ className }: { className?: string }) {
 
     const chairMenu: NavItem[] = [
         {
-            title: "Overview",
+            title: "Dashboard",
             href: "/dashboard/department-head/overview",
             icon: LayoutDashboard,
             roles: ["chair"],
@@ -301,7 +301,7 @@ export default function NavMain({ className }: { className?: string }) {
 
     const facultyMenu: NavItem[] = [
         {
-            title: "Overview",
+            title: "Dashboard",
             href: "/dashboard/faculty/overview",
             icon: LayoutDashboard,
             roles: ["faculty"],

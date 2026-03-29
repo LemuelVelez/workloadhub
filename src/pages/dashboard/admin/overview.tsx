@@ -12,7 +12,6 @@ import {
     FileClock,
     RefreshCw,
     ShieldCheck,
-    Sparkles,
     Users,
     AlertTriangle,
 } from "lucide-react"
@@ -447,18 +446,9 @@ export default function AdminOverviewPage() {
 
     return (
         <DashboardLayout
-            title="Admin Overview"
-            subtitle="System readiness, scheduling activity, and operational snapshots."
+            title="Admin Dashboard"
             actions={
                 <div className="flex items-center gap-2">
-                    <Button
-                        variant="secondary"
-                        className="rounded-2xl"
-                        onClick={() => setOpenInsights(true)}
-                    >
-                        <Sparkles className="h-4 w-4" />
-                        Insights
-                    </Button>
 
                     <Button
                         className="rounded-2xl"
@@ -513,9 +503,6 @@ export default function AdminOverviewPage() {
             <div className="min-w-0 p-6 space-y-6">
                 {/* ✅ Top Status Row */}
                 <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary" className="rounded-full">
-                        Environment: Production-like
-                    </Badge>
 
                     {activeTerm ? (
                         <>
