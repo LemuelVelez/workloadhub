@@ -330,7 +330,7 @@ function resolveRowCourseGroupMeta(row: ScheduleRow, sectionDisplayLookup: Secti
 }
 
 const PDF_LEFT_LOGO_SRC = "/logo.png"
-const PDF_RIGHT_LOGO_SRC = "/CCS.png"
+const PDF_RIGHT_LOGO_SRC = "/CCS.jpg"
 const ROOMS_AND_FACILITIES_ROUTE = "/dashboard/admin/rooms-and-facilities"
 const ENTRY_DIALOG_SELECT_CONTENT_CLASS = "z-[200]"
 

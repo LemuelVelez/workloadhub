@@ -27,7 +27,7 @@ type Props = {
 }
 
 const LEFT_LOGO_PATH = "/logo.png"
-const RIGHT_LOGO_PATH = "/CCS.png"
+const RIGHT_LOGO_PATH = "/CCS.jpg"
 
 const HEADER_REPUBLIC = "Republic of the Philippines"
 const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"

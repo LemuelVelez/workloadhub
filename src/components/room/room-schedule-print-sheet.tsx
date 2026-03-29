@@ -97,7 +97,7 @@ const BLOCK_FONT_STEP = 0.2
 const BLOCK_LINE_HEIGHT_RATIO = 1.08
 
 const LEFT_LOGO_PATH = "/logo.png"
-const RIGHT_LOGO_PATH = "/CCS.png"
+const RIGHT_LOGO_PATH = "/CCS.jpg"
 
 const PASTEL_BLOCKS = [
     "#F5DEB8",
