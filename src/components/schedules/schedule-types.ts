@@ -1,4 +1,4 @@
-export type ScheduleStatus = "Draft" | "Active" | "Locked" | "Archived" | (string & {})
+export type ScheduleStatus = "Draft" | "Active" | "Archived" | (string & {})
 export type MeetingType = "LECTURE" | "LAB" | "OTHER" | (string & {})
 
 export type ScheduleVersionDoc = {
@@ -102,7 +102,7 @@ export type ClassMeetingDoc = {
     notes?: string | null
 }
 
-export type TabKey = "all" | "Draft" | "Active" | "Locked" | "Archived"
+export type TabKey = "all" | "Draft" | "Active" | "Archived"
 export type ConflictType = "room" | "faculty" | "section"
 
 export type ConflictFlags = {
@@ -160,7 +160,6 @@ export type VersionStats = {
     total: number
     draft: number
     active: number
-    locked: number
     archived: number
 }
 

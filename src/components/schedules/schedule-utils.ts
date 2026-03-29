@@ -1,4 +1,4 @@
-import { Clock, FileLock2, ShieldCheck, ShieldX, type LucideIcon } from "lucide-react"
+import { Clock, ShieldCheck, ShieldX, type LucideIcon } from "lucide-react"
 import type { AcademicTermDoc, DepartmentDoc } from "./schedule-types"
 import { BASE_DAY_OPTIONS, DAY_ABBREVIATIONS } from "./schedule-types"
 
@@ -95,17 +95,23 @@ export function fmtDate(iso?: string | null) {
     }
 }
 
+export function normalizeScheduleStatus(status?: string | null) {
+    const s = String(status || "").trim()
+    if (!s) return "Draft"
+    if (s.toLowerCase() === "locked") return "Archived"
+    return s
+}
+
 export function statusBadgeVariant(status: string): "default" | "secondary" | "outline" {
-    const s = String(status || "").toLowerCase()
+    const s = normalizeScheduleStatus(status).toLowerCase()
     if (s === "active") return "default"
-    if (s === "locked") return "secondary"
+    if (s === "archived") return "secondary"
     return "outline"
 }
 
 export function statusIcon(status: string): LucideIcon {
-    const s = String(status || "").toLowerCase()
+    const s = normalizeScheduleStatus(status).toLowerCase()
     if (s === "active") return ShieldCheck
-    if (s === "locked") return FileLock2
     if (s === "archived") return ShieldX
     return Clock
 }

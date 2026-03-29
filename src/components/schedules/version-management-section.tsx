@@ -4,7 +4,6 @@ import {
     CalendarDays,
     CheckCircle2,
     Eye,
-    FileLock2,
     MoreHorizontal,
     Plus,
     RefreshCcw,
@@ -59,7 +58,15 @@ import type {
     TabKey,
     VersionStats,
 } from "./schedule-types"
-import { deptLabel, fmtDate, shortId, statusBadgeVariant, statusIcon, termLabel } from "./schedule-utils"
+import {
+    deptLabel,
+    fmtDate,
+    normalizeScheduleStatus,
+    shortId,
+    statusBadgeVariant,
+    statusIcon,
+    termLabel,
+} from "./schedule-utils"
 
 type Props = {
     loading: boolean
@@ -162,7 +169,7 @@ export function VersionManagementSection({
 }: Props) {
     return (
         <>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card className="rounded-2xl">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-sm font-medium">Total</CardTitle>
@@ -187,13 +194,6 @@ export function VersionManagementSection({
                     <CardContent className="text-2xl font-semibold">{stats.active}</CardContent>
                 </Card>
 
-                <Card className="rounded-2xl">
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">Locked</CardTitle>
-                        <CardDescription>No edits</CardDescription>
-                    </CardHeader>
-                    <CardContent className="text-2xl font-semibold">{stats.locked}</CardContent>
-                </Card>
 
                 <Card className="rounded-2xl">
                     <CardHeader className="pb-3">
@@ -230,11 +230,10 @@ export function VersionManagementSection({
                 <CardContent className="space-y-4">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="w-full lg:w-auto">
-                            <TabsList className="grid w-full grid-cols-5 lg:w-auto">
+                            <TabsList className="grid w-full grid-cols-4 lg:w-auto">
                                 <TabsTrigger value="all">All</TabsTrigger>
                                 <TabsTrigger value="Draft">Draft</TabsTrigger>
                                 <TabsTrigger value="Active">Active</TabsTrigger>
-                                <TabsTrigger value="Locked">Locked</TabsTrigger>
                                 <TabsTrigger value="Archived">Archived</TabsTrigger>
                             </TabsList>
                         </Tabs>
@@ -376,7 +375,9 @@ export function VersionManagementSection({
                                                 </TableCell>
 
                                                 <TableCell>
-                                                    <Badge variant={statusBadgeVariant(String(it.status))}>{String(it.status)}</Badge>
+                                                    <Badge variant={statusBadgeVariant(String(it.status))}>
+                                                        {normalizeScheduleStatus(it.status)}
+                                                    </Badge>
                                                 </TableCell>
 
                                                 <TableCell className="text-sm">{term ? termLabel(term) : it.termId}</TableCell>
@@ -417,13 +418,6 @@ export function VersionManagementSection({
                                                                 Set Active
                                                             </DropdownMenuItem>
 
-                                                            <DropdownMenuItem
-                                                                onClick={() => void onSetStatus(it, "Locked")}
-                                                                disabled={saving || String(it.status) === "Locked"}
-                                                            >
-                                                                <FileLock2 className="mr-2 size-4" />
-                                                                Lock
-                                                            </DropdownMenuItem>
 
                                                             <DropdownMenuItem
                                                                 onClick={() => void onSetStatus(it, "Archived")}
@@ -483,7 +477,9 @@ export function VersionManagementSection({
                                         <CardDescription>Current state</CardDescription>
                                     </CardHeader>
                                     <CardContent>
-                                        <Badge variant={statusBadgeVariant(String(active.status))}>{String(active.status)}</Badge>
+                                        <Badge variant={statusBadgeVariant(String(active.status))}>
+                                            {normalizeScheduleStatus(active.status)}
+                                        </Badge>
                                     </CardContent>
                                     <CardFooter className="pt-0 text-xs text-muted-foreground">
                                         Updated: {fmtDate(active.$updatedAt)}
@@ -522,16 +518,6 @@ export function VersionManagementSection({
                                         <span className="font-medium">{active.createdBy || "—"}</span>
                                     </div>
 
-                                    <Separator />
-
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-muted-foreground">Locked By</span>
-                                        <span className="font-medium">{active.lockedBy || "—"}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-muted-foreground">Locked At</span>
-                                        <span className="font-medium">{fmtDate(active.lockedAt)}</span>
-                                    </div>
                                 </CardContent>
                             </Card>
 
@@ -563,15 +549,6 @@ export function VersionManagementSection({
                                 Set Active
                             </Button>
 
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                disabled={!active || saving || String(active?.status) === "Locked"}
-                                onClick={() => active && void onSetStatus(active, "Locked")}
-                            >
-                                <FileLock2 className="mr-2 size-4" />
-                                Lock
-                            </Button>
 
                             <Button
                                 type="button"

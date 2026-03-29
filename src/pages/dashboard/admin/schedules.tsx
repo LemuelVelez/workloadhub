@@ -46,6 +46,7 @@ import {
     meetingTypeLabel,
     normalizeText,
     rangesOverlap,
+    normalizeScheduleStatus,
     roleLooksLikeFaculty,
     roomTypeLabel,
     stripManualFacultyTag,
@@ -201,7 +202,8 @@ export default function AdminSchedulesPage() {
         const q = search.trim().toLowerCase()
 
         return versions.filter((v) => {
-            const tabOk = tab === "all" ? true : String(v.status) === tab
+            const status = normalizeScheduleStatus(v.status)
+            const tabOk = tab === "all" ? true : status === tab
             if (!tabOk) return false
 
             const termOk = filterTermId === "all" ? true : String(v.termId) === filterTermId
@@ -217,7 +219,7 @@ export default function AdminSchedulesPage() {
                 v.termId,
                 v.departmentId,
                 v.label ?? "",
-                v.status,
+                normalizeScheduleStatus(v.status),
                 String(v.version ?? ""),
                 v.createdBy ?? "",
                 v.notes ?? "",
@@ -231,11 +233,10 @@ export default function AdminSchedulesPage() {
 
     const stats = React.useMemo(() => {
         const total = versions.length
-        const draft = versions.filter((x) => String(x.status) === "Draft").length
-        const activeCount = versions.filter((x) => String(x.status) === "Active").length
-        const locked = versions.filter((x) => String(x.status) === "Locked").length
-        const archived = versions.filter((x) => String(x.status) === "Archived").length
-        return { total, draft, active: activeCount, locked, archived }
+        const draft = versions.filter((x) => normalizeScheduleStatus(x.status) === "Draft").length
+        const activeCount = versions.filter((x) => normalizeScheduleStatus(x.status) === "Active").length
+        const archived = versions.filter((x) => normalizeScheduleStatus(x.status) === "Archived").length
+        return { total, draft, active: activeCount, archived }
     }, [versions])
 
     const openView = (it: ScheduleVersionDoc) => {
@@ -330,10 +331,6 @@ export default function AdminSchedulesPage() {
 
             const payload: any = { status: next }
 
-            if (next === "Locked") {
-                payload.lockedBy = userId
-                payload.lockedAt = new Date().toISOString()
-            }
 
             await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, it.$id, payload)
 
@@ -953,7 +950,7 @@ export default function AdminSchedulesPage() {
                 const meta = `${termLabel(term)} • ${deptLabel(dept)}`
                 return {
                     value: v.$id,
-                    label: `${label} (${String(v.status)})`,
+                    label: `${label} (${normalizeScheduleStatus(v.status)})`,
                     meta,
                 }
             })
@@ -961,7 +958,7 @@ export default function AdminSchedulesPage() {
 
     const selectedVersionLabel = React.useMemo(() => {
         if (!selectedVersion) return "—"
-        return `v${Number(selectedVersion.version || 0)} • ${selectedVersion.label || "Untitled"} (${String(
+        return `v${Number(selectedVersion.version || 0)} • ${selectedVersion.label || "Untitled"} (${normalizeScheduleStatus(
             selectedVersion.status
         )})`
     }, [selectedVersion])
