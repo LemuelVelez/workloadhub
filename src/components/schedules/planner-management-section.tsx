@@ -62,7 +62,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Textarea } from "@/components/ui/textarea"
 
 import type {
     CandidateConflict,
@@ -78,6 +77,7 @@ import type {
     VersionSelectOption,
 } from "./schedule-types"
 import {
+    BASE_DAY_OPTIONS,
     DAY_OPTIONS,
     FACULTY_OPTION_MANUAL,
     FACULTY_OPTION_NONE,
@@ -140,12 +140,6 @@ type Props = {
     setFormEndTime: (v: string) => void
     formMeetingType: MeetingType
     setFormMeetingType: (v: MeetingType) => void
-    formClassCode: string
-    setFormClassCode: (v: string) => void
-    formDeliveryMode: string
-    setFormDeliveryMode: (v: string) => void
-    formRemarks: string
-    setFormRemarks: (v: string) => void
     formAllowConflictSave: boolean
     setFormAllowConflictSave: (v: boolean) => void
 
@@ -1209,12 +1203,6 @@ export function PlannerManagementSection({
     setFormEndTime,
     formMeetingType,
     setFormMeetingType,
-    formClassCode,
-    setFormClassCode,
-    formDeliveryMode,
-    setFormDeliveryMode,
-    formRemarks,
-    setFormRemarks,
     formAllowConflictSave,
     setFormAllowConflictSave,
     candidateConflicts,
@@ -1244,6 +1232,21 @@ export function PlannerManagementSection({
         () => sections.find((section) => section.$id === formSectionId) ?? null,
         [sections, formSectionId]
     )
+
+    const entryDayOptions = React.useMemo(() => {
+        const baseDayOptions: string[] = [...BASE_DAY_OPTIONS]
+
+        if (!editingEntry) {
+            return baseDayOptions
+        }
+
+        const currentDayValue = String(editingEntry.dayOfWeek || "").trim()
+        if (!currentDayValue || baseDayOptions.includes(currentDayValue)) {
+            return baseDayOptions
+        }
+
+        return [...baseDayOptions, currentDayValue]
+    }, [editingEntry])
 
     const selectedSectionPreviewLabel = React.useMemo(() => {
         if (!selectedSection) return "—"
@@ -2407,7 +2410,7 @@ export function PlannerManagementSection({
                         <DialogDescription>
                             {editingEntry
                                 ? "Update the selected schedule entry. Section labels follow the same display format used in Master Data."
-                                : "Use dropdowns for section, subject, faculty, and room. Section labels follow the same display format used in Master Data."}
+                                : "Use dropdowns for section, subject, faculty, and room. Create separate entries per day when a class meets on different times."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -2501,7 +2504,7 @@ export function PlannerManagementSection({
                                     </SelectContent>
                                 </Select>
                                 <div className="text-xs text-muted-foreground">
-                                    Supports single or paired days such as Monday, M-W, and T-TH.
+                                    Select an existing faculty profile or manually encode an instructor.
                                 </div>
                             </div>
 
@@ -2568,10 +2571,10 @@ export function PlannerManagementSection({
                                 <Label>Day</Label>
                                 <Select value={formDayOfWeek} onValueChange={setFormDayOfWeek}>
                                     <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select day or pair" />
+                                        <SelectValue placeholder="Select day" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                        {DAY_OPTIONS.map((d) => (
+                                        {entryDayOptions.map((d) => (
                                             <SelectItem key={d} value={d}>
                                                 {formatDayDisplayLabel(d)}
                                             </SelectItem>
@@ -2611,7 +2614,7 @@ export function PlannerManagementSection({
                                     </SelectContent>
                                 </Select>
                                 <div className="text-xs text-muted-foreground">
-                                    Supports single or paired days such as Monday, M-W, and T-TH.
+                                    Create one entry per day. For Tuesday/Thursday schedules with different times, add separate entries.
                                 </div>
                             </div>
 
@@ -2628,36 +2631,6 @@ export function PlannerManagementSection({
                                     </SelectContent>
                                 </Select>
                             </div>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2">
-                            <div className="space-y-1">
-                                <Label>Class Code (optional)</Label>
-                                <Input
-                                    value={formClassCode}
-                                    onChange={(e) => setFormClassCode(e.target.value)}
-                                    placeholder="e.g. CCS-3A-IT-DB1"
-                                />
-                            </div>
-
-                            <div className="space-y-1">
-                                <Label>Delivery Mode (optional)</Label>
-                                <Input
-                                    value={formDeliveryMode}
-                                    onChange={(e) => setFormDeliveryMode(e.target.value)}
-                                    placeholder="e.g. Face-to-face, Hybrid, Online"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-1">
-                            <Label>Remarks (optional)</Label>
-                            <Textarea
-                                value={formRemarks}
-                                onChange={(e) => setFormRemarks(e.target.value)}
-                                placeholder="Additional notes..."
-                                className="min-h-20"
-                            />
                         </div>
 
                         {candidateConflicts.length > 0 ? (

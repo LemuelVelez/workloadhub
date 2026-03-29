@@ -106,9 +106,6 @@ export default function AdminSchedulesPage() {
     const [formStartTime, setFormStartTime] = React.useState("07:00")
     const [formEndTime, setFormEndTime] = React.useState("08:00")
     const [formMeetingType, setFormMeetingType] = React.useState<MeetingType>("LECTURE")
-    const [formClassCode, setFormClassCode] = React.useState("")
-    const [formDeliveryMode, setFormDeliveryMode] = React.useState("")
-    const [formRemarks, setFormRemarks] = React.useState("")
     const [formAllowConflictSave, setFormAllowConflictSave] = React.useState(false)
     const [editingEntry, setEditingEntry] = React.useState<ScheduleRow | null>(null)
 
@@ -650,9 +647,6 @@ export default function AdminSchedulesPage() {
         setFormStartTime("07:00")
         setFormEndTime("08:00")
         setFormMeetingType("LECTURE")
-        setFormClassCode("")
-        setFormDeliveryMode("")
-        setFormRemarks("")
         setFormAllowConflictSave(false)
     }, [sections, subjects, rooms])
 
@@ -687,9 +681,6 @@ export default function AdminSchedulesPage() {
         setFormStartTime(String(row.startTime || "07:00"))
         setFormEndTime(String(row.endTime || "08:00"))
         setFormMeetingType((row.meetingType || "LECTURE") as MeetingType)
-        setFormClassCode(String(row.classCode || ""))
-        setFormDeliveryMode(String(row.deliveryMode || ""))
-        setFormRemarks(String(row.classRemarks || ""))
         setFormAllowConflictSave(false)
         setEntryDialogOpen(true)
     }, [
@@ -702,9 +693,6 @@ export default function AdminSchedulesPage() {
         setFormStartTime,
         setFormEndTime,
         setFormMeetingType,
-        setFormClassCode,
-        setFormDeliveryMode,
-        setFormRemarks,
     ])
 
     const candidateConflicts = React.useMemo<CandidateConflict[]>(() => {
@@ -830,9 +818,9 @@ export default function AdminSchedulesPage() {
                 sectionId: formSectionId,
                 subjectId: formSubjectId,
                 facultyUserId,
-                classCode: formClassCode.trim() || null,
-                deliveryMode: formDeliveryMode.trim() || null,
-                remarks: composeRemarks(formRemarks, manualFaculty),
+                classCode: null,
+                deliveryMode: null,
+                remarks: composeRemarks("", manualFaculty),
             }
 
             if (editingEntry) {
@@ -1079,12 +1067,6 @@ export default function AdminSchedulesPage() {
                     setFormEndTime={setFormEndTime}
                     formMeetingType={formMeetingType}
                     setFormMeetingType={setFormMeetingType}
-                    formClassCode={formClassCode}
-                    setFormClassCode={setFormClassCode}
-                    formDeliveryMode={formDeliveryMode}
-                    setFormDeliveryMode={setFormDeliveryMode}
-                    formRemarks={formRemarks}
-                    setFormRemarks={setFormRemarks}
                     formAllowConflictSave={formAllowConflictSave}
                     setFormAllowConflictSave={setFormAllowConflictSave}
                     candidateConflicts={candidateConflicts}
