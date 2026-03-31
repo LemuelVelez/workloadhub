@@ -176,7 +176,14 @@ export function formatClockTime(value?: string | null) {
 }
 
 export function formatTimeRange(start: string, end: string) {
-    return `${formatClockTime(start)} - ${formatClockTime(end)}`
+    const startText = formatClockTime(start)
+    const endText = formatClockTime(end)
+
+    if (startText === "—" && endText === "—") return "—"
+    if (startText === "—") return endText
+    if (endText === "—") return startText
+
+    return `${startText} to ${endText}`
 }
 
 export function extractManualFaculty(remarks?: string | null) {
@@ -217,6 +224,34 @@ export function formatDayDisplayLabel(dayValue?: string | null) {
     return canonical
 }
 
+export function formatCompactDayDisplay(dayValue?: string | null) {
+    const days = getDayTokens(dayValue)
+    if (days.length === 0) {
+        return String(dayValue || "").trim() || "—"
+    }
+
+    return days.map((day) => DAY_ABBREVIATIONS[day] || day).join("-")
+}
+
+export function formatCompactDayDisplayFromValues(dayValues: Array<string | null | undefined>) {
+    const resolvedDays = getOrderedUniqueDays(dayValues.flatMap((value) => getDayTokens(value)))
+    if (resolvedDays.length === 0) return "—"
+
+    return resolvedDays.map((day) => DAY_ABBREVIATIONS[day] || day).join("-")
+}
+
+export function joinDisplayValues(values: Array<string | null | undefined>, separator = " / ") {
+    const uniqueValues: string[] = []
+
+    for (const value of values) {
+        const normalized = String(value || "").trim()
+        if (!normalized || uniqueValues.includes(normalized)) continue
+        uniqueValues.push(normalized)
+    }
+
+    return uniqueValues.length > 0 ? uniqueValues.join(separator) : "—"
+}
+
 export function dayExpressionsOverlap(a?: string | null, b?: string | null) {
     const aDays = getDayTokens(a)
     const bDays = getDayTokens(b)
@@ -231,6 +266,30 @@ export function dayOrder(day: string) {
         .map((value) => BASE_DAY_OPTIONS.indexOf(value))
         .filter((value) => value >= 0)
     return indexes.length > 0 ? Math.min(...indexes) : 999
+}
+
+export function formatCombinedMeetingTimeDisplay(
+    entries: Array<{ dayOfWeek?: string | null; startTime?: string | null; endTime?: string | null }>
+) {
+    const orderedEntries = entries.slice().sort((a, b) => {
+        const dayDiff = dayOrder(String(a.dayOfWeek || "")) - dayOrder(String(b.dayOfWeek || ""))
+        if (dayDiff !== 0) return dayDiff
+
+        const startDiff = hhmmToMinutes(String(a.startTime || "")) - hhmmToMinutes(String(b.startTime || ""))
+        if (startDiff !== 0) return startDiff
+
+        return hhmmToMinutes(String(a.endTime || "")) - hhmmToMinutes(String(b.endTime || ""))
+    })
+
+    const uniqueRanges: string[] = []
+
+    for (const entry of orderedEntries) {
+        const range = formatTimeRange(String(entry.startTime || ""), String(entry.endTime || ""))
+        if (!range || range === "—" || uniqueRanges.includes(range)) continue
+        uniqueRanges.push(range)
+    }
+
+    return uniqueRanges.length > 0 ? uniqueRanges.join(" / ") : "—"
 }
 
 export function roleLooksLikeFaculty(role?: string | null) {

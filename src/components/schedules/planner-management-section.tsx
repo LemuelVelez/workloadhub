@@ -86,8 +86,12 @@ import {
     dayExpressionsOverlap,
     dayOrder,
     fmtDate,
+    formatCombinedMeetingTimeDisplay,
+    formatCompactDayDisplay,
+    formatCompactDayDisplayFromValues,
     formatDayDisplayLabel,
     formatTimeRange,
+    joinDisplayValues,
     meetingTypeLabel,
     roomTypeLabel,
     TIME_OPTIONS,
@@ -161,6 +165,23 @@ type SectionDisplayLookup = Record<string, string>
 type PlannerSortKey = "day" | "time" | "subject" | "section" | "faculty" | "room" | "type" | "conflicts"
 type PlannerSortDirection = "asc" | "desc"
 
+type PlannerDisplayRow = {
+    key: string
+    primaryRow: ScheduleRow
+    sourceRows: ScheduleRow[]
+    conflictFlags: ConflictFlags
+    hasConflict: boolean
+    dayDisplay: string
+    timeDisplay: string
+    roomDisplay: string
+    roomTypeDisplay: string
+    facultyDisplay: string
+    meetingTypeDisplay: string
+    sectionDisplay: string
+    sortDayValue: string
+    sortStartTime: string
+}
+
 type PlannerCourseAccordionGroup = {
     key: string
     code: string
@@ -171,7 +192,7 @@ type PlannerCourseAccordionGroup = {
     rowCount: number
     conflictedCount: number
     instructorCount: number
-    rows: ScheduleRow[]
+    rows: PlannerDisplayRow[]
 }
 
 type PdfTableVariant = "default" | "course-group"
@@ -179,7 +200,7 @@ type PdfTableVariant = "default" | "course-group"
 type PdfPreviewState = {
     title: string
     description: string
-    rows: ScheduleRow[]
+    rows: PlannerDisplayRow[]
     fileNameBase: string
     scopeLabel?: string
     tableVariant?: PdfTableVariant
@@ -352,16 +373,6 @@ function formatTimeLabel(value?: string) {
     return TIME_OPTIONS.find((option) => option.value === normalized)?.label || normalized
 }
 
-function formatPdfTimeText(startTime?: string, endTime?: string) {
-    const start = formatTimeLabel(startTime)
-    const end = formatTimeLabel(endTime)
-
-    if (start === "—" && end === "—") return "—"
-    if (start === "—") return end
-    if (end === "—") return start
-
-    return `${start} to ${end}`
-}
 
 function normalizeSectionYearLevelDisplay(value?: string | number | null) {
     const normalized = String(value ?? "")
@@ -554,6 +565,70 @@ function getRowSectionDisplayLabel(row: ScheduleRow, sectionDisplayLookup: Secti
     }
 
     return formatRowSectionDisplayLabel(row)
+}
+
+function mergeConflictFlags(flagsCollection: Array<ConflictFlags | undefined>): ConflictFlags {
+    return flagsCollection.reduce<ConflictFlags>(
+        (acc, flags) => ({
+            room: acc.room || Boolean(flags?.room),
+            faculty: acc.faculty || Boolean(flags?.faculty),
+            section: acc.section || Boolean(flags?.section),
+        }),
+        { room: false, faculty: false, section: false }
+    )
+}
+
+function buildPlannerDisplayRows({
+    rows,
+    conflictFlagsByMeetingId,
+    sectionDisplayLookup,
+}: {
+    rows: ScheduleRow[]
+    conflictFlagsByMeetingId: Map<string, ConflictFlags>
+    sectionDisplayLookup: SectionDisplayLookup
+}) {
+    const groupedRows = new Map<string, ScheduleRow[]>()
+
+    for (const row of rows) {
+        const key = String(row.classId || row.meetingId || "").trim() || row.meetingId
+        const existingRows = groupedRows.get(key) || []
+        existingRows.push(row)
+        groupedRows.set(key, existingRows)
+    }
+
+    return Array.from(groupedRows.entries()).map(([key, sourceRows]) => {
+        const orderedRows = sourceRows
+            .slice()
+            .sort((a, b) => {
+                const dayDiff = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
+                if (dayDiff !== 0) return dayDiff
+                return comparePlannerText(a.startTime, b.startTime)
+            })
+
+        const primaryRow = orderedRows[0]
+        const conflictFlags = mergeConflictFlags(
+            orderedRows.map((row) => conflictFlagsByMeetingId.get(row.meetingId))
+        )
+
+        return {
+            key,
+            primaryRow,
+            sourceRows: orderedRows,
+            conflictFlags,
+            hasConflict: countConflictFlags(conflictFlags) > 0,
+            dayDisplay: formatCompactDayDisplayFromValues(orderedRows.map((row) => row.dayOfWeek)),
+            timeDisplay: formatCombinedMeetingTimeDisplay(orderedRows),
+            roomDisplay: joinDisplayValues(orderedRows.map((row) => row.roomLabel || "—")),
+            roomTypeDisplay: joinDisplayValues(orderedRows.map((row) => roomTypeLabel(row.roomType))),
+            facultyDisplay: joinDisplayValues(orderedRows.map((row) => row.facultyName || "—")),
+            meetingTypeDisplay: joinDisplayValues(orderedRows.map((row) => meetingTypeLabel(row.meetingType))),
+            sectionDisplay: joinDisplayValues(
+                orderedRows.map((row) => getRowSectionDisplayLabel(row, sectionDisplayLookup))
+            ),
+            sortDayValue: String(primaryRow.dayOfWeek || ""),
+            sortStartTime: String(primaryRow.startTime || ""),
+        }
+    })
 }
 
 const styles = StyleSheet.create({
@@ -879,18 +954,16 @@ function SchedulePdfDocument({
     generatedAt,
     stats,
     filteredByConflict,
-    sectionDisplayLookup,
     scopeLabel,
     tableVariant = "default",
 }: {
-    rows: ScheduleRow[]
+    rows: PlannerDisplayRow[]
     versionLabel: string
     termLabel: string
     deptLabel: string
     generatedAt: string
     stats: PlannerStats
     filteredByConflict: boolean
-    sectionDisplayLookup: SectionDisplayLookup
     scopeLabel?: string
     tableVariant?: PdfTableVariant
 }) {
@@ -1035,19 +1108,20 @@ function SchedulePdfDocument({
                                 <Text style={styles.emptyState}>No schedule entries available for this export.</Text>
                             ) : (
                                 rows.map((r, idx) => {
-                                    const type = meetingTypeLabel(r.meetingType)
-                                    const displayType = type === "LECTURE" ? "LEC" : type
+                                    const baseRow = r.primaryRow
+                                    const type = r.meetingTypeDisplay
+                                    const displayType = type === "LECTURE" ? "LEC" : type.replaceAll("LECTURE", "LEC")
                                     const typeStyle =
                                         type === "LAB"
                                             ? styles.typePillLab
                                             : type === "LECTURE"
                                               ? styles.typePillLecture
                                               : styles.typePillOther
-                                    const { code, descriptiveTitle } = splitSubjectLabelParts(r.subjectLabel)
+                                    const { code, descriptiveTitle } = splitSubjectLabelParts(baseRow.subjectLabel)
 
                                     return (
                                         <View
-                                            key={`pdf-row-${r.meetingId}`}
+                                            key={`pdf-row-${r.key}`}
                                             style={[
                                                 styles.tableRow,
                                                 idx % 2 === 0 ? styles.tableRowOdd : styles.tableRowEven,
@@ -1063,7 +1137,7 @@ function SchedulePdfDocument({
                                                     <View style={[styles.tableCell, styles.colCourseTitle]}>
                                                         <Text style={styles.cellText}>{descriptiveTitle}</Text>
                                                         <Text style={[styles.cellText, styles.cellSubtle]}>
-                                                            Units: {r.subjectUnits ?? "—"}
+                                                            Units: {baseRow.subjectUnits ?? "—"}
                                                         </Text>
                                                     </View>
 
@@ -1074,19 +1148,19 @@ function SchedulePdfDocument({
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colCourseDay]}>
-                                                        <Text style={styles.cellText}>{formatDayDisplayLabel(r.dayOfWeek)}</Text>
+                                                        <Text style={styles.cellText}>{r.dayDisplay}</Text>
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colCourseTime]}>
                                                         <Text style={[styles.cellText, styles.timeText]}>
-                                                            {formatPdfTimeText(r.startTime, r.endTime)}
+                                                            {r.timeDisplay}
                                                         </Text>
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colCourseRoom]}>
-                                                        <Text style={styles.cellText}>{r.roomLabel || "—"}</Text>
+                                                        <Text style={styles.cellText}>{r.roomDisplay || "—"}</Text>
                                                         <Text style={[styles.cellText, styles.cellSubtle]}>
-                                                            {r.roomType ? roomTypeLabel(r.roomType) : "—"}
+                                                            {r.roomTypeDisplay || "—"}
                                                         </Text>
                                                     </View>
 
@@ -1097,8 +1171,8 @@ function SchedulePdfDocument({
                                                             styles.tableCellLast,
                                                         ]}
                                                     >
-                                                        <Text style={styles.cellText}>{r.facultyName || "—"}</Text>
-                                                        {r.isManualFaculty ? (
+                                                        <Text style={styles.cellText}>{r.facultyDisplay || "—"}</Text>
+                                                        {r.sourceRows.some((row) => row.isManualFaculty) ? (
                                                             <Text style={[styles.cellText, styles.cellSubtle]}>Manual entry</Text>
                                                         ) : null}
                                                     </View>
@@ -1106,39 +1180,39 @@ function SchedulePdfDocument({
                                             ) : (
                                                 <>
                                                     <View style={[styles.tableCell, styles.colDay]}>
-                                                        <Text style={styles.cellText}>{formatDayDisplayLabel(r.dayOfWeek)}</Text>
+                                                        <Text style={styles.cellText}>{r.dayDisplay}</Text>
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colTime]}>
                                                         <Text style={[styles.cellText, styles.timeText]}>
-                                                            {formatPdfTimeText(r.startTime, r.endTime)}
+                                                            {r.timeDisplay}
                                                         </Text>
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colSubject]}>
-                                                        <Text style={styles.cellText}>{r.subjectLabel || "—"}</Text>
+                                                        <Text style={styles.cellText}>{baseRow.subjectLabel || "—"}</Text>
                                                         <Text style={[styles.cellText, styles.cellSubtle]}>
-                                                            Units: {r.subjectUnits ?? "—"}
+                                                            Units: {baseRow.subjectUnits ?? "—"}
                                                         </Text>
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colSection]}>
                                                         <Text style={styles.cellText}>
-                                                            {getRowSectionDisplayLabel(r, sectionDisplayLookup)}
+                                                            {r.sectionDisplay}
                                                         </Text>
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colFaculty]}>
-                                                        <Text style={styles.cellText}>{r.facultyName || "—"}</Text>
-                                                        {r.isManualFaculty ? (
+                                                        <Text style={styles.cellText}>{r.facultyDisplay || "—"}</Text>
+                                                        {r.sourceRows.some((row) => row.isManualFaculty) ? (
                                                             <Text style={[styles.cellText, styles.cellSubtle]}>Manual entry</Text>
                                                         ) : null}
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colRoom]}>
-                                                        <Text style={styles.cellText}>{r.roomLabel || "—"}</Text>
+                                                        <Text style={styles.cellText}>{r.roomDisplay || "—"}</Text>
                                                         <Text style={[styles.cellText, styles.cellSubtle]}>
-                                                            {r.roomType ? roomTypeLabel(r.roomType) : "—"}
+                                                            {r.roomTypeDisplay || "—"}
                                                         </Text>
                                                     </View>
 
@@ -1253,10 +1327,6 @@ export function PlannerManagementSection({
         return sectionDisplayLookup[selectedSection.$id] || "—"
     }, [selectedSection, sectionDisplayLookup])
 
-    const hasConflict = React.useCallback((flags?: ConflictFlags) => {
-        return Boolean(flags?.room || flags?.faculty || flags?.section)
-    }, [])
-
     const goToRoomsAndFacilities = React.useCallback(() => {
         navigate(ROOMS_AND_FACILITIES_ROUTE)
     }, [navigate])
@@ -1313,7 +1383,7 @@ export function PlannerManagementSection({
         )
     }, [visibleRows])
 
-    const displayedPlannerRows = React.useMemo(() => {
+    const displayedPlannerRows = React.useMemo<PlannerDisplayRow[]>(() => {
         const query = plannerSearch.trim().toLowerCase()
         const direction = plannerSortDirection === "asc" ? 1 : -1
 
@@ -1326,6 +1396,7 @@ export function PlannerManagementSection({
             const searchText = [
                 row.dayOfWeek,
                 formatDayDisplayLabel(row.dayOfWeek),
+                formatCompactDayDisplay(row.dayOfWeek),
                 formatTimeLabel(row.startTime),
                 formatTimeLabel(row.endTime),
                 row.subjectLabel,
@@ -1353,62 +1424,63 @@ export function PlannerManagementSection({
             return true
         })
 
-        const sortedRows = filteredRows.slice().sort((a, b) => {
-            const aFlags = conflictFlagsByMeetingId.get(a.meetingId)
-            const bFlags = conflictFlagsByMeetingId.get(b.meetingId)
+        const groupedRows = buildPlannerDisplayRows({
+            rows: filteredRows,
+            conflictFlagsByMeetingId,
+            sectionDisplayLookup,
+        })
+
+        return groupedRows.slice().sort((a, b) => {
+            const aRow = a.primaryRow
+            const bRow = b.primaryRow
             let result = 0
 
             switch (plannerSortKey) {
                 case "time":
-                    result = comparePlannerText(a.startTime, b.startTime)
+                    result = comparePlannerText(a.sortStartTime, b.sortStartTime)
                     if (result === 0) {
-                        result = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
+                        result = dayOrder(a.sortDayValue) - dayOrder(b.sortDayValue)
                     }
                     break
                 case "subject":
-                    result = comparePlannerText(a.subjectLabel, b.subjectLabel)
+                    result = comparePlannerText(aRow.subjectLabel, bRow.subjectLabel)
                     break
                 case "section":
-                    result = comparePlannerText(
-                        getRowSectionDisplayLabel(a, sectionDisplayLookup),
-                        getRowSectionDisplayLabel(b, sectionDisplayLookup)
-                    )
+                    result = comparePlannerText(a.sectionDisplay, b.sectionDisplay)
                     break
                 case "faculty":
-                    result = comparePlannerText(a.facultyName, b.facultyName)
+                    result = comparePlannerText(a.facultyDisplay, b.facultyDisplay)
                     break
                 case "room":
-                    result = comparePlannerText(a.roomLabel, b.roomLabel)
+                    result = comparePlannerText(a.roomDisplay, b.roomDisplay)
                     break
                 case "type":
-                    result = comparePlannerText(meetingTypeLabel(a.meetingType), meetingTypeLabel(b.meetingType))
+                    result = comparePlannerText(a.meetingTypeDisplay, b.meetingTypeDisplay)
                     break
                 case "conflicts":
-                    result = countConflictFlags(aFlags) - countConflictFlags(bFlags)
+                    result = countConflictFlags(a.conflictFlags) - countConflictFlags(b.conflictFlags)
                     break
                 case "day":
                 default:
-                    result = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
+                    result = dayOrder(a.sortDayValue) - dayOrder(b.sortDayValue)
                     if (result === 0) {
-                        result = comparePlannerText(a.startTime, b.startTime)
+                        result = comparePlannerText(a.sortStartTime, b.sortStartTime)
                     }
                     break
             }
 
             if (result === 0) {
-                const fallbackDay = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
+                const fallbackDay = dayOrder(a.sortDayValue) - dayOrder(b.sortDayValue)
                 if (fallbackDay !== 0) return fallbackDay * direction
 
-                const fallbackTime = comparePlannerText(a.startTime, b.startTime)
+                const fallbackTime = comparePlannerText(a.sortStartTime, b.sortStartTime)
                 if (fallbackTime !== 0) return fallbackTime * direction
 
-                return comparePlannerText(a.subjectLabel, b.subjectLabel) * direction
+                return comparePlannerText(aRow.subjectLabel, bRow.subjectLabel) * direction
             }
 
             return result * direction
         })
-
-        return sortedRows
     }, [
         visibleRows,
         plannerSearch,
@@ -1422,6 +1494,22 @@ export function PlannerManagementSection({
         sectionDisplayLookup,
     ])
 
+    const displayedLaboratoryRows = React.useMemo<PlannerDisplayRow[]>(() => {
+        return buildPlannerDisplayRows({
+            rows: laboratoryRows,
+            conflictFlagsByMeetingId,
+            sectionDisplayLookup,
+        }).sort((a, b) => {
+            const roomCompare = comparePlannerText(a.roomDisplay, b.roomDisplay)
+            if (roomCompare !== 0) return roomCompare
+
+            const dayCompare = dayOrder(a.sortDayValue) - dayOrder(b.sortDayValue)
+            if (dayCompare !== 0) return dayCompare
+
+            return comparePlannerText(a.sortStartTime, b.sortStartTime)
+        })
+    }, [laboratoryRows, conflictFlagsByMeetingId, sectionDisplayLookup])
+
     const plannerCourseAccordionGroups = React.useMemo<PlannerCourseAccordionGroup[]>(() => {
         const courseMap = new Map<
             string,
@@ -1434,15 +1522,14 @@ export function PlannerManagementSection({
                 subtitle: string
                 rowCount: number
                 conflictedCount: number
-                rows: ScheduleRow[]
+                rows: PlannerDisplayRow[]
                 instructorKeys: Set<string>
             }
         >()
 
         for (const row of displayedPlannerRows) {
-            const rowHasConflict = hasConflict(conflictFlagsByMeetingId.get(row.meetingId))
             const { courseCode, courseName, yearLevel, courseGroupCode, courseLabel, courseSubtitle } =
-                resolveRowCourseGroupMeta(row, sectionDisplayLookup)
+                resolveRowCourseGroupMeta(row.primaryRow, sectionDisplayLookup)
 
             const courseKey = `${courseGroupCode}::${courseName}`
             let courseGroup = courseMap.get(courseKey)
@@ -1464,9 +1551,9 @@ export function PlannerManagementSection({
             }
 
             courseGroup.rowCount += 1
-            if (rowHasConflict) courseGroup.conflictedCount += 1
+            if (row.hasConflict) courseGroup.conflictedCount += 1
             courseGroup.rows.push(row)
-            courseGroup.instructorKeys.add(String(row.facultyKey || row.facultyName || "Unassigned"))
+            courseGroup.instructorKeys.add(String(row.facultyDisplay || row.primaryRow.facultyName || "Unassigned"))
         }
 
         return Array.from(courseMap.values())
@@ -1492,7 +1579,7 @@ export function PlannerManagementSection({
 
                 return comparePlannerText(a.label, b.label)
             })
-    }, [displayedPlannerRows, conflictFlagsByMeetingId, hasConflict, sectionDisplayLookup])
+    }, [displayedPlannerRows, sectionDisplayLookup])
 
     const generatedAt = React.useMemo(() => {
         return fmtDate(new Date().toISOString())
@@ -1513,20 +1600,19 @@ export function PlannerManagementSection({
         return PLANNER_SORT_OPTIONS.find((option) => option.value === plannerSortKey)?.label || "Day"
     }, [plannerSortKey])
 
-    const buildPlannerStatsForRows = React.useCallback(
-        (rows: ScheduleRow[]): PlannerStats => {
-            const total = rows.length
-            const conflicts = rows.filter((row) => hasConflict(conflictFlagsByMeetingId.get(row.meetingId))).length
-            const labs = rows.filter((row) => {
-                const rowMeetingType = meetingTypeLabel(row.meetingType)
-                const rowRoomType = roomTypeLabel(row.roomType)
+    const buildPlannerStatsForRows = React.useCallback((rows: PlannerDisplayRow[]): PlannerStats => {
+        const total = rows.length
+        const conflicts = rows.filter((row) => row.hasConflict).length
+        const labs = rows.filter((row) =>
+            row.sourceRows.some((sourceRow) => {
+                const rowMeetingType = meetingTypeLabel(sourceRow.meetingType)
+                const rowRoomType = roomTypeLabel(sourceRow.roomType)
                 return rowMeetingType === "LAB" || rowRoomType === "LAB"
-            }).length
+            })
+        ).length
 
-            return { total, conflicts, labs }
-        },
-        [conflictFlagsByMeetingId, hasConflict]
-    )
+        return { total, conflicts, labs }
+    }, [])
 
     const sanitizeFileNamePart = React.useCallback((value: string) => {
         return String(value || "")
@@ -1559,7 +1645,7 @@ export function PlannerManagementSection({
             scopeLabel,
             tableVariant,
         }: {
-            rows: ScheduleRow[]
+            rows: PlannerDisplayRow[]
             fileNameBase: string
             scopeLabel?: string
             tableVariant?: PdfTableVariant
@@ -1579,7 +1665,6 @@ export function PlannerManagementSection({
                         generatedAt={generatedAt}
                         stats={buildPlannerStatsForRows(rows)}
                         filteredByConflict={showConflictsOnly}
-                        sectionDisplayLookup={sectionDisplayLookup}
                         scopeLabel={scopeLabel}
                         tableVariant={tableVariant}
                     />
@@ -1622,6 +1707,34 @@ export function PlannerManagementSection({
             fileNameBase: `schedule-report-${selectedVersion.$id}`,
         })
     }
+
+    const renderGroupedEditButtons = React.useCallback((row: PlannerDisplayRow, align: "start" | "end" = "start") => {
+        const alignmentClassName = align === "end" ? "justify-end" : "justify-start"
+
+        return (
+            <div className={cn("flex flex-wrap gap-2", alignmentClassName)}>
+                {row.sourceRows.map((sourceRow) => {
+                    const compactDayLabel = formatCompactDayDisplay(sourceRow.dayOfWeek)
+                    const buttonLabel =
+                        row.sourceRows.length === 1 ? "Edit" : `Edit ${compactDayLabel === "—" ? "Meeting" : compactDayLabel}`
+
+                    return (
+                        <Button
+                            key={`edit-${row.key}-${sourceRow.meetingId}`}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="rounded-lg"
+                            onClick={() => onEditEntry(sourceRow)}
+                        >
+                            <PencilLine className="mr-2 size-4" />
+                            {buttonLabel}
+                        </Button>
+                    )
+                })}
+            </div>
+        )
+    }, [onEditEntry])
 
     const activePdfPreviewRows = pdfPreviewState?.rows ?? displayedPlannerRows
     const activePdfPreviewStats = buildPlannerStatsForRows(activePdfPreviewRows)
@@ -1970,7 +2083,7 @@ export function PlannerManagementSection({
                             <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                                 <span>Review entries by course group. Each course accordion can preview or export its own PDF before printing.</span>
                                 <span>
-                                    Showing {displayedPlannerRows.length} of {visibleRows.length} visible planner entries
+                                    Showing {displayedPlannerRows.length} grouped subject entries from {visibleRows.length} visible meetings
                                 </span>
                             </div>
 
@@ -1993,7 +2106,7 @@ export function PlannerManagementSection({
                                                 ) : null}
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground">
                                                     <span>
-                                                        {courseGroup.rowCount} subject entr{courseGroup.rowCount === 1 ? "y" : "ies"}
+                                                        {courseGroup.rowCount} grouped subject entr{courseGroup.rowCount === 1 ? "y" : "ies"}
                                                     </span>
                                                     <span>•</span>
                                                     <span>
@@ -2050,53 +2163,52 @@ export function PlannerManagementSection({
 
                                             <div className="space-y-3 sm:hidden">
                                                 {courseGroup.rows.map((row) => {
-                                                    const flags = conflictFlagsByMeetingId.get(row.meetingId)
-                                                    const rowHasConflict = hasConflict(flags)
-                                                    const { code, descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
+                                                    const baseRow = row.primaryRow
+                                                    const { code, descriptiveTitle } = splitSubjectLabelParts(baseRow.subjectLabel)
 
                                                     return (
-                                                        <div key={`mobile-${courseGroup.key}-${row.meetingId}`} className="rounded-xl border bg-background p-3 shadow-sm">
+                                                        <div key={`mobile-${courseGroup.key}-${row.key}`} className="rounded-xl border bg-background p-3 shadow-sm">
                                                             <div className="space-y-2">
                                                                 <div>
                                                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</div>
-                                                                    <div className="font-semibold">{code}</div>
+                                                                    <div className="font-semibold wrap-break-word">{code}</div>
                                                                 </div>
                                                                 <div>
                                                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Descriptive Title</div>
-                                                                    <div className="text-sm leading-relaxed">{descriptiveTitle}</div>
+                                                                    <div className="text-sm leading-relaxed wrap-break-word">{descriptiveTitle}</div>
                                                                 </div>
                                                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                                                     <div>
                                                                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</div>
-                                                                        <div>{meetingTypeLabel(row.meetingType)}</div>
+                                                                        <div className="wrap-break-word">{row.meetingTypeDisplay}</div>
                                                                     </div>
                                                                     <div>
                                                                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day</div>
-                                                                        <div>{formatDayDisplayLabel(row.dayOfWeek)}</div>
+                                                                        <div className="wrap-break-word">{row.dayDisplay}</div>
                                                                     </div>
                                                                     <div>
                                                                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Time</div>
-                                                                        <div>{formatTimeRange(row.startTime, row.endTime)}</div>
+                                                                        <div className="wrap-break-word">{row.timeDisplay}</div>
                                                                     </div>
                                                                     <div>
                                                                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Room</div>
-                                                                        <div>{row.roomLabel || "—"}</div>
+                                                                        <div className="wrap-break-word">{row.roomDisplay || "—"}</div>
                                                                     </div>
                                                                     <div className="col-span-2">
                                                                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Instructor</div>
-                                                                        <div>{row.facultyName || "—"}</div>
+                                                                        <div className="wrap-break-word">{row.facultyDisplay || "—"}</div>
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex flex-wrap items-center gap-2">
-                                                                    {renderConflictBadges(flags)}
-                                                                    {row.isManualFaculty ? (
+                                                                    {renderConflictBadges(row.conflictFlags)}
+                                                                    {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
                                                                         <Badge variant="secondary" className="rounded-lg">
                                                                             Manual
                                                                         </Badge>
                                                                     ) : null}
                                                                 </div>
-                                                                <div className="flex flex-wrap gap-2 pt-1">
-                                                                    {rowHasConflict ? (
+                                                                <div className="space-y-2 pt-1">
+                                                                    {row.hasConflict ? (
                                                                         <Button
                                                                             type="button"
                                                                             variant="outline"
@@ -2108,16 +2220,7 @@ export function PlannerManagementSection({
                                                                             Fix Conflict
                                                                         </Button>
                                                                     ) : null}
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="rounded-lg"
-                                                                        onClick={() => onEditEntry(row)}
-                                                                    >
-                                                                        <PencilLine className="mr-2 size-4" />
-                                                                        Edit
-                                                                    </Button>
+                                                                    {renderGroupedEditButtons(row)}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -2141,12 +2244,11 @@ export function PlannerManagementSection({
                                                     </TableHeader>
                                                     <TableBody>
                                                         {courseGroup.rows.map((row) => {
-                                                            const flags = conflictFlagsByMeetingId.get(row.meetingId)
-                                                            const rowHasConflict = hasConflict(flags)
-                                                            const { code, descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
+                                                            const baseRow = row.primaryRow
+                                                            const { code, descriptiveTitle } = splitSubjectLabelParts(baseRow.subjectLabel)
 
                                                             return (
-                                                                <TableRow key={`desktop-${courseGroup.key}-${row.meetingId}`}>
+                                                                <TableRow key={`desktop-${courseGroup.key}-${row.key}`}>
                                                                     <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">
                                                                         {code}
                                                                     </TableCell>
@@ -2154,34 +2256,34 @@ export function PlannerManagementSection({
                                                                         <div className="min-w-0 space-y-1 leading-relaxed">
                                                                             <div className="wrap-break-word font-medium">{descriptiveTitle}</div>
                                                                             <div className="text-xs text-muted-foreground">
-                                                                                Units: {row.subjectUnits ?? "—"}
+                                                                                Units: {baseRow.subjectUnits ?? "—"}
                                                                             </div>
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell className="whitespace-normal wrap-break-word align-top">
                                                                         <Badge variant="outline" className="rounded-lg whitespace-normal wrap-break-word text-center">
-                                                                            {meetingTypeLabel(row.meetingType)}
+                                                                            {row.meetingTypeDisplay}
                                                                         </Badge>
                                                                     </TableCell>
                                                                     <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                                        {formatDayDisplayLabel(row.dayOfWeek)}
+                                                                        {row.dayDisplay}
                                                                     </TableCell>
                                                                     <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                                        {formatTimeRange(row.startTime, row.endTime)}
+                                                                        {row.timeDisplay}
                                                                     </TableCell>
                                                                     <TableCell className="whitespace-normal wrap-break-word align-top">
                                                                         <div className="min-w-0 space-y-2 leading-relaxed">
-                                                                            <div className="wrap-break-word">{row.roomLabel || "—"}</div>
+                                                                            <div className="wrap-break-word">{row.roomDisplay || "—"}</div>
                                                                             <div className="wrap-break-word text-xs text-muted-foreground">
-                                                                                {roomTypeLabel(row.roomType)}
+                                                                                {row.roomTypeDisplay}
                                                                             </div>
-                                                                            <div>{renderConflictBadges(flags)}</div>
+                                                                            <div>{renderConflictBadges(row.conflictFlags)}</div>
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell className="whitespace-normal wrap-break-word align-top">
                                                                         <div className="min-w-0 space-y-1 leading-relaxed">
-                                                                            <div className="wrap-break-word">{row.facultyName || "—"}</div>
-                                                                            {row.isManualFaculty ? (
+                                                                            <div className="wrap-break-word">{row.facultyDisplay || "—"}</div>
+                                                                            {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
                                                                                 <Badge variant="secondary" className="rounded-lg">
                                                                                     Manual
                                                                                 </Badge>
@@ -2190,7 +2292,7 @@ export function PlannerManagementSection({
                                                                     </TableCell>
                                                                     <TableCell className="whitespace-normal wrap-break-word align-top text-right">
                                                                         <div className="flex flex-col items-end gap-2">
-                                                                            {rowHasConflict ? (
+                                                                            {row.hasConflict ? (
                                                                                 <Button
                                                                                     type="button"
                                                                                     variant="outline"
@@ -2202,16 +2304,7 @@ export function PlannerManagementSection({
                                                                                     Fix
                                                                                 </Button>
                                                                             ) : null}
-                                                                            <Button
-                                                                                type="button"
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="rounded-lg"
-                                                                                onClick={() => onEditEntry(row)}
-                                                                            >
-                                                                                <PencilLine className="mr-2 size-4" />
-                                                                                Edit
-                                                                            </Button>
+                                                                            {renderGroupedEditButtons(row, "end")}
                                                                         </div>
                                                                     </TableCell>
                                                                 </TableRow>
@@ -2248,7 +2341,7 @@ export function PlannerManagementSection({
                             <Skeleton className="h-10 w-full" />
                             <Skeleton className="h-10 w-5/6" />
                         </div>
-                    ) : laboratoryRows.length === 0 ? (
+                    ) : displayedLaboratoryRows.length === 0 ? (
                         <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                             No laboratory assignments found for this version.
                         </div>
@@ -2272,22 +2365,21 @@ export function PlannerManagementSection({
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {laboratoryRows.map((row) => {
-                                        const flags = conflictFlagsByMeetingId.get(row.meetingId)
+                                    {displayedLaboratoryRows.map((row) => {
+                                        const baseRow = row.primaryRow
                                         return (
-                                            <TableRow key={`lab-${row.meetingId}`}>
+                                            <TableRow key={`lab-${row.key}`}>
                                                 <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {row.roomLabel}
+                                                    {row.roomDisplay}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {formatDayDisplayLabel(row.dayOfWeek)}
+                                                    {row.dayDisplay}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
                                                     <div className="space-y-1 leading-snug">
-                                                        <div className="font-medium">{formatTimeLabel(row.startTime)}</div>
-                                                        <div className="text-xs text-muted-foreground">to {formatTimeLabel(row.endTime)}</div>
+                                                        <div className="font-medium wrap-break-word">{row.timeDisplay}</div>
                                                     </div>
                                                 </TableCell>
 
@@ -2295,8 +2387,8 @@ export function PlannerManagementSection({
                                                     <div className="flex items-start gap-2">
                                                         <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                                                         <div className="min-w-0 space-y-1 leading-relaxed">
-                                                            <span className="block wrap-break-word">{row.facultyName}</span>
-                                                            {row.isManualFaculty ? (
+                                                            <span className="block wrap-break-word">{row.facultyDisplay}</span>
+                                                            {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
                                                                 <Badge variant="secondary" className="rounded-lg">
                                                                     Manual
                                                                 </Badge>
@@ -2306,28 +2398,19 @@ export function PlannerManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {row.subjectLabel}
+                                                    {baseRow.subjectLabel}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
-                                                    {getRowSectionDisplayLabel(row, sectionDisplayLookup)}
+                                                    {row.sectionDisplay}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
-                                                    {renderConflictBadges(flags)}
+                                                    {renderConflictBadges(row.conflictFlags)}
                                                 </TableCell>
 
                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="rounded-lg"
-                                                        onClick={() => onEditEntry(row)}
-                                                    >
-                                                        <PencilLine className="mr-2 size-4" />
-                                                        Edit
-                                                    </Button>
+                                                    {renderGroupedEditButtons(row)}
                                                 </TableCell>
                                             </TableRow>
                                         )
@@ -2365,7 +2448,6 @@ export function PlannerManagementSection({
                                 generatedAt={generatedAt}
                                 stats={activePdfPreviewStats}
                                 filteredByConflict={showConflictsOnly}
-                                sectionDisplayLookup={sectionDisplayLookup}
                                 scopeLabel={pdfPreviewState?.scopeLabel}
                                 tableVariant={pdfPreviewState?.tableVariant}
                             />

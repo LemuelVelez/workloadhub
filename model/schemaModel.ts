@@ -573,6 +573,10 @@ export type ClassOffering = {
 export type ClassMeeting = {
     versionId: string;
     classId: string;
+    /**
+     * Supports canonical single-day values (for example: Monday) and compact
+     * multi-day expressions used by the planner display (for example: M-T, T-Th, M-W-F).
+     */
     dayOfWeek: string;
     startTime: string;
     endTime: string;

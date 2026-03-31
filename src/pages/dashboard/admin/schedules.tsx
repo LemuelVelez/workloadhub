@@ -551,6 +551,9 @@ export default function AdminSchedulesPage() {
         }
 
         rows.sort((a, b) => {
+            const classCompare = String(a.classId || "").localeCompare(String(b.classId || ""))
+            if (classCompare !== 0) return classCompare
+
             const d = dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek)
             if (d !== 0) return d
 
@@ -978,7 +981,7 @@ export default function AdminSchedulesPage() {
     return (
         <DashboardLayout
             title="Schedules"
-            subtitle="Manage schedule versions, assign faculty/rooms via dropdowns, detect conflicts, and monitor laboratory assignments."
+            subtitle="Manage schedule versions, group repeated subject meetings by combined days/time, detect conflicts, and monitor laboratory assignments."
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">

@@ -189,10 +189,10 @@ export const DAY_ABBREVIATIONS: Record<(typeof BASE_DAY_OPTIONS)[number], string
     Monday: "M",
     Tuesday: "T",
     Wednesday: "W",
-    Thursday: "TH",
+    Thursday: "Th",
     Friday: "F",
-    Saturday: "SAT",
-    Sunday: "SUN",
+    Saturday: "Sat",
+    Sunday: "Sun",
 }
 
 export const DAY_OPTIONS: ReadonlyArray<string> = [
