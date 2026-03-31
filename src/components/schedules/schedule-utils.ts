@@ -253,7 +253,7 @@ type CombinedMeetingDisplaySegment = {
     sortStartTime: string
 }
 
-function buildCombinedMeetingDisplaySegments(entries: CombinedMeetingDisplayEntry[]) {
+function buildCombinedMeetingDisplaySegments(entries: CombinedMeetingDisplayEntry[]): CombinedMeetingDisplaySegment[] {
     const timeGroups = new Map<string, CombinedMeetingDisplayEntry[]>()
 
     for (const entry of entries) {
@@ -376,5 +376,3 @@ function buildTimeOptions(stepMinutes = 30) {
 }
 
 export const TIME_OPTIONS = buildTimeOptions(30)
-
-
