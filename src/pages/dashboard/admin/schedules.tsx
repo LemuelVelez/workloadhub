@@ -982,7 +982,7 @@ export default function AdminSchedulesPage() {
     return (
         <DashboardLayout
             title="Schedules"
-            subtitle="Manage schedule versions, group repeated subject meetings into paired day/time blocks like M-T or T-Th, detect conflicts, and monitor laboratory assignments."
+            subtitle="Manage schedule versions, merge matching descriptive titles with the same type into compact day/time displays like M-T and slash-separated time blocks, detect conflicts, and monitor laboratory assignments."
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">

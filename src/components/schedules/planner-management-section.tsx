@@ -171,6 +171,8 @@ type PlannerDisplayRow = {
     sourceRows: ScheduleRow[]
     conflictFlags: ConflictFlags
     hasConflict: boolean
+    subjectCodeDisplay: string
+    descriptiveTitleDisplay: string
     dayDisplay: string
     timeDisplay: string
     roomDisplay: string
@@ -260,6 +262,23 @@ function splitSubjectLabelParts(subjectLabel?: string | null) {
         code: parts[0],
         descriptiveTitle: parts.slice(1).join(" • "),
     }
+}
+
+function formatPlannerSubjectDisplayLabel({
+    code,
+    descriptiveTitle,
+}: {
+    code?: string | null
+    descriptiveTitle?: string | null
+}) {
+    const normalizedCode = String(code || "").trim()
+    const normalizedTitle = String(descriptiveTitle || "").trim()
+
+    if (normalizedCode && normalizedTitle && normalizedTitle !== "—") {
+        return `${normalizedCode} • ${normalizedTitle}`
+    }
+
+    return normalizedTitle || normalizedCode || "—"
 }
 
 function inferCourseCodeFromSectionDisplay(sectionDisplayLabel: string) {
@@ -590,13 +609,17 @@ function buildPlannerDisplayRows({
     const groupedRows = new Map<string, ScheduleRow[]>()
 
     for (const row of rows) {
-        const subjectKey = String(row.subjectId || row.subjectLabel || "").trim()
-        const sectionKey = String(row.sectionId || row.sectionLabel || "").trim()
-        const facultyKey = String(row.facultyKey || row.facultyName || "").trim() || "__unassigned__"
+        const { courseGroupCode, courseName } = resolveRowCourseGroupMeta(row, sectionDisplayLookup)
+        const { descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
         const meetingTypeKey = meetingTypeLabel(row.meetingType)
-        const roomTypeKey = roomTypeLabel(row.roomType)
+        const subjectGroupKey = String(descriptiveTitle || row.subjectLabel || row.subjectId || "")
+            .trim()
+            .toLowerCase()
+
         const key =
-            [subjectKey, sectionKey, facultyKey, meetingTypeKey, roomTypeKey].filter(Boolean).join("::") ||
+            [courseGroupCode || courseName || "UNSPECIFIED", subjectGroupKey, meetingTypeKey]
+                .filter(Boolean)
+                .join("::") ||
             String(row.classId || row.meetingId || "").trim() ||
             row.meetingId
 
@@ -618,6 +641,7 @@ function buildPlannerDisplayRows({
         const conflictFlags = mergeConflictFlags(
             orderedRows.map((row) => conflictFlagsByMeetingId.get(row.meetingId))
         )
+        const subjectParts = orderedRows.map((row) => splitSubjectLabelParts(row.subjectLabel))
 
         return {
             key,
@@ -625,6 +649,10 @@ function buildPlannerDisplayRows({
             sourceRows: orderedRows,
             conflictFlags,
             hasConflict: countConflictFlags(conflictFlags) > 0,
+            subjectCodeDisplay: joinDisplayValues(subjectParts.map((part) => part.code || "—")),
+            descriptiveTitleDisplay: joinDisplayValues(
+                subjectParts.map((part) => part.descriptiveTitle || "—")
+            ),
             dayDisplay: formatCombinedMeetingDayDisplay(orderedRows),
             timeDisplay: formatCombinedMeetingTimeDisplay(orderedRows),
             roomDisplay: joinDisplayValues(orderedRows.map((row) => row.roomLabel || "—")),
@@ -1126,7 +1154,8 @@ function SchedulePdfDocument({
                                             : type === "LECTURE"
                                               ? styles.typePillLecture
                                               : styles.typePillOther
-                                    const { code, descriptiveTitle } = splitSubjectLabelParts(baseRow.subjectLabel)
+                                    const code = r.subjectCodeDisplay || "—"
+                                    const descriptiveTitle = r.descriptiveTitleDisplay || "—"
 
                                     return (
                                         <View
@@ -1198,7 +1227,7 @@ function SchedulePdfDocument({
                                                     </View>
 
                                                     <View style={[styles.tableCell, styles.colSubject]}>
-                                                        <Text style={styles.cellText}>{baseRow.subjectLabel || "—"}</Text>
+                                                        <Text style={styles.cellText}>{formatPlannerSubjectDisplayLabel({ code: r.subjectCodeDisplay, descriptiveTitle: r.descriptiveTitleDisplay })}</Text>
                                                         <Text style={[styles.cellText, styles.cellSubtle]}>
                                                             Units: {baseRow.subjectUnits ?? "—"}
                                                         </Text>
@@ -1753,7 +1782,7 @@ export function PlannerManagementSection({
                 <CardHeader className="pb-4">
                     <CardTitle>Schedule Planner & Conflict Manager</CardTitle>
                     <CardDescription>
-                        Assign subject, faculty (dropdown or manual), and room (dropdown). Detect room/faculty/section conflicts in real time.
+                        Assign subject, faculty (dropdown or manual), and room (dropdown). Matching descriptive titles with the same type are merged into one display row while room, faculty, and section conflicts are still detected in real time.
                     </CardDescription>
                 </CardHeader>
 
@@ -2089,9 +2118,9 @@ export function PlannerManagementSection({
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
                             <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                                <span>Review entries by course group. Matching day blocks are compressed into abbreviations like M-T or T-Th, and different time blocks stay separated with /.</span>
+                                <span>Review entries by course group. Matching descriptive titles with the same type are merged into one row, day blocks stay compact like M-T or T-Th, and different time blocks stay separated with /.</span>
                                 <span>
-                                    Showing {displayedPlannerRows.length} grouped subject entries from {visibleRows.length} visible meetings
+                                    Showing {displayedPlannerRows.length} grouped descriptive-title entries from {visibleRows.length} visible meetings
                                 </span>
                             </div>
 
@@ -2114,7 +2143,7 @@ export function PlannerManagementSection({
                                                 ) : null}
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground">
                                                     <span>
-                                                        {courseGroup.rowCount} grouped subject entr{courseGroup.rowCount === 1 ? "y" : "ies"}
+                                                        {courseGroup.rowCount} grouped schedule entr{courseGroup.rowCount === 1 ? "y" : "ies"}
                                                     </span>
                                                     <span>•</span>
                                                     <span>
@@ -2171,8 +2200,8 @@ export function PlannerManagementSection({
 
                                             <div className="space-y-3 sm:hidden">
                                                 {courseGroup.rows.map((row) => {
-                                                    const baseRow = row.primaryRow
-                                                    const { code, descriptiveTitle } = splitSubjectLabelParts(baseRow.subjectLabel)
+                                                    const code = row.subjectCodeDisplay || "—"
+                                                    const descriptiveTitle = row.descriptiveTitleDisplay || "—"
 
                                                     return (
                                                         <div key={`mobile-${courseGroup.key}-${row.key}`} className="rounded-xl border bg-background p-3 shadow-sm">
@@ -2253,7 +2282,8 @@ export function PlannerManagementSection({
                                                     <TableBody>
                                                         {courseGroup.rows.map((row) => {
                                                             const baseRow = row.primaryRow
-                                                            const { code, descriptiveTitle } = splitSubjectLabelParts(baseRow.subjectLabel)
+                                                            const code = row.subjectCodeDisplay || "—"
+                                                            const descriptiveTitle = row.descriptiveTitleDisplay || "—"
 
                                                             return (
                                                                 <TableRow key={`desktop-${courseGroup.key}-${row.key}`}>
@@ -2852,6 +2882,3 @@ export function PlannerManagementSection({
         </>
     )
 }
-
-
-
