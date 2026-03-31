@@ -992,7 +992,7 @@ function SchedulePdfDocument({
     stats,
     filteredByConflict,
     scopeLabel,
-    tableVariant = "default",
+    tableVariant = "course-group",
 }: {
     rows: PlannerDisplayRow[]
     versionLabel: string
@@ -1742,6 +1742,7 @@ export function PlannerManagementSection({
         await downloadRowsPdf({
             rows: displayedPlannerRows,
             fileNameBase: `schedule-report-${selectedVersion.$id}`,
+            tableVariant: "course-group",
         })
     }
 
@@ -1845,7 +1846,7 @@ export function PlannerManagementSection({
                                         description: "Preview the generated PDF before export.",
                                         rows: displayedPlannerRows,
                                         fileNameBase: selectedVersion ? `schedule-report-${selectedVersion.$id}` : "schedule-report",
-                                        tableVariant: "default",
+                                        tableVariant: "course-group",
                                     })
                                 }
                                 disabled={!selectedVersion || displayedPlannerRows.length === 0}
