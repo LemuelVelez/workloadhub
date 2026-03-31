@@ -240,6 +240,67 @@ export function formatCompactDayDisplayFromValues(dayValues: Array<string | null
     return resolvedDays.map((day) => DAY_ABBREVIATIONS[day] || day).join("-")
 }
 
+type CombinedMeetingDisplayEntry = {
+    dayOfWeek?: string | null
+    startTime?: string | null
+    endTime?: string | null
+}
+
+type CombinedMeetingDisplaySegment = {
+    dayDisplay: string
+    timeDisplay: string
+    sortDayValue: string
+    sortStartTime: string
+}
+
+function buildCombinedMeetingDisplaySegments(entries: CombinedMeetingDisplayEntry[]) {
+    const timeGroups = new Map<string, CombinedMeetingDisplayEntry[]>()
+
+    for (const entry of entries) {
+        const startTime = String(entry.startTime || "")
+        const endTime = String(entry.endTime || "")
+        const groupKey = `${startTime}__${endTime}`
+        const existingEntries = timeGroups.get(groupKey) || []
+        existingEntries.push(entry)
+        timeGroups.set(groupKey, existingEntries)
+    }
+
+    return Array.from(timeGroups.values())
+        .map((groupEntries) => {
+            const orderedEntries = groupEntries.slice().sort((a, b) => {
+                const dayDiff = dayOrder(String(a.dayOfWeek || "")) - dayOrder(String(b.dayOfWeek || ""))
+                if (dayDiff !== 0) return dayDiff
+
+                const startDiff = hhmmToMinutes(String(a.startTime || "")) - hhmmToMinutes(String(b.startTime || ""))
+                if (startDiff !== 0) return startDiff
+
+                return hhmmToMinutes(String(a.endTime || "")) - hhmmToMinutes(String(b.endTime || ""))
+            })
+
+            const firstEntry = orderedEntries[0]
+
+            return {
+                dayDisplay: formatCompactDayDisplayFromValues(orderedEntries.map((entry) => entry.dayOfWeek)),
+                timeDisplay: formatTimeRange(String(firstEntry?.startTime || ""), String(firstEntry?.endTime || "")),
+                sortDayValue: String(firstEntry?.dayOfWeek || ""),
+                sortStartTime: String(firstEntry?.startTime || ""),
+            }
+        })
+        .sort((a, b) => {
+            const dayDiff = dayOrder(a.sortDayValue) - dayOrder(b.sortDayValue)
+            if (dayDiff !== 0) return dayDiff
+
+            const startDiff = hhmmToMinutes(a.sortStartTime) - hhmmToMinutes(b.sortStartTime)
+            if (startDiff !== 0) return startDiff
+
+            return a.timeDisplay.localeCompare(b.timeDisplay)
+        })
+}
+
+export function formatCombinedMeetingDayDisplay(entries: CombinedMeetingDisplayEntry[]) {
+    return formatCompactDayDisplayFromValues(entries.map((entry) => entry.dayOfWeek))
+}
+
 export function joinDisplayValues(values: Array<string | null | undefined>, separator = " / ") {
     const uniqueValues: string[] = []
 
@@ -268,28 +329,11 @@ export function dayOrder(day: string) {
     return indexes.length > 0 ? Math.min(...indexes) : 999
 }
 
-export function formatCombinedMeetingTimeDisplay(
-    entries: Array<{ dayOfWeek?: string | null; startTime?: string | null; endTime?: string | null }>
-) {
-    const orderedEntries = entries.slice().sort((a, b) => {
-        const dayDiff = dayOrder(String(a.dayOfWeek || "")) - dayOrder(String(b.dayOfWeek || ""))
-        if (dayDiff !== 0) return dayDiff
+export function formatCombinedMeetingTimeDisplay(entries: CombinedMeetingDisplayEntry[]) {
+    const segments = buildCombinedMeetingDisplaySegments(entries)
+    if (segments.length === 0) return "—"
 
-        const startDiff = hhmmToMinutes(String(a.startTime || "")) - hhmmToMinutes(String(b.startTime || ""))
-        if (startDiff !== 0) return startDiff
-
-        return hhmmToMinutes(String(a.endTime || "")) - hhmmToMinutes(String(b.endTime || ""))
-    })
-
-    const uniqueRanges: string[] = []
-
-    for (const entry of orderedEntries) {
-        const range = formatTimeRange(String(entry.startTime || ""), String(entry.endTime || ""))
-        if (!range || range === "—" || uniqueRanges.includes(range)) continue
-        uniqueRanges.push(range)
-    }
-
-    return uniqueRanges.length > 0 ? uniqueRanges.join(" / ") : "—"
+    return segments.map((segment) => segment.timeDisplay).filter(Boolean).join(" / ") || "—"
 }
 
 export function roleLooksLikeFaculty(role?: string | null) {
@@ -332,3 +376,5 @@ function buildTimeOptions(stepMinutes = 30) {
 }
 
 export const TIME_OPTIONS = buildTimeOptions(30)
+
+

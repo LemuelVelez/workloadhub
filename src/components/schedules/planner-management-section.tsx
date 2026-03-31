@@ -86,9 +86,9 @@ import {
     dayExpressionsOverlap,
     dayOrder,
     fmtDate,
+    formatCombinedMeetingDayDisplay,
     formatCombinedMeetingTimeDisplay,
     formatCompactDayDisplay,
-    formatCompactDayDisplayFromValues,
     formatDayDisplayLabel,
     formatTimeRange,
     joinDisplayValues,
@@ -590,7 +590,16 @@ function buildPlannerDisplayRows({
     const groupedRows = new Map<string, ScheduleRow[]>()
 
     for (const row of rows) {
-        const key = String(row.classId || row.meetingId || "").trim() || row.meetingId
+        const subjectKey = String(row.subjectId || row.subjectLabel || "").trim()
+        const sectionKey = String(row.sectionId || row.sectionLabel || "").trim()
+        const facultyKey = String(row.facultyKey || row.facultyName || "").trim() || "__unassigned__"
+        const meetingTypeKey = meetingTypeLabel(row.meetingType)
+        const roomTypeKey = roomTypeLabel(row.roomType)
+        const key =
+            [subjectKey, sectionKey, facultyKey, meetingTypeKey, roomTypeKey].filter(Boolean).join("::") ||
+            String(row.classId || row.meetingId || "").trim() ||
+            row.meetingId
+
         const existingRows = groupedRows.get(key) || []
         existingRows.push(row)
         groupedRows.set(key, existingRows)
@@ -616,7 +625,7 @@ function buildPlannerDisplayRows({
             sourceRows: orderedRows,
             conflictFlags,
             hasConflict: countConflictFlags(conflictFlags) > 0,
-            dayDisplay: formatCompactDayDisplayFromValues(orderedRows.map((row) => row.dayOfWeek)),
+            dayDisplay: formatCombinedMeetingDayDisplay(orderedRows),
             timeDisplay: formatCombinedMeetingTimeDisplay(orderedRows),
             roomDisplay: joinDisplayValues(orderedRows.map((row) => row.roomLabel || "—")),
             roomTypeDisplay: joinDisplayValues(orderedRows.map((row) => roomTypeLabel(row.roomType))),
@@ -850,7 +859,7 @@ const styles = StyleSheet.create({
     cellText: {
         fontSize: 7.1,
         color: "#0f172a",
-        lineHeight: 1.24,
+        lineHeight: 1.32,
     },
     cellTextCenter: {
         textAlign: "center",
@@ -861,8 +870,8 @@ const styles = StyleSheet.create({
     },
     timeText: {
         fontSize: 6.8,
-        lineHeight: 1.18,
-        textAlign: "center",
+        lineHeight: 1.28,
+        textAlign: "left",
     },
 
     colDay: {
@@ -1126,7 +1135,6 @@ function SchedulePdfDocument({
                                                 styles.tableRow,
                                                 idx % 2 === 0 ? styles.tableRowOdd : styles.tableRowEven,
                                             ]}
-                                            wrap={false}
                                         >
                                             {isCourseGroupPdf ? (
                                                 <>
@@ -2081,7 +2089,7 @@ export function PlannerManagementSection({
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
                             <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                                <span>Review entries by course group. Each course accordion can preview or export its own PDF before printing.</span>
+                                <span>Review entries by course group. Matching day blocks are compressed into abbreviations like M-T or T-Th, and different time blocks stay separated with /.</span>
                                 <span>
                                     Showing {displayedPlannerRows.length} grouped subject entries from {visibleRows.length} visible meetings
                                 </span>
@@ -2844,3 +2852,6 @@ export function PlannerManagementSection({
         </>
     )
 }
+
+
+

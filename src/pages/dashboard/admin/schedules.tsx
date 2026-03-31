@@ -508,6 +508,7 @@ export default function AdminSchedulesPage() {
             const roomCode = String(room?.code || "").trim()
             const roomName = String(room?.name || "").trim()
             const roomLabel = [roomCode, roomName].filter(Boolean).join(" • ") || "Unassigned"
+            const normalizedMeetingDayOfWeek = getCanonicalDayValue(String(m.dayOfWeek || "").trim())
 
             rows.push({
                 meetingId: m.$id,
@@ -517,7 +518,7 @@ export default function AdminSchedulesPage() {
                 termId: String(c.termId || ""),
                 departmentId: String(c.departmentId || ""),
 
-                dayOfWeek: getCanonicalDayValue(String(m.dayOfWeek || "")),
+                dayOfWeek: normalizedMeetingDayOfWeek,
                 startTime: String(m.startTime || ""),
                 endTime: String(m.endTime || ""),
                 meetingType: (m.meetingType || "LECTURE") as MeetingType,
@@ -981,7 +982,7 @@ export default function AdminSchedulesPage() {
     return (
         <DashboardLayout
             title="Schedules"
-            subtitle="Manage schedule versions, group repeated subject meetings by combined days/time, detect conflicts, and monitor laboratory assignments."
+            subtitle="Manage schedule versions, group repeated subject meetings into paired day/time blocks like M-T or T-Th, detect conflicts, and monitor laboratory assignments."
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">
