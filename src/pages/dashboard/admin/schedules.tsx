@@ -53,6 +53,86 @@ import {
     termLabel,
 } from "@/components/schedules/schedule-utils"
 
+
+const CREATE_TERM_MODES = {
+    existing: "existing",
+    new: "new",
+} as const
+
+type CreateTermMode = (typeof CREATE_TERM_MODES)[keyof typeof CREATE_TERM_MODES]
+
+const CREATE_TERM_SEMESTER_OPTIONS = ["1st Semester", "2nd Semester", "Summer"] as const
+
+function formatSchoolYear(startYear: number) {
+    return `${startYear}-${startYear + 1}`
+}
+
+function parseSchoolYear(value?: string | null) {
+    const match = String(value || "")
+        .trim()
+        .match(/^(\d{4})\s*-\s*(\d{4})$/)
+
+    if (!match) return null
+
+    const startYear = Number.parseInt(match[1], 10)
+    const endYear = Number.parseInt(match[2], 10)
+
+    if (!Number.isFinite(startYear) || !Number.isFinite(endYear) || endYear !== startYear + 1) {
+        return null
+    }
+
+    return { startYear, endYear }
+}
+
+function getCurrentSchoolYear(date = new Date()) {
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    const startYear = month >= 5 ? year : year - 1
+    return formatSchoolYear(startYear)
+}
+
+function getCurrentSemester(date = new Date()) {
+    const month = date.getMonth()
+
+    if (month >= 5 && month <= 6) return "Summer"
+    if (month >= 7) return "1st Semester"
+    return "2nd Semester"
+}
+
+function buildSchoolYearOptions(anchorSchoolYear = getCurrentSchoolYear()) {
+    const parsed = parseSchoolYear(anchorSchoolYear)
+    const baseStartYear = parsed?.startYear ?? new Date().getFullYear()
+
+    return [-2, -1, 0, 1, 2].map((offset) => formatSchoolYear(baseStartYear + offset))
+}
+
+function getAcademicTermDateRange(schoolYearValue: string, semesterValue: string) {
+    const parsed = parseSchoolYear(schoolYearValue) ?? parseSchoolYear(getCurrentSchoolYear())
+    const startYear = parsed?.startYear ?? new Date().getFullYear()
+    const endYear = parsed?.endYear ?? startYear + 1
+
+    const semester = normalizeText(semesterValue)
+
+    if (semester.includes("2")) {
+        return {
+            startDate: `${endYear}-01-01`,
+            endDate: `${endYear}-05-31`,
+        }
+    }
+
+    if (semester.includes("summer")) {
+        return {
+            startDate: `${endYear}-06-01`,
+            endDate: `${endYear}-07-31`,
+        }
+    }
+
+    return {
+        startDate: `${startYear}-08-01`,
+        endDate: `${startYear}-12-31`,
+    }
+}
+
 export default function AdminSchedulesPage() {
     const { user } = useSession()
     const userId = String(user?.$id || user?.id || "").trim()
@@ -74,7 +154,10 @@ export default function AdminSchedulesPage() {
     const [active, setActive] = React.useState<ScheduleVersionDoc | null>(null)
 
     const [createOpen, setCreateOpen] = React.useState(false)
+    const [createTermMode, setCreateTermMode] = React.useState<CreateTermMode>(CREATE_TERM_MODES.existing)
     const [createTermId, setCreateTermId] = React.useState<string>("")
+    const [createSchoolYear, setCreateSchoolYear] = React.useState<string>(() => getCurrentSchoolYear())
+    const [createSemester, setCreateSemester] = React.useState<string>(() => getCurrentSemester())
     const [createDeptId, setCreateDeptId] = React.useState<string>("")
     const [createLabel, setCreateLabel] = React.useState<string>("")
     const [createNotes, setCreateNotes] = React.useState<string>("")
@@ -241,17 +324,59 @@ export default function AdminSchedulesPage() {
         setViewOpen(true)
     }
 
+    const schoolYearOptions = React.useMemo(
+        () => buildSchoolYearOptions(createSchoolYear || getCurrentSchoolYear()),
+        [createSchoolYear]
+    )
+
+    const matchedCreateTerm = React.useMemo(() => {
+        if (createTermMode !== CREATE_TERM_MODES.new) return null
+
+        const schoolYear = String(createSchoolYear || "").trim()
+        const semester = String(createSemester || "").trim()
+        if (!schoolYear || !semester) return null
+
+        return (
+            terms.find(
+                (term) =>
+                    normalizeText(term.schoolYear) === normalizeText(schoolYear) &&
+                    normalizeText(term.semester) === normalizeText(semester)
+            ) || null
+        )
+    }, [createTermMode, createSchoolYear, createSemester, terms])
+
+    const versionTermId = React.useMemo(() => {
+        if (createTermMode === CREATE_TERM_MODES.new) {
+            return String(matchedCreateTerm?.$id || "")
+        }
+
+        return createTermId
+    }, [createTermMode, matchedCreateTerm, createTermId])
+
     const nextVersionNumber = React.useMemo(() => {
-        if (!createTermId || !createDeptId) return 1
+        if (!versionTermId || !createDeptId) return 1
         const list = versions.filter(
-            (v) => String(v.termId) === createTermId && String(v.departmentId) === createDeptId
+            (v) => String(v.termId) === versionTermId && String(v.departmentId) === createDeptId
         )
         const max = list.reduce((acc, v) => Math.max(acc, Number(v.version || 0)), 0)
         return max + 1
-    }, [versions, createTermId, createDeptId])
+    }, [versions, versionTermId, createDeptId])
+
+    const canCreateVersion = React.useMemo(() => {
+        if (!createDeptId) return false
+
+        if (createTermMode === CREATE_TERM_MODES.new) {
+            return Boolean(String(createSchoolYear || "").trim() && String(createSemester || "").trim())
+        }
+
+        return Boolean(createTermId)
+    }, [createDeptId, createTermMode, createSchoolYear, createSemester, createTermId])
 
     const resetCreateForm = () => {
+        setCreateTermMode(CREATE_TERM_MODES.existing)
         setCreateTermId("")
+        setCreateSchoolYear(getCurrentSchoolYear())
+        setCreateSemester(getCurrentSemester())
         setCreateDeptId("")
         setCreateLabel("")
         setCreateNotes("")
@@ -259,10 +384,38 @@ export default function AdminSchedulesPage() {
     }
 
     const createVersion = async () => {
-        if (!createTermId) {
+        let termIdToUse = createTermId
+
+        if (createTermMode === CREATE_TERM_MODES.new) {
+            const schoolYear = String(createSchoolYear || "").trim()
+            const semester = String(createSemester || "").trim()
+
+            if (!schoolYear) {
+                toast.error("Please select a school year.")
+                return
+            }
+
+            if (!semester) {
+                toast.error("Please select a semester.")
+                return
+            }
+
+            const existingTerm = terms.find(
+                (term) =>
+                    normalizeText(term.schoolYear) === normalizeText(schoolYear) &&
+                    normalizeText(term.semester) === normalizeText(semester)
+            )
+
+            if (existingTerm?.$id) {
+                termIdToUse = String(existingTerm.$id)
+            }
+        }
+
+        if (!termIdToUse && createTermMode !== CREATE_TERM_MODES.new) {
             toast.error("Please select an Academic Term.")
             return
         }
+
         if (!createDeptId) {
             toast.error("Please select a College.")
             return
@@ -274,11 +427,66 @@ export default function AdminSchedulesPage() {
 
         setSaving(true)
         try {
+            if (createTermMode === CREATE_TERM_MODES.new && !termIdToUse) {
+                const schoolYear = String(createSchoolYear || "").trim()
+                const semester = String(createSemester || "").trim()
+                const { startDate, endDate } = getAcademicTermDateRange(schoolYear, semester)
+
+                const createdTerm = (await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.ACADEMIC_TERMS,
+                    ID.unique(),
+                    {
+                        schoolYear,
+                        semester,
+                        startDate,
+                        endDate,
+                        isActive: false,
+                        isLocked: false,
+                    }
+                )) as AcademicTermDoc
+
+                termIdToUse = String(createdTerm?.$id || "")
+            }
+
+            if (!termIdToUse) {
+                toast.error("Please select or create an Academic Term.")
+                return
+            }
+
+            if (createSetActive) {
+                const others = versions.filter(
+                    (x) =>
+                        String(x.termId) === String(termIdToUse) &&
+                        String(x.departmentId) === String(createDeptId) &&
+                        String(x.status) === "Active"
+                )
+
+                for (const other of others) {
+                    try {
+                        await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, other.$id, {
+                            status: "Draft",
+                        })
+                    } catch {
+                        // best effort
+                    }
+                }
+            }
+
+            const versionForTermAndDept =
+                versions
+                    .filter(
+                        (v) =>
+                            String(v.termId) === String(termIdToUse) &&
+                            String(v.departmentId) === String(createDeptId)
+                    )
+                    .reduce((acc, v) => Math.max(acc, Number(v.version || 0)), 0) + 1
+
             const payload: any = {
-                termId: createTermId,
+                termId: termIdToUse,
                 departmentId: createDeptId,
-                version: nextVersionNumber,
-                label: createLabel.trim() || `Version ${nextVersionNumber}`,
+                version: versionForTermAndDept,
+                label: createLabel.trim() || `Version ${versionForTermAndDept}`,
                 status: createSetActive ? "Active" : "Draft",
                 createdBy: userId,
                 notes: createNotes.trim() || null,
@@ -286,7 +494,11 @@ export default function AdminSchedulesPage() {
 
             await databases.createDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, ID.unique(), payload)
 
-            toast.success("Schedule version created")
+            toast.success(
+                createTermMode === CREATE_TERM_MODES.new
+                    ? "Schedule version created with academic term"
+                    : "Schedule version created"
+            )
             setCreateOpen(false)
             resetCreateForm()
             await fetchAll()
@@ -1016,8 +1228,17 @@ export default function AdminSchedulesPage() {
                     onOpenView={openView}
                     createOpen={createOpen}
                     setCreateOpen={setCreateOpen}
+                    createTermMode={createTermMode}
+                    setCreateTermMode={setCreateTermMode}
                     createTermId={createTermId}
                     setCreateTermId={setCreateTermId}
+                    createSchoolYear={createSchoolYear}
+                    setCreateSchoolYear={setCreateSchoolYear}
+                    createSemester={createSemester}
+                    setCreateSemester={setCreateSemester}
+                    schoolYearOptions={schoolYearOptions}
+                    semesterOptions={[...CREATE_TERM_SEMESTER_OPTIONS]}
+                    matchedCreateTerm={matchedCreateTerm}
                     createDeptId={createDeptId}
                     setCreateDeptId={setCreateDeptId}
                     createLabel={createLabel}
@@ -1027,6 +1248,7 @@ export default function AdminSchedulesPage() {
                     createSetActive={createSetActive}
                     setCreateSetActive={setCreateSetActive}
                     nextVersionNumber={nextVersionNumber}
+                    canCreateVersion={canCreateVersion}
                     onCreateVersion={createVersion}
                     resetCreateForm={resetCreateForm}
                 />

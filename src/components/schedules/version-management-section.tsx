@@ -68,6 +68,8 @@ import {
     termLabel,
 } from "./schedule-utils"
 
+type CreateTermMode = "existing" | "new"
+
 type Props = {
     loading: boolean
     saving: boolean
@@ -108,8 +110,17 @@ type Props = {
     // Create dialog
     createOpen: boolean
     setCreateOpen: (v: boolean) => void
+    createTermMode: CreateTermMode
+    setCreateTermMode: (v: CreateTermMode) => void
     createTermId: string
     setCreateTermId: (v: string) => void
+    createSchoolYear: string
+    setCreateSchoolYear: (v: string) => void
+    createSemester: string
+    setCreateSemester: (v: string) => void
+    schoolYearOptions: string[]
+    semesterOptions: string[]
+    matchedCreateTerm: AcademicTermDoc | null
     createDeptId: string
     setCreateDeptId: (v: string) => void
     createLabel: string
@@ -119,6 +130,7 @@ type Props = {
     createSetActive: boolean
     setCreateSetActive: (v: boolean) => void
     nextVersionNumber: number
+    canCreateVersion: boolean
     onCreateVersion: () => Promise<void> | void
     resetCreateForm: () => void
 }
@@ -153,8 +165,17 @@ export function VersionManagementSection({
     onOpenView,
     createOpen,
     setCreateOpen,
+    createTermMode,
+    setCreateTermMode,
     createTermId,
     setCreateTermId,
+    createSchoolYear,
+    setCreateSchoolYear,
+    createSemester,
+    setCreateSemester,
+    schoolYearOptions,
+    semesterOptions,
+    matchedCreateTerm,
     createDeptId,
     setCreateDeptId,
     createLabel,
@@ -164,6 +185,7 @@ export function VersionManagementSection({
     createSetActive,
     setCreateSetActive,
     nextVersionNumber,
+    canCreateVersion,
     onCreateVersion,
     resetCreateForm,
 }: Props) {
@@ -575,43 +597,134 @@ export function VersionManagementSection({
                 <DialogContent className="max-h-[78vh] overflow-y-auto sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>Create Schedule Version</DialogTitle>
-                        <DialogDescription>Create a new schedule version for a specific term and college.</DialogDescription>
+                        <DialogDescription>
+                            Create a schedule version for an existing term or create a new semester under the current school year.
+                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
-                        <div className="grid gap-3 md:grid-cols-2">
-                            <div className="space-y-1">
-                                <Label>Academic Term</Label>
-                                <Select value={createTermId} onValueChange={setCreateTermId}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select term" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {terms.map((t) => (
-                                            <SelectItem key={t.$id} value={t.$id}>
-                                                {termLabel(t)}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="space-y-1">
-                                <Label>College</Label>
-                                <Select value={createDeptId} onValueChange={setCreateDeptId}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select college" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {departments.map((d) => (
-                                            <SelectItem key={d.$id} value={d.$id}>
-                                                {deptLabel(d)}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                        <div className="space-y-1">
+                            <Label>Term Setup</Label>
+                            <Select value={createTermMode} onValueChange={(value) => setCreateTermMode(value as CreateTermMode)}>
+                                <SelectTrigger className="rounded-xl">
+                                    <SelectValue placeholder="Select setup" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="existing">Use Existing Academic Term</SelectItem>
+                                    <SelectItem value="new">Create New Semester / School Year</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground">
+                                Choose an existing term or create a new one like <span className="font-medium">2025-2026 • 1st Semester</span>.
                             </div>
                         </div>
+
+                        {createTermMode === "existing" ? (
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <div className="space-y-1">
+                                    <Label>Academic Term</Label>
+                                    <Select value={createTermId} onValueChange={setCreateTermId}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="Select term" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {terms.map((t) => (
+                                                <SelectItem key={t.$id} value={t.$id}>
+                                                    {termLabel(t)}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label>College</Label>
+                                    <Select value={createDeptId} onValueChange={setCreateDeptId}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="Select college" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {departments.map((d) => (
+                                                <SelectItem key={d.$id} value={d.$id}>
+                                                    {deptLabel(d)}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="grid gap-3 md:grid-cols-3">
+                                    <div className="space-y-1">
+                                        <Label>School Year</Label>
+                                        <Select value={createSchoolYear} onValueChange={setCreateSchoolYear}>
+                                            <SelectTrigger className="rounded-xl">
+                                                <SelectValue placeholder="Select school year" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {schoolYearOptions.map((schoolYear) => (
+                                                    <SelectItem key={schoolYear} value={schoolYear}>
+                                                        {schoolYear}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="text-xs text-muted-foreground">Defaults to the current school year.</div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <Label>Semester</Label>
+                                        <Select value={createSemester} onValueChange={setCreateSemester}>
+                                            <SelectTrigger className="rounded-xl">
+                                                <SelectValue placeholder="Select semester" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {semesterOptions.map((semester) => (
+                                                    <SelectItem key={semester} value={semester}>
+                                                        {semester}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <Label>College</Label>
+                                        <Select value={createDeptId} onValueChange={setCreateDeptId}>
+                                            <SelectTrigger className="rounded-xl">
+                                                <SelectValue placeholder="Select college" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {departments.map((d) => (
+                                                    <SelectItem key={d.$id} value={d.$id}>
+                                                        {deptLabel(d)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl border border-dashed p-3 text-sm">
+                                    {matchedCreateTerm ? (
+                                        <div className="space-y-1">
+                                            <div className="font-medium">Existing term detected</div>
+                                            <div className="text-muted-foreground">
+                                                {termLabel(matchedCreateTerm)} already exists, so this version will use that term instead of creating a duplicate.
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1">
+                                            <div className="font-medium">New academic term preview</div>
+                                            <div className="text-muted-foreground">
+                                                {createSchoolYear || "School Year"} • {createSemester || "Semester"}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
 
                         <div className="grid gap-3 md:grid-cols-2">
                             <div className="space-y-1">
@@ -663,7 +776,7 @@ export function VersionManagementSection({
                         <Button
                             type="button"
                             onClick={() => void onCreateVersion()}
-                            disabled={saving || !createTermId || !createDeptId}
+                            disabled={saving || !canCreateVersion}
                             className={cn(saving && "opacity-90")}
                         >
                             {saving ? (
