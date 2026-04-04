@@ -4,12 +4,6 @@ import { Menu } from "lucide-react"
 import { Button } from "./ui/button"
 import { Separator } from "./ui/separator"
 import {
-    NavigationMenu,
-    NavigationMenuItem,
-    NavigationMenuLink,
-    NavigationMenuList,
-} from "./ui/navigation-menu"
-import {
     Sheet,
     SheetContent,
     SheetHeader,
@@ -19,23 +13,6 @@ import {
 
 import { useSession } from "@/hooks/use-session"
 
-const links = [
-    { label: "Features", href: "#features" },
-    { label: "How it works", href: "#how-it-works" },
-    { label: "Roles", href: "#roles" },
-    { label: "Get started", href: "#cta" },
-]
-
-function AnchorLink({ href, label }: { href: string; label: string }) {
-    return (
-        <a
-            href={href}
-            className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-        >
-            {label}
-        </a>
-    )
-}
 
 export default function Header() {
     const { isAuthenticated } = useSession()
@@ -58,29 +35,10 @@ export default function Header() {
                     </Link>
 
                     <Separator orientation="vertical" className="hidden h-6 md:block" />
-
-                    <div className="hidden md:block">
-                        <NavigationMenu>
-                            <NavigationMenuList className="gap-1">
-                                {links.map((l) => (
-                                    <NavigationMenuItem key={l.href}>
-                                        <NavigationMenuLink asChild>
-                                            <a
-                                                href={l.href}
-                                                className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
-                                            >
-                                                {l.label}
-                                            </a>
-                                        </NavigationMenuLink>
-                                    </NavigationMenuItem>
-                                ))}
-                            </NavigationMenuList>
-                        </NavigationMenu>
-                    </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <Button asChild variant="secondary" className="hidden md:inline-flex">
+                    <Button asChild variant="default" className="hidden md:inline-flex">
                         <Link to={actionHref}>{actionLabel}</Link>
                     </Button>
 
@@ -88,7 +46,7 @@ export default function Header() {
                     <div className="md:hidden">
                         <Sheet>
                             <SheetTrigger asChild>
-                                <Button variant="secondary" size="icon" aria-label="Open menu">
+                                <Button variant="default" size="icon" aria-label="Open menu">
                                     <Menu className="h-5 w-5" />
                                 </Button>
                             </SheetTrigger>
@@ -107,13 +65,10 @@ export default function Header() {
                                 </SheetHeader>
 
                                 <div className="mt-6 grid gap-3">
-                                    {links.map((l) => (
-                                        <AnchorLink key={l.href} href={l.href} label={l.label} />
-                                    ))}
 
                                     <Separator className="my-2" />
 
-                                    <Button asChild variant="secondary">
+                                    <Button asChild variant="default">
                                         <Link to={actionHref}>{actionLabel}</Link>
                                     </Button>
                                 </div>

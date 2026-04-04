@@ -48,66 +48,67 @@
 }
 
 /**
- * ✅ Soft light neutral theme (single theme, no .dark)
- * Uses an off-white / pearl base instead of harsh pure white.
+ * ✅ Soft Ivory Light Theme (single theme, no .dark)
+ * Uses an off-white base instead of pure white, with complementary indigo,
+ * sage, and warm coral accents for a cleaner and brighter UI.
  */
 :root {
   --radius: 0.625rem;
 
-  /* Base */
-  --background: oklch(0.975 0.006 95);       /* soft pearl */
-  --foreground: oklch(0.28 0.02 255);        /* deep slate text */
+  /* Off-white base */
+  --background: oklch(0.98 0.008 95);       /* soft ivory */
+  --foreground: oklch(0.24 0.03 255);       /* deep slate-indigo text */
 
   /* Cards/popovers */
-  --card: oklch(0.992 0.004 95);             /* lifted surface */
+  --card: oklch(0.995 0.004 95);
   --card-foreground: var(--foreground);
   --popover: oklch(0.992 0.004 95);
   --popover-foreground: var(--foreground);
 
   /* Primary accents */
-  --primary: oklch(0.58 0.11 250);           /* calm refined blue */
-  --primary-foreground: oklch(0.985 0.004 95);
+  --primary: oklch(0.58 0.16 262);          /* elegant indigo */
+  --primary-foreground: oklch(0.99 0.004 95);
 
   /* Secondary / muted */
-  --secondary: oklch(0.95 0.01 95);
-  --secondary-foreground: oklch(0.34 0.02 255);
-  --muted: oklch(0.94 0.008 100);
-  --muted-foreground: oklch(0.52 0.02 250);
+  --secondary: oklch(0.95 0.02 155);        /* soft sage tint */
+  --secondary-foreground: oklch(0.3 0.03 190);
+  --muted: oklch(0.965 0.01 220);
+  --muted-foreground: oklch(0.5 0.03 245);
 
   /* Accent */
-  --accent: oklch(0.93 0.018 235);
-  --accent-foreground: oklch(0.32 0.03 250);
+  --accent: oklch(0.93 0.04 35);            /* warm coral-peach tint */
+  --accent-foreground: oklch(0.32 0.06 20);
 
   /* Destructive */
-  --destructive: oklch(0.62 0.2 25);
+  --destructive: oklch(0.64 0.22 25);
 
   /* Borders/inputs/ring */
-  --border: oklch(0.86 0.01 95 / 85%);
-  --input: oklch(0.9 0.008 95 / 90%);
-  --ring: oklch(0.64 0.08 250 / 45%);
+  --border: oklch(0.88 0.015 240 / 80%);
+  --input: oklch(0.93 0.01 230 / 85%);
+  --ring: oklch(0.65 0.13 262 / 45%);
 
   /* Charts */
-  --chart-1: oklch(0.62 0.14 250);
-  --chart-2: oklch(0.68 0.11 190);
-  --chart-3: oklch(0.72 0.13 80);
-  --chart-4: oklch(0.64 0.16 315);
-  --chart-5: oklch(0.66 0.15 30);
+  --chart-1: oklch(0.62 0.16 262);
+  --chart-2: oklch(0.68 0.12 185);
+  --chart-3: oklch(0.74 0.14 85);
+  --chart-4: oklch(0.7 0.15 20);
+  --chart-5: oklch(0.6 0.12 320);
 
   /* Sidebar */
-  --sidebar: oklch(0.965 0.008 95);
+  --sidebar: oklch(0.965 0.008 100);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.94 0.012 235);
-  --sidebar-accent-foreground: oklch(0.32 0.03 250);
-  --sidebar-border: oklch(0.86 0.01 95 / 85%);
+  --sidebar-accent: oklch(0.94 0.015 240);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: oklch(0.88 0.015 240 / 85%);
   --sidebar-ring: var(--ring);
 }
 
 /* ✅ Thin global scrollbar (vertical + horizontal) */
 html {
   scrollbar-width: thin; /* Firefox */
-  scrollbar-color: oklch(0.78 0.02 240 / 80%) oklch(0.93 0.008 95 / 90%);
+  scrollbar-color: oklch(0.7 0.06 262 / 70%) oklch(0.93 0.008 240 / 85%);
 }
 
 /* WebKit */
@@ -116,15 +117,15 @@ html {
   height: 8px;
 }
 *::-webkit-scrollbar-track {
-  background: oklch(0.93 0.008 95 / 90%);
+  background: oklch(0.94 0.008 240 / 85%);
 }
 *::-webkit-scrollbar-thumb {
-  background: oklch(0.78 0.02 240 / 80%);
+  background: oklch(0.7 0.06 262 / 70%);
   border-radius: 9999px;
-  border: 2px solid oklch(0.93 0.008 95 / 90%);
+  border: 2px solid oklch(0.94 0.008 240 / 85%);
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.68 0.04 245 / 85%);
+  background: oklch(0.64 0.09 262 / 80%);
 }
 
 /* Optional: reduce scrollbar in touch environments */
@@ -144,12 +145,12 @@ html {
     @apply text-foreground;
     background-color: var(--background);
 
-    /* ✅ Soft light gradient theme */
+    /* ✅ Soft off-white gradient theme */
     background-image:
-      radial-gradient(1200px 700px at 12% 10%, oklch(0.95 0.025 230 / 45%), transparent 60%),
-      radial-gradient(900px 600px at 88% 12%, oklch(0.96 0.02 85 / 38%), transparent 55%),
-      radial-gradient(950px 700px at 50% 100%, oklch(0.94 0.018 250 / 28%), transparent 60%),
-      linear-gradient(135deg, oklch(0.972 0.006 95), oklch(0.948 0.008 100));
+      radial-gradient(1200px 700px at 12% 8%, oklch(0.94 0.035 85 / 55%), transparent 60%),
+      radial-gradient(900px 600px at 88% 14%, oklch(0.95 0.03 260 / 35%), transparent 55%),
+      radial-gradient(900px 700px at 50% 100%, oklch(0.93 0.025 165 / 30%), transparent 60%),
+      linear-gradient(135deg, oklch(0.985 0.008 95), oklch(0.955 0.012 235));
     background-attachment: fixed;
   }
 }

@@ -1,4 +1,3 @@
-import { ArrowRight } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import Section from "./Section"
@@ -16,7 +15,7 @@ export default function Hero() {
     return (
         <div className="w-full pt-4">
             <Section id="top">
-                <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
+                <div className="grid pb-7 gap-8 lg:grid-cols-2 lg:items-center">
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
@@ -40,13 +39,8 @@ export default function Hero() {
                         </div>
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <Button asChild>
-                                <a href="#cta">
-                                    Get started <ArrowRight className="ml-2 h-4 w-4" />
-                                </a>
-                            </Button>
 
-                            <Button asChild variant="secondary">
+                            <Button asChild variant="default">
                                 <Link to={actionHref}>{actionLabel}</Link>
                             </Button>
                         </div>
@@ -59,11 +53,11 @@ export default function Hero() {
                     </div>
 
                     <div className="relative">
-                        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/40 p-4">
+                        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/40 p-2">
                             <img
                                 src="/Hero.jpg"
                                 alt="WorkloadHub hero illustration"
-                                className="h-auto w-full"
+                                className="h-auto w-full rounded-2xl"
                                 draggable={false}
                             />
                         </div>

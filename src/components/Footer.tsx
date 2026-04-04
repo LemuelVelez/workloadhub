@@ -19,19 +19,6 @@ export default function Footer() {
                     </div>
 
                     <div className="grid gap-2 text-sm">
-                        <div className="font-medium">Links</div>
-                        <a href="#features" className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-                            Features
-                        </a>
-                        <a href="#how-it-works" className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-                            How it works
-                        </a>
-                        <a href="#roles" className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-                            Roles
-                        </a>
-                    </div>
-
-                    <div className="grid gap-2 text-sm">
                         <div className="font-medium">Account</div>
                         <Link to="/auth/login" className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
                             Sign in
