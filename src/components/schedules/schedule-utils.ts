@@ -39,7 +39,7 @@ function normalizeMeridiem(value: string) {
 }
 
 
-function normalizeToken(value?: string | number | null) {
+function normalizeToken(value?: unknown) {
     return String(value ?? "")
         .trim()
         .toLowerCase()
@@ -62,7 +62,7 @@ function toValueList(value: unknown) {
         .filter(Boolean)
 }
 
-function extractYearLevelToken(value?: string | number | null) {
+function extractYearLevelToken(value?: unknown) {
     const normalized = normalizeToken(value)
     if (!normalized) return ""
 
@@ -75,7 +75,7 @@ function extractYearLevelToken(value?: string | number | null) {
     return ""
 }
 
-function collectProgramAliases(values: Array<string | number | null | undefined>) {
+function collectProgramAliases(values: Array<unknown>) {
     const aliases = new Set<string>()
 
     for (const value of values) {
