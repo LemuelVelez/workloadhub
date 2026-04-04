@@ -24,6 +24,7 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
@@ -48,7 +49,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
 
 import type {
     AcademicTermDoc,
@@ -69,6 +69,8 @@ import {
 } from "./schedule-utils"
 
 type CreateTermMode = "existing" | "new"
+
+const CUSTOM_SCHOOL_YEAR_VALUE = "__custom_school_year__"
 
 type Props = {
     loading: boolean
@@ -100,14 +102,12 @@ type Props = {
     onOpenCreate: () => void
     onSetStatus: (it: ScheduleVersionDoc, next: ScheduleStatus) => Promise<void> | void
 
-    // View dialog
     viewOpen: boolean
     setViewOpen: (v: boolean) => void
     active: ScheduleVersionDoc | null
     setActive: (v: ScheduleVersionDoc | null) => void
     onOpenView: (it: ScheduleVersionDoc) => void
 
-    // Create dialog
     createOpen: boolean
     setCreateOpen: (v: boolean) => void
     createTermMode: CreateTermMode
@@ -129,7 +129,8 @@ type Props = {
     setCreateNotes: (v: string) => void
     createSetActive: boolean
     setCreateSetActive: (v: boolean) => void
-    existingSemesterSchedule: ScheduleVersionDoc | null
+    existingSemesterSchedule?: ScheduleVersionDoc | null
+    nextVersionNumber: number
     canCreateVersion: boolean
     onCreateVersion: () => Promise<void> | void
     resetCreateForm: () => void
@@ -184,11 +185,18 @@ export function VersionManagementSection({
     setCreateNotes,
     createSetActive,
     setCreateSetActive,
-    existingSemesterSchedule,
+    existingSemesterSchedule = null,
+    nextVersionNumber,
     canCreateVersion,
     onCreateVersion,
     resetCreateForm,
 }: Props) {
+    const schoolYearSelectValue = schoolYearOptions.includes(createSchoolYear)
+        ? createSchoolYear
+        : CUSTOM_SCHOOL_YEAR_VALUE
+
+    const showCustomSchoolYearInput = createTermMode === "new" && schoolYearSelectValue === CUSTOM_SCHOOL_YEAR_VALUE
+
     return (
         <>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -231,7 +239,7 @@ export function VersionManagementSection({
                         <div>
                             <CardTitle>Semester Schedules</CardTitle>
                             <CardDescription>
-                                Filter by semester/college, search, and manage semester schedule status.
+                                Filter by semester and college, search schedules, and manage semester schedule status.
                             </CardDescription>
                         </div>
 
@@ -267,7 +275,7 @@ export function VersionManagementSection({
                                 id="search"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Search by label, status, termId, departmentId..."
+                                placeholder="Search by label, status, term, or college..."
                             />
                         </div>
                     </div>
@@ -600,7 +608,7 @@ export function VersionManagementSection({
                     <DialogHeader>
                         <DialogTitle>Create Semester Schedule</DialogTitle>
                         <DialogDescription>
-                            Create or reuse a semester schedule for an existing academic term, or create a new semester under the current school year.
+                            Create or reuse a semester schedule for an existing academic term, or create a new semester under the current or custom school year.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -660,7 +668,18 @@ export function VersionManagementSection({
                                 <div className="grid gap-3 md:grid-cols-3">
                                     <div className="space-y-1">
                                         <Label>School Year</Label>
-                                        <Select value={createSchoolYear} onValueChange={setCreateSchoolYear}>
+                                        <Select
+                                            value={schoolYearSelectValue}
+                                            onValueChange={(value) => {
+                                                if (value === CUSTOM_SCHOOL_YEAR_VALUE) {
+                                                    if (schoolYearOptions.includes(createSchoolYear)) {
+                                                        setCreateSchoolYear("")
+                                                    }
+                                                    return
+                                                }
+                                                setCreateSchoolYear(value)
+                                            }}
+                                        >
                                             <SelectTrigger className="rounded-xl">
                                                 <SelectValue placeholder="Select school year" />
                                             </SelectTrigger>
@@ -670,9 +689,12 @@ export function VersionManagementSection({
                                                         {schoolYear}
                                                     </SelectItem>
                                                 ))}
+                                                <SelectItem value={CUSTOM_SCHOOL_YEAR_VALUE}>Custom school year</SelectItem>
                                             </SelectContent>
                                         </Select>
-                                        <div className="text-xs text-muted-foreground">Defaults to the current school year.</div>
+                                        <div className="text-xs text-muted-foreground">
+                                            Pick from the list or choose custom.
+                                        </div>
                                     </div>
 
                                     <div className="space-y-1">
@@ -708,6 +730,20 @@ export function VersionManagementSection({
                                     </div>
                                 </div>
 
+                                {showCustomSchoolYearInput ? (
+                                    <div className="space-y-1">
+                                        <Label>Custom School Year</Label>
+                                        <Input
+                                            value={createSchoolYear}
+                                            onChange={(e) => setCreateSchoolYear(e.target.value)}
+                                            placeholder="e.g. 2027-2028"
+                                        />
+                                        <div className="text-xs text-muted-foreground">
+                                            Use the format <span className="font-medium">YYYY-YYYY</span>, such as 2027-2028.
+                                        </div>
+                                    </div>
+                                ) : null}
+
                                 <div className="rounded-xl border border-dashed p-3 text-sm">
                                     {matchedCreateTerm ? (
                                         <div className="space-y-1">
@@ -736,7 +772,7 @@ export function VersionManagementSection({
                                 placeholder="Semester Schedule"
                             />
                             <div className="text-xs text-muted-foreground">
-                                If empty, it will default to a semester-based schedule label.
+                                If empty, it will default to Semester {nextVersionNumber}.
                             </div>
                         </div>
 
@@ -745,7 +781,7 @@ export function VersionManagementSection({
                                 <div className="space-y-1">
                                     <div className="font-medium">Existing semester schedule found</div>
                                     <div className="text-muted-foreground">
-                                        This will reuse the existing semester schedule for this term and college so existing entries stay intact.
+                                        This term and college already have a semester schedule, so reusing it prevents duplicate entries.
                                     </div>
                                 </div>
                             ) : (
