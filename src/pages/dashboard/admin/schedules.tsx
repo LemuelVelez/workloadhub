@@ -41,6 +41,7 @@ import {
     dayOrder,
     deptLabel,
     extractManualFaculty,
+    filterSubjectsForSection,
     getCanonicalDayValue,
     hhmmToMinutes,
     meetingTypeLabel,
@@ -49,6 +50,7 @@ import {
     normalizeScheduleStatus,
     roleLooksLikeFaculty,
     roomTypeLabel,
+    sortSectionsForDisplay,
     stripManualFacultyTag,
     termLabel,
 } from "@/components/schedules/schedule-utils"
@@ -180,7 +182,7 @@ export default function AdminSchedulesPage() {
     const [entrySaving, setEntrySaving] = React.useState(false)
 
     const [formSectionId, setFormSectionId] = React.useState("")
-    const [formSubjectId, setFormSubjectId] = React.useState("")
+    const [formSubjectIds, setFormSubjectIds] = React.useState<string[]>([])
     const [formFacultyChoice, setFormFacultyChoice] = React.useState<string>(FACULTY_OPTION_NONE)
     const [formManualFaculty, setFormManualFaculty] = React.useState("")
     const [formRoomId, setFormRoomId] = React.useState("")
@@ -232,6 +234,24 @@ export default function AdminSchedulesPage() {
         })
         return m
     }, [facultyProfiles])
+
+
+    const selectedFormSection = React.useMemo(
+        () => sections.find((section) => section.$id === formSectionId) || null,
+        [sections, formSectionId]
+    )
+
+    const filteredFormSubjects = React.useMemo(() => {
+        const scopedSubjects = filterSubjectsForSection(subjects, selectedFormSection)
+        return scopedSubjects
+            .slice()
+            .sort((a, b) => {
+                const ac = String(a.code || "").toLowerCase()
+                const bc = String(b.code || "").toLowerCase()
+                if (ac !== bc) return ac.localeCompare(bc)
+                return String(a.title || "").localeCompare(String(b.title || ""))
+            })
+    }, [subjects, selectedFormSection])
 
     const fetchAll = React.useCallback(async () => {
         setLoading(true)
@@ -611,12 +631,22 @@ export default function AdminSchedulesPage() {
             const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
             const selectedVersionDeptId = String(selectedVersion.departmentId || "").trim()
 
+            const selectedVersionTermId = String(selectedVersion.termId || "").trim()
+
             const scopedSubjects = allSubjects
                 .filter((s) => s.isActive !== false)
                 .filter((s) => {
                     const subjectDeptId = String(s.departmentId || "").trim()
-                    if (!subjectDeptId) return true
-                    return subjectDeptId === selectedVersionDeptId
+                    if (subjectDeptId && subjectDeptId !== selectedVersionDeptId) {
+                        return false
+                    }
+
+                    const subjectTermId = String(s.termId || "").trim()
+                    if (subjectTermId && selectedVersionTermId && subjectTermId !== selectedVersionTermId) {
+                        return false
+                    }
+
+                    return true
                 })
                 .sort((a, b) => {
                     const ac = String(a.code || "").toLowerCase()
@@ -631,12 +661,7 @@ export default function AdminSchedulesPage() {
 
             const scopedSections = ((secRes?.documents ?? []) as SectionDoc[])
                 .filter((s) => s.isActive !== false)
-                .sort((a, b) => {
-                    const ay = Number(a.yearLevel || 0)
-                    const by = Number(b.yearLevel || 0)
-                    if (ay !== by) return ay - by
-                    return String(a.name || "").localeCompare(String(b.name || ""))
-                })
+                .sort(sortSectionsForDisplay)
 
             const scopedFaculty = facultyDocs
                 .filter((f) => f.isActive !== false)
@@ -664,11 +689,20 @@ export default function AdminSchedulesPage() {
     }, [fetchScheduleContext])
 
     React.useEffect(() => {
-        setFormSubjectId((prev) => {
-            if (prev && subjects.some((subject) => subject.$id === prev)) return prev
-            return subjects[0]?.$id || ""
+        setFormSubjectIds((prev) => {
+            const availableIds = new Set(filteredFormSubjects.map((subject) => subject.$id))
+            const next = prev.filter((subjectId) => availableIds.has(subjectId))
+
+            if (next.length > 0) {
+                return editingEntry ? next.slice(0, 1) : next
+            }
+
+            const fallbackSubjectId = filteredFormSubjects[0]?.$id || ""
+            if (!fallbackSubjectId) return []
+
+            return [fallbackSubjectId]
         })
-    }, [subjects])
+    }, [filteredFormSubjects, editingEntry])
 
     const scheduleRows = React.useMemo<ScheduleRow[]>(() => {
         const classMap = new Map<string, ClassDoc>()
@@ -847,8 +881,12 @@ export default function AdminSchedulesPage() {
     }, [scheduleRows])
 
     const resetEntryForm = React.useCallback(() => {
-        setFormSectionId(sections[0]?.$id || "")
-        setFormSubjectId(subjects[0]?.$id || "")
+        const nextSectionId = sections[0]?.$id || ""
+        const nextSection = sections.find((section) => section.$id === nextSectionId) || null
+        const nextSubjects = filterSubjectsForSection(subjects, nextSection)
+
+        setFormSectionId(nextSectionId)
+        setFormSubjectIds(nextSubjects[0]?.$id ? [nextSubjects[0].$id] : [])
         setFormFacultyChoice(FACULTY_OPTION_NONE)
         setFormManualFaculty("")
         setFormRoomId(rooms[0]?.$id || "")
@@ -876,7 +914,7 @@ export default function AdminSchedulesPage() {
     const openEditEntry = React.useCallback((row: ScheduleRow) => {
         setEditingEntry(row)
         setFormSectionId(String(row.sectionId || ""))
-        setFormSubjectId(String(row.subjectId || ""))
+        setFormSubjectIds(String(row.subjectId || "").trim() ? [String(row.subjectId || "")] : [])
         setFormFacultyChoice(
             row.isManualFaculty
                 ? FACULTY_OPTION_MANUAL
@@ -894,7 +932,7 @@ export default function AdminSchedulesPage() {
         setEntryDialogOpen(true)
     }, [
         setFormSectionId,
-        setFormSubjectId,
+        setFormSubjectIds,
         setFormFacultyChoice,
         setFormManualFaculty,
         setFormRoomId,
@@ -974,8 +1012,12 @@ export default function AdminSchedulesPage() {
             return
         }
 
-        if (!formSubjectId) {
-            toast.error("Please select a subject.")
+        const normalizedSubjectIds = Array.from(
+            new Set(formSubjectIds.map((subjectId) => String(subjectId || "").trim()).filter(Boolean))
+        )
+
+        if (normalizedSubjectIds.length === 0) {
+            toast.error(editingEntry ? "Please select a subject." : "Please select at least one subject.")
             return
         }
 
@@ -1012,6 +1054,11 @@ export default function AdminSchedulesPage() {
             return
         }
 
+        if (!editingEntry && normalizedSubjectIds.length > 1 && !formAllowConflictSave) {
+            toast.error("Multiple selected subjects will share the same schedule slot. Enable override to continue.")
+            return
+        }
+
         setEntrySaving(true)
         try {
             const manualFaculty = formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
@@ -1019,13 +1066,15 @@ export default function AdminSchedulesPage() {
                 formFacultyChoice === FACULTY_OPTION_NONE || formFacultyChoice === FACULTY_OPTION_MANUAL
                     ? null
                     : formFacultyChoice
+            const selectedSectionForPayload =
+                sections.find((section) => section.$id === formSectionId) || null
 
             const classPayload: any = {
                 versionId: selectedVersion.$id,
                 termId: selectedVersion.termId,
                 departmentId: selectedVersion.departmentId,
+                programId: selectedSectionForPayload?.programId || null,
                 sectionId: formSectionId,
-                subjectId: formSubjectId,
                 facultyUserId,
                 classCode: null,
                 deliveryMode: null,
@@ -1037,7 +1086,10 @@ export default function AdminSchedulesPage() {
                     DATABASE_ID,
                     COLLECTIONS.CLASSES,
                     editingEntry.classId,
-                    classPayload
+                    {
+                        ...classPayload,
+                        subjectId: normalizedSubjectIds[0],
+                    }
                 )
 
                 await databases.updateDocument(
@@ -1055,27 +1107,34 @@ export default function AdminSchedulesPage() {
 
                 toast.success("Schedule entry updated.")
             } else {
-                const createdClass = await databases.createDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASSES,
-                    ID.unique(),
-                    {
-                        ...classPayload,
-                        status: "Planned",
-                    }
+                for (const subjectId of normalizedSubjectIds) {
+                    const createdClass = await databases.createDocument(
+                        DATABASE_ID,
+                        COLLECTIONS.CLASSES,
+                        ID.unique(),
+                        {
+                            ...classPayload,
+                            subjectId,
+                            status: "Planned",
+                        }
+                    )
+
+                    await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                        versionId: selectedVersion.$id,
+                        classId: createdClass.$id,
+                        dayOfWeek: getCanonicalDayValue(formDayOfWeek),
+                        startTime: formStartTime,
+                        endTime: formEndTime,
+                        roomId: formRoomId || null,
+                        meetingType: formMeetingType,
+                    })
+                }
+
+                toast.success(
+                    normalizedSubjectIds.length > 1
+                        ? `${normalizedSubjectIds.length} schedule entries created.`
+                        : "Schedule entry created."
                 )
-
-                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                    versionId: selectedVersion.$id,
-                    classId: createdClass.$id,
-                    dayOfWeek: getCanonicalDayValue(formDayOfWeek),
-                    startTime: formStartTime,
-                    endTime: formEndTime,
-                    roomId: formRoomId || null,
-                    meetingType: formMeetingType,
-                })
-
-                toast.success("Schedule entry created.")
             }
 
             handleEntryDialogOpenChange(false)
@@ -1270,8 +1329,8 @@ export default function AdminSchedulesPage() {
                     editingEntry={editingEntry}
                     formSectionId={formSectionId}
                     setFormSectionId={setFormSectionId}
-                    formSubjectId={formSubjectId}
-                    setFormSubjectId={setFormSubjectId}
+                    formSubjectIds={formSubjectIds}
+                    setFormSubjectIds={setFormSubjectIds}
                     formFacultyChoice={formFacultyChoice}
                     setFormFacultyChoice={setFormFacultyChoice}
                     formManualFaculty={formManualFaculty}

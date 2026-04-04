@@ -87,9 +87,11 @@ import {
     dayOrder,
     fmtDate,
     formatCombinedMeetingDayDisplay,
+    filterSubjectsForSection,
     formatCombinedMeetingTimeDisplay,
     formatCompactDayDisplay,
     formatDayDisplayLabel,
+    formatSubjectOptionLabel,
     formatTimeRange,
     joinDisplayValues,
     meetingTypeLabel,
@@ -128,8 +130,8 @@ type Props = {
 
     formSectionId: string
     setFormSectionId: (v: string) => void
-    formSubjectId: string
-    setFormSubjectId: (v: string) => void
+    formSubjectIds: string[]
+    setFormSubjectIds: React.Dispatch<React.SetStateAction<string[]>>
     formFacultyChoice: string
     setFormFacultyChoice: (v: string) => void
     formManualFaculty: string
@@ -1298,8 +1300,8 @@ export function PlannerManagementSection({
     editingEntry,
     formSectionId,
     setFormSectionId,
-    formSubjectId,
-    setFormSubjectId,
+    formSubjectIds,
+    setFormSubjectIds,
     formFacultyChoice,
     setFormFacultyChoice,
     formManualFaculty,
@@ -1363,6 +1365,56 @@ export function PlannerManagementSection({
         if (!selectedSection) return "—"
         return sectionDisplayLookup[selectedSection.$id] || "—"
     }, [selectedSection, sectionDisplayLookup])
+
+
+    const filteredSubjectOptions = React.useMemo(
+        () => filterSubjectsForSection(subjects, selectedSection),
+        [subjects, selectedSection]
+    )
+
+    const selectedSubjectIds = React.useMemo(
+        () => Array.from(new Set(formSubjectIds.map((subjectId) => String(subjectId || "").trim()).filter(Boolean))),
+        [formSubjectIds]
+    )
+
+    const selectedSubjectCount = selectedSubjectIds.length
+
+    const selectedSubjectDocs = React.useMemo(() => {
+        const subjectMap = new Map(filteredSubjectOptions.map((subject) => [subject.$id, subject]))
+        return selectedSubjectIds.map((subjectId) => subjectMap.get(subjectId)).filter(Boolean) as SubjectDoc[]
+    }, [filteredSubjectOptions, selectedSubjectIds])
+
+    const toggleSubjectSelection = React.useCallback(
+        (subjectId: string) => {
+            const normalizedSubjectId = String(subjectId || "").trim()
+            if (!normalizedSubjectId) return
+
+            setFormSubjectIds((prev) => {
+                const normalizedPrev = Array.from(
+                    new Set(prev.map((value) => String(value || "").trim()).filter(Boolean))
+                )
+
+                if (editingEntry) {
+                    return [normalizedSubjectId]
+                }
+
+                if (normalizedPrev.includes(normalizedSubjectId)) {
+                    return normalizedPrev.filter((value) => value !== normalizedSubjectId)
+                }
+
+                return [...normalizedPrev, normalizedSubjectId]
+            })
+        },
+        [editingEntry, setFormSubjectIds]
+    )
+
+    const selectAllFilteredSubjects = React.useCallback(() => {
+        setFormSubjectIds(filteredSubjectOptions.map((subject) => subject.$id))
+    }, [filteredSubjectOptions, setFormSubjectIds])
+
+    const clearSelectedSubjects = React.useCallback(() => {
+        setFormSubjectIds([])
+    }, [setFormSubjectIds])
 
     const goToRoomsAndFacilities = React.useCallback(() => {
         navigate(ROOMS_AND_FACILITIES_ROUTE)
@@ -2576,27 +2628,93 @@ export function PlannerManagementSection({
                                 </div>
                             </div>
 
-                            <div className="space-y-1">
-                                <Label>Subject</Label>
-                                <Select value={formSubjectId} onValueChange={setFormSubjectId}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select subject" />
-                                    </SelectTrigger>
-                                    <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                        {subjects.map((s) => {
-                                            const code = String(s.code || "").trim()
-                                            const title = String(s.title || "").trim()
-                                            const units = s.units != null ? ` (${s.units}u)` : ""
-                                            const label = [code, title].filter(Boolean).join(" • ") || s.$id
-                                            return (
-                                                <SelectItem key={s.$id} value={s.$id}>
-                                                    {label}
-                                                    {units}
-                                                </SelectItem>
-                                            )
-                                        })}
-                                    </SelectContent>
-                                </Select>
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <Label>{editingEntry ? "Subject" : "Subjects"}</Label>
+                                    {!editingEntry ? (
+                                        <div className="flex items-center gap-1">
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 rounded-lg px-2 text-xs"
+                                                onClick={selectAllFilteredSubjects}
+                                                disabled={filteredSubjectOptions.length === 0}
+                                            >
+                                                Select all
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 rounded-lg px-2 text-xs"
+                                                onClick={clearSelectedSubjects}
+                                                disabled={selectedSubjectCount === 0}
+                                            >
+                                                Clear
+                                            </Button>
+                                        </div>
+                                    ) : null}
+                                </div>
+
+                                <div className="rounded-xl border p-3">
+                                    <div className="text-xs text-muted-foreground">
+                                        Only subjects matched to the selected section are shown.
+                                    </div>
+
+                                    {filteredSubjectOptions.length === 0 ? (
+                                        <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                                            No subjects are available for the selected section.
+                                        </div>
+                                    ) : (
+                                        <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                                            {filteredSubjectOptions.map((subject) => {
+                                                const checked = selectedSubjectIds.includes(subject.$id)
+                                                const checkboxId = `subject-${subject.$id}`
+                                                return (
+                                                    <label
+                                                        key={subject.$id}
+                                                        htmlFor={checkboxId}
+                                                        className={cn(
+                                                            "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 transition-colors",
+                                                            checked
+                                                                ? "border-primary bg-primary/5"
+                                                                : "border-border hover:bg-muted/40"
+                                                        )}
+                                                    >
+                                                        <Checkbox
+                                                            id={checkboxId}
+                                                            checked={checked}
+                                                            onCheckedChange={() => toggleSubjectSelection(subject.$id)}
+                                                        />
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="font-medium leading-snug">
+                                                                {formatSubjectOptionLabel(subject)}
+                                                            </div>
+                                                            <div className="mt-1 text-xs text-muted-foreground">
+                                                                {editingEntry
+                                                                    ? "Editing updates the current schedule entry only."
+                                                                    : "All selected subjects will use the same schedule details when saved."}
+                                                            </div>
+                                                        </div>
+                                                    </label>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <span>
+                                        {selectedSubjectCount} {selectedSubjectCount === 1 ? "subject" : "subjects"} selected
+                                    </span>
+                                    {selectedSubjectDocs.slice(0, 2).map((subject) => (
+                                        <Badge key={subject.$id} variant="secondary" className="rounded-full">
+                                            {String(subject.code || subject.title || subject.$id)}
+                                        </Badge>
+                                    ))}
+                                    {selectedSubjectCount > 2 ? <span>+{selectedSubjectCount - 2} more</span> : null}
+                                </div>
                             </div>
                         </div>
 

@@ -41,6 +41,17 @@ export type SubjectDoc = {
     title?: string | null
     units?: number | null
     isActive?: boolean
+    programId?: string | null
+    programIds?: string[] | string | null
+    programCode?: string | null
+    programCodes?: string[] | string | null
+    programName?: string | null
+    yearLevel?: string | number | null
+    yearLevels?: Array<string | number> | string | null
+    sectionId?: string | null
+    sectionIds?: string[] | string | null
+    linkedSectionId?: string | null
+    linkedSectionIds?: string[] | string | null
 }
 
 export type RoomDoc = {
@@ -58,6 +69,7 @@ export type SectionDoc = {
     $id: string
     termId: string
     departmentId: string
+    programId?: string | null
     yearLevel?: string | number | null
     name?: string | null
     label?: string | null

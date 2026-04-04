@@ -1,5 +1,5 @@
 import { Clock, ShieldCheck, ShieldX, type LucideIcon } from "lucide-react"
-import type { AcademicTermDoc, DepartmentDoc } from "./schedule-types"
+import type { AcademicTermDoc, DepartmentDoc, SectionDoc, SubjectDoc } from "./schedule-types"
 import { BASE_DAY_OPTIONS, DAY_ABBREVIATIONS } from "./schedule-types"
 
 const MANUAL_FACULTY_TAG_REGEX = /\[\[manualFaculty:(.*?)\]\]/i
@@ -36,6 +36,263 @@ const DAY_ALIAS_TO_CANONICAL = new Map<string, (typeof BASE_DAY_OPTIONS)[number]
 
 function normalizeMeridiem(value: string) {
     return String(value || "").replace(MERIDIEM_REGEX, (match) => match.toLowerCase())
+}
+
+
+function normalizeToken(value?: string | number | null) {
+    return String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+}
+
+function toValueList(value: unknown) {
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => String(item ?? "").trim())
+            .filter(Boolean)
+    }
+
+    const normalized = String(value ?? "").trim()
+    if (!normalized) return []
+
+    return normalized
+        .split(/[|,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+}
+
+function extractYearLevelToken(value?: string | number | null) {
+    const normalized = normalizeToken(value)
+    if (!normalized) return ""
+
+    const directMatch = normalized.match(/^(?:cs|is)?\s*([1-9]\d*)$/i)
+    if (directMatch?.[1]) return directMatch[1]
+
+    const ordinalMatch = normalized.match(/([1-9]\d*)(?:st|nd|rd|th)?(?:\s+year)?$/i)
+    if (ordinalMatch?.[1]) return ordinalMatch[1]
+
+    return ""
+}
+
+function collectProgramAliases(values: Array<string | number | null | undefined>) {
+    const aliases = new Set<string>()
+
+    for (const value of values) {
+        const normalized = normalizeToken(value)
+        if (!normalized) continue
+
+        aliases.add(normalized)
+
+        if (normalized === "bscs" || normalized === "cs" || normalized.includes("computer science")) {
+            aliases.add("bscs")
+            aliases.add("cs")
+            aliases.add("computer science")
+        }
+
+        if (
+            normalized === "bsis" ||
+            normalized === "is" ||
+            normalized.includes("information system") ||
+            normalized.includes("information systems")
+        ) {
+            aliases.add("bsis")
+            aliases.add("is")
+            aliases.add("information systems")
+        }
+    }
+
+    return aliases
+}
+
+function getSectionProgramAliases(section?: SectionDoc | null) {
+    if (!section) return new Set<string>()
+
+    const yearLevelText = String(section.yearLevel ?? "").trim().toUpperCase()
+    const inferredProgramFromYear = yearLevelText.startsWith("CS ")
+        ? "CS"
+        : yearLevelText.startsWith("IS ")
+          ? "IS"
+          : ""
+
+    return collectProgramAliases([
+        section.programId,
+        section.programCode,
+        section.programName,
+        inferredProgramFromYear,
+    ])
+}
+
+function getSectionYearAliases(section?: SectionDoc | null) {
+    if (!section) return new Set<string>()
+
+    const aliases = new Set<string>()
+    const rawValues = [section.yearLevel]
+
+    for (const value of rawValues) {
+        const normalized = normalizeToken(value)
+        if (normalized) aliases.add(normalized)
+
+        const yearToken = extractYearLevelToken(value)
+        if (yearToken) aliases.add(yearToken)
+    }
+
+    return aliases
+}
+
+function getSubjectSectionAliases(subject?: SubjectDoc | null) {
+    if (!subject) return new Set<string>()
+
+    const aliases = new Set<string>()
+    const anySubject = subject as Record<string, unknown>
+
+    const rawSectionValues = [
+        subject.sectionId,
+        subject.sectionIds,
+        subject.linkedSectionId,
+        subject.linkedSectionIds,
+        anySubject.subjectSectionId,
+        anySubject.subjectSectionIds,
+        anySubject.section,
+        anySubject.sections,
+    ]
+
+    for (const rawValue of rawSectionValues) {
+        for (const value of toValueList(rawValue)) {
+            const normalized = normalizeToken(value)
+            if (normalized) aliases.add(normalized)
+        }
+    }
+
+    return aliases
+}
+
+function getSubjectProgramAliases(subject?: SubjectDoc | null) {
+    if (!subject) return new Set<string>()
+
+    const anySubject = subject as Record<string, unknown>
+
+    return collectProgramAliases([
+        subject.programId,
+        subject.programIds,
+        subject.programCode,
+        subject.programCodes,
+        subject.programName,
+        anySubject.track,
+        anySubject.tracks,
+        anySubject.course,
+        anySubject.courses,
+        anySubject.courseCode,
+        anySubject.courseCodes,
+    ])
+}
+
+function getSubjectYearAliases(subject?: SubjectDoc | null) {
+    if (!subject) return new Set<string>()
+
+    const aliases = new Set<string>()
+    const anySubject = subject as Record<string, unknown>
+    const rawValues = [subject.yearLevel, subject.yearLevels, anySubject.level, anySubject.levels]
+
+    for (const rawValue of rawValues) {
+        for (const value of toValueList(rawValue)) {
+            const normalized = normalizeToken(value)
+            if (normalized) aliases.add(normalized)
+
+            const yearToken = extractYearLevelToken(value)
+            if (yearToken) aliases.add(yearToken)
+        }
+    }
+
+    return aliases
+}
+
+function setsIntersect(a: Set<string>, b: Set<string>) {
+    for (const value of a) {
+        if (b.has(value)) return true
+    }
+    return false
+}
+
+export function subjectHasSectionScopedMetadata(subject?: SubjectDoc | null) {
+    if (!subject) return false
+
+    return (
+        getSubjectSectionAliases(subject).size > 0 ||
+        getSubjectProgramAliases(subject).size > 0 ||
+        getSubjectYearAliases(subject).size > 0
+    )
+}
+
+export function sectionSortValue(section?: SectionDoc | null) {
+    if (!section) return Number.MAX_SAFE_INTEGER
+    const yearToken = extractYearLevelToken(section.yearLevel)
+    return Number.parseInt(yearToken || "999", 10)
+}
+
+export function sortSectionsForDisplay(a?: SectionDoc | null, b?: SectionDoc | null) {
+    const yearDiff = sectionSortValue(a) - sectionSortValue(b)
+    if (yearDiff !== 0) return yearDiff
+
+    const programDiff = String(a?.programCode || a?.programName || "").localeCompare(
+        String(b?.programCode || b?.programName || ""),
+        undefined,
+        { sensitivity: "base" }
+    )
+    if (programDiff !== 0) return programDiff
+
+    return String(a?.name || a?.label || a?.$id || "").localeCompare(
+        String(b?.name || b?.label || b?.$id || ""),
+        undefined,
+        { numeric: true, sensitivity: "base" }
+    )
+}
+
+export function doesSubjectBelongToSection(subject?: SubjectDoc | null, section?: SectionDoc | null) {
+    if (!subject || !section) return true
+
+    const normalizedSectionId = normalizeToken(section.$id)
+    const subjectSectionAliases = getSubjectSectionAliases(subject)
+    if (normalizedSectionId && subjectSectionAliases.size > 0) {
+        return subjectSectionAliases.has(normalizedSectionId)
+    }
+
+    const subjectProgramAliases = getSubjectProgramAliases(subject)
+    const subjectYearAliases = getSubjectYearAliases(subject)
+    const sectionProgramAliases = getSectionProgramAliases(section)
+    const sectionYearAliases = getSectionYearAliases(section)
+
+    const hasProgramScope = subjectProgramAliases.size > 0 && sectionProgramAliases.size > 0
+    const hasYearScope = subjectYearAliases.size > 0 && sectionYearAliases.size > 0
+
+    if (hasProgramScope || hasYearScope) {
+        const programMatches = !hasProgramScope || setsIntersect(subjectProgramAliases, sectionProgramAliases)
+        const yearMatches = !hasYearScope || setsIntersect(subjectYearAliases, sectionYearAliases)
+        return programMatches && yearMatches
+    }
+
+    return true
+}
+
+export function filterSubjectsForSection(subjects: SubjectDoc[], section?: SectionDoc | null) {
+    if (!section) return subjects
+
+    const matchedSubjects = subjects.filter((subject) => doesSubjectBelongToSection(subject, section))
+    const hasScopedMetadata = subjects.some((subject) => subjectHasSectionScopedMetadata(subject))
+
+    if (matchedSubjects.length > 0 || hasScopedMetadata) {
+        return matchedSubjects
+    }
+
+    return subjects
+}
+
+export function formatSubjectOptionLabel(subject?: SubjectDoc | null) {
+    if (!subject) return "—"
+    const code = String(subject.code || "").trim()
+    const title = String(subject.title || "").trim()
+    const units = subject.units != null ? ` (${subject.units}u)` : ""
+    return ([code, title].filter(Boolean).join(" • ") || subject.$id) + units
 }
 
 function getOrderedUniqueDays(days: string[]) {
