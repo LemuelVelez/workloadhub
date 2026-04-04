@@ -129,7 +129,7 @@ type Props = {
     setCreateNotes: (v: string) => void
     createSetActive: boolean
     setCreateSetActive: (v: boolean) => void
-    nextVersionNumber: number
+    existingSemesterSchedule: ScheduleVersionDoc | null
     canCreateVersion: boolean
     onCreateVersion: () => Promise<void> | void
     resetCreateForm: () => void
@@ -184,7 +184,7 @@ export function VersionManagementSection({
     setCreateNotes,
     createSetActive,
     setCreateSetActive,
-    nextVersionNumber,
+    existingSemesterSchedule,
     canCreateVersion,
     onCreateVersion,
     resetCreateForm,
@@ -195,7 +195,7 @@ export function VersionManagementSection({
                 <Card className="rounded-2xl">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-sm font-medium">Total</CardTitle>
-                        <CardDescription>All versions</CardDescription>
+                        <CardDescription>All semesters</CardDescription>
                     </CardHeader>
                     <CardContent className="text-2xl font-semibold">{stats.total}</CardContent>
                 </Card>
@@ -216,7 +216,6 @@ export function VersionManagementSection({
                     <CardContent className="text-2xl font-semibold">{stats.active}</CardContent>
                 </Card>
 
-
                 <Card className="rounded-2xl">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-sm font-medium">Archived</CardTitle>
@@ -230,9 +229,9 @@ export function VersionManagementSection({
                 <CardHeader className="pb-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                            <CardTitle>Schedule Versions</CardTitle>
+                            <CardTitle>Semester Schedules</CardTitle>
                             <CardDescription>
-                                Filter by term/college, search, and manage version status.
+                                Filter by semester/college, search, and manage semester schedule status.
                             </CardDescription>
                         </div>
 
@@ -243,7 +242,7 @@ export function VersionManagementSection({
                             </Button>
                             <Button size="sm" onClick={onOpenCreate} disabled={loading || saving}>
                                 <Plus className="mr-2 size-4" />
-                                New Version
+                                New Semester
                             </Button>
                         </div>
                     </div>
@@ -343,9 +342,9 @@ export function VersionManagementSection({
                             <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
                                 <CalendarDays className="size-5" />
                             </div>
-                            <div className="mt-3 font-medium">No schedule versions found</div>
+                            <div className="mt-3 font-medium">No semester schedules found</div>
                             <div className="text-sm text-muted-foreground">
-                                Try adjusting filters or creating a new version.
+                                Try adjusting filters or creating a new semester schedule.
                             </div>
                         </div>
                     ) : (
@@ -353,10 +352,10 @@ export function VersionManagementSection({
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Version</TableHead>
+                                        <TableHead>Semester</TableHead>
                                         <TableHead>Label</TableHead>
                                         <TableHead>Status</TableHead>
-                                        <TableHead>Term</TableHead>
+                                        <TableHead>Academic Term</TableHead>
                                         <TableHead>College</TableHead>
                                         <TableHead className="text-right">Created</TableHead>
                                         <TableHead className="text-right">Actions</TableHead>
@@ -375,7 +374,9 @@ export function VersionManagementSection({
                                                 <TableCell className="font-medium">
                                                     <div className="flex items-center gap-2">
                                                         <Icon className="size-4 text-muted-foreground" />
-                                                        <span className="truncate">v{Number(it.version || 0)}</span>
+                                                        <span className="truncate">
+                                                            {term ? termLabel(term) : it.label || shortId(it.$id)}
+                                                        </span>
                                                         {isSelected ? (
                                                             <Badge variant="secondary" className="rounded-lg">
                                                                 Selected
@@ -404,7 +405,9 @@ export function VersionManagementSection({
 
                                                 <TableCell className="text-sm">{term ? termLabel(term) : it.termId}</TableCell>
 
-                                                <TableCell className="text-sm">{dept ? deptLabel(dept) : it.departmentId}</TableCell>
+                                                <TableCell className="text-sm">
+                                                    {dept ? deptLabel(dept) : it.departmentId}
+                                                </TableCell>
 
                                                 <TableCell className="text-right text-sm">{fmtDate(it.$createdAt)}</TableCell>
 
@@ -422,7 +425,7 @@ export function VersionManagementSection({
 
                                                             <DropdownMenuItem onClick={() => setSelectedVersionId(it.$id)}>
                                                                 <CalendarDays className="mr-2 size-4" />
-                                                                Use in planner
+                                                                Open in planner
                                                             </DropdownMenuItem>
 
                                                             <DropdownMenuItem onClick={() => onOpenView(it)}>
@@ -439,7 +442,6 @@ export function VersionManagementSection({
                                                                 <ShieldCheck className="mr-2 size-4" />
                                                                 Set Active
                                                             </DropdownMenuItem>
-
 
                                                             <DropdownMenuItem
                                                                 onClick={() => void onSetStatus(it, "Archived")}
@@ -461,7 +463,6 @@ export function VersionManagementSection({
                 </CardContent>
             </Card>
 
-            {/* View Version Dialog */}
             <Dialog
                 open={viewOpen}
                 onOpenChange={(v) => {
@@ -471,8 +472,8 @@ export function VersionManagementSection({
             >
                 <DialogContent className="max-h-[78vh] overflow-y-auto sm:max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>Schedule Version</DialogTitle>
-                        <DialogDescription>Review schedule version information and manage status.</DialogDescription>
+                        <DialogTitle>Semester Schedule</DialogTitle>
+                        <DialogDescription>Review semester schedule information and manage status.</DialogDescription>
                     </DialogHeader>
 
                     {!active ? (
@@ -486,11 +487,15 @@ export function VersionManagementSection({
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <Card className="rounded-2xl">
                                     <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Version</CardTitle>
-                                        <CardDescription>Schedule version number</CardDescription>
+                                        <CardTitle className="text-sm">Semester</CardTitle>
+                                        <CardDescription>Semester schedule record</CardDescription>
                                     </CardHeader>
-                                    <CardContent className="text-2xl font-semibold">v{Number(active.version || 0)}</CardContent>
-                                    <CardFooter className="pt-0 text-xs text-muted-foreground">{shortId(active.$id)}</CardFooter>
+                                    <CardContent className="text-2xl font-semibold">
+                                        {termLabel(termMap.get(String(active.termId)) ?? null)}
+                                    </CardContent>
+                                    <CardFooter className="pt-0 text-xs text-muted-foreground">
+                                        {shortId(active.$id)}
+                                    </CardFooter>
                                 </Card>
 
                                 <Card className="rounded-2xl">
@@ -539,7 +544,6 @@ export function VersionManagementSection({
                                         <span className="text-muted-foreground">Created By</span>
                                         <span className="font-medium">{active.createdBy || "—"}</span>
                                     </div>
-
                                 </CardContent>
                             </Card>
 
@@ -571,7 +575,6 @@ export function VersionManagementSection({
                                 Set Active
                             </Button>
 
-
                             <Button
                                 type="button"
                                 variant="destructive"
@@ -586,7 +589,6 @@ export function VersionManagementSection({
                 </DialogContent>
             </Dialog>
 
-            {/* Create Version Dialog */}
             <Dialog
                 open={createOpen}
                 onOpenChange={(v) => {
@@ -596,9 +598,9 @@ export function VersionManagementSection({
             >
                 <DialogContent className="max-h-[78vh] overflow-y-auto sm:max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>Create Schedule Version</DialogTitle>
+                        <DialogTitle>Create Semester Schedule</DialogTitle>
                         <DialogDescription>
-                            Create a schedule version for an existing term or create a new semester under the current school year.
+                            Create or reuse a semester schedule for an existing academic term, or create a new semester under the current school year.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -610,7 +612,7 @@ export function VersionManagementSection({
                                     <SelectValue placeholder="Select setup" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="existing">Use Existing Academic Term</SelectItem>
+                                    <SelectItem value="existing">Use Existing Semester / Term</SelectItem>
                                     <SelectItem value="new">Create New Semester / School Year</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -711,7 +713,7 @@ export function VersionManagementSection({
                                         <div className="space-y-1">
                                             <div className="font-medium">Existing term detected</div>
                                             <div className="text-muted-foreground">
-                                                {termLabel(matchedCreateTerm)} already exists, so this version will use that term instead of creating a duplicate.
+                                                {termLabel(matchedCreateTerm)} already exists, so this semester schedule will reuse that term instead of creating a duplicate.
                                             </div>
                                         </div>
                                     ) : (
@@ -726,24 +728,34 @@ export function VersionManagementSection({
                             </>
                         )}
 
-                        <div className="grid gap-3 md:grid-cols-2">
-                            <div className="space-y-1">
-                                <Label>Label</Label>
-                                <Input
-                                    value={createLabel}
-                                    onChange={(e) => setCreateLabel(e.target.value)}
-                                    placeholder={`Version ${nextVersionNumber}`}
-                                />
-                                <div className="text-xs text-muted-foreground">
-                                    If empty, it will default to <span className="font-medium">Version {nextVersionNumber}</span>.
-                                </div>
+                        <div className="space-y-1">
+                            <Label>Schedule Label</Label>
+                            <Input
+                                value={createLabel}
+                                onChange={(e) => setCreateLabel(e.target.value)}
+                                placeholder="Semester Schedule"
+                            />
+                            <div className="text-xs text-muted-foreground">
+                                If empty, it will default to a semester-based schedule label.
                             </div>
+                        </div>
 
-                            <div className="space-y-1">
-                                <Label>Version Number</Label>
-                                <Input value={`v${nextVersionNumber}`} disabled />
-                                <div className="text-xs text-muted-foreground">Auto-calculated from existing versions.</div>
-                            </div>
+                        <div className="rounded-xl border border-dashed p-3 text-sm">
+                            {existingSemesterSchedule ? (
+                                <div className="space-y-1">
+                                    <div className="font-medium">Existing semester schedule found</div>
+                                    <div className="text-muted-foreground">
+                                        This will reuse the existing semester schedule for this term and college so existing entries stay intact.
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    <div className="font-medium">New semester schedule</div>
+                                    <div className="text-muted-foreground">
+                                        A fresh semester schedule will be created for the selected term and college.
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="space-y-1">
@@ -751,7 +763,7 @@ export function VersionManagementSection({
                             <Textarea
                                 value={createNotes}
                                 onChange={(e) => setCreateNotes(e.target.value)}
-                                placeholder="Add notes about what changed in this version..."
+                                placeholder="Add notes about this semester schedule..."
                                 className="min-h-24"
                             />
                         </div>
@@ -763,7 +775,7 @@ export function VersionManagementSection({
                                 onCheckedChange={(v) => setCreateSetActive(Boolean(v))}
                             />
                             <Label htmlFor="setActive" className="cursor-pointer">
-                                Set this version as <span className="font-medium">Active</span> after creating
+                                Set this semester schedule as <span className="font-medium">Active</span> after saving
                             </Label>
                         </div>
                     </div>
@@ -787,7 +799,7 @@ export function VersionManagementSection({
                             ) : (
                                 <>
                                     <Plus className="mr-2 size-4" />
-                                    Create Version
+                                    Save Semester
                                 </>
                             )}
                         </Button>
