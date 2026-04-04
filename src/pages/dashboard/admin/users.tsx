@@ -35,7 +35,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -319,6 +320,15 @@ function UserAvatarCell({ user }: { user: UserDoc }) {
     )
 }
 
+function UserDetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+        <div className="flex items-start justify-between gap-3 rounded-md bg-muted/30 px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">{label}</span>
+            <div className="min-w-0 text-right text-sm">{children}</div>
+        </div>
+    )
+}
+
 const RESEND_COOLDOWN_MS = 30_000
 const RESEND_SUCCESS_BADGE_MS = 5_000
 
@@ -338,6 +348,9 @@ export default function AdminUsersPage() {
 
     const [openForm, setOpenForm] = React.useState(false)
     const [openDelete, setOpenDelete] = React.useState(false)
+    const [openDetails, setOpenDetails] = React.useState(false)
+
+    const [detailsTarget, setDetailsTarget] = React.useState<UserDoc | null>(null)
 
     const [form, setForm] = React.useState<UserFormState>(emptyForm())
     const [target, setTarget] = React.useState<UserDoc | null>(null)
@@ -485,6 +498,16 @@ export default function AdminUsersPage() {
     function openDeleteConfirm(it: UserDoc) {
         setTarget(it)
         setOpenDelete(true)
+    }
+
+    function openDetailsDialog(it: UserDoc) {
+        setDetailsTarget(it)
+        setOpenDetails(true)
+    }
+
+    function closeDetailsDialog() {
+        setOpenDetails(false)
+        setDetailsTarget(null)
     }
 
     async function saveForm() {
@@ -704,6 +727,35 @@ export default function AdminUsersPage() {
         if (ok) closeResendConfirm()
     }
 
+    function getUserState(it: UserDoc) {
+        const dept = it.departmentId ? deptMap.get(it.departmentId) : null
+        const isResending = Boolean(resending[it.$id])
+        const cooldownRemaining = getCooldownRemainingSeconds(it.$id)
+        const cooldownActive = cooldownRemaining > 0
+        const showSent = Boolean(sentBadgeAt[it.$id])
+        const authUserId = String(it.userId || "").trim()
+        const missingAuthUserId = !authUserId
+        const resendDisabled = missingAuthUserId || isResending || !it.isActive || cooldownActive
+        const safeDisplayId = authUserId || "—"
+        const st = authUserId ? firstLoginMap[authUserId] : undefined
+        const isFirstLoginPending = st ? !st.completed || st.mustChangePassword : false
+
+        return {
+            dept,
+            isResending,
+            cooldownRemaining,
+            cooldownActive,
+            showSent,
+            authUserId,
+            missingAuthUserId,
+            resendDisabled,
+            safeDisplayId,
+            isFirstLoginPending,
+        }
+    }
+
+    const detailState = detailsTarget ? getUserState(detailsTarget) : null
+
     const headerActions = (
         <>
             <Button variant="secondary" onClick={() => loadAll()} disabled={loading}>
@@ -721,7 +773,6 @@ export default function AdminUsersPage() {
     return (
         <DashboardLayout
             title="User Management"
-            subtitle="Add / edit / deactivate accounts and assign roles (Admin, Dept Head, Faculty)."
             actions={headerActions}
         >
             <div className="mx-auto w-full max-w-none p-4 sm:p-6 lg:p-8">
@@ -733,9 +784,8 @@ export default function AdminUsersPage() {
                 ) : null}
 
                 <Card className="w-full min-w-0">
-                    <CardHeader className="space-y-2">
+                    <CardHeader>
                         <CardTitle className="text-base">Users</CardTitle>
-                        <CardDescription>Manage system accounts and role assignments.</CardDescription>
                     </CardHeader>
 
                     <CardContent className="space-y-4">
@@ -789,9 +839,6 @@ export default function AdminUsersPage() {
                         ) : filtered.length === 0 ? (
                             <div className="rounded-lg border border-border/70 p-6 text-center">
                                 <div className="text-sm font-medium">No users found</div>
-                                <div className="mt-1 text-sm text-muted-foreground">
-                                    Try adjusting your search or create a new user.
-                                </div>
                                 <div className="mt-4">
                                     <Button onClick={openCreate}>
                                         <Plus className="mr-2 h-4 w-4" />
@@ -800,205 +847,415 @@ export default function AdminUsersPage() {
                                 </div>
                             </div>
                         ) : (
-                            <div className="max-w-full overflow-hidden rounded-lg border border-border/70">
-                                <div className="max-w-full overflow-x-auto">
-                                    <table className="min-w-full text-sm">
-                                        <thead className="bg-muted/40">
-                                            <tr className="text-left">
-                                                <th className="px-4 py-3 font-medium">User</th>
-                                                <th className="px-4 py-3 font-medium">Role</th>
-                                                <th className="px-4 py-3 font-medium">Department</th>
-                                                <th className="px-4 py-3 font-medium">Status</th>
-                                                <th className="px-4 py-3 font-medium">First Login</th>
-                                                <th className="px-4 py-3 font-medium text-right">Actions</th>
-                                            </tr>
-                                        </thead>
+                            <>
+                                <div className="sm:hidden">
+                                    <Accordion type="single" collapsible className="space-y-3">
+                                        {filtered.map((it) => {
+                                            const state = getUserState(it)
 
-                                        <tbody>
-                                            {filtered.map((it) => {
-                                                const dept = it.departmentId ? deptMap.get(it.departmentId) : null
-                                                const isResending = Boolean(resending[it.$id])
+                                            return (
+                                                <AccordionItem
+                                                    key={it.$id}
+                                                    value={it.$id}
+                                                    className="overflow-hidden rounded-lg border border-border/70 bg-card"
+                                                >
+                                                    <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                                                        <div className="flex min-w-0 items-center gap-3 text-left">
+                                                            <UserAvatarCell user={it} />
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="truncate font-medium">{it.name || "—"}</div>
+                                                            </div>
+                                                        </div>
+                                                    </AccordionTrigger>
 
-                                                const cooldownRemaining = getCooldownRemainingSeconds(it.$id)
-                                                const cooldownActive = cooldownRemaining > 0
+                                                    <AccordionContent className="border-t border-border/60 px-4 pb-4 pt-4">
+                                                        <div className="space-y-4">
+                                                            <div className="space-y-3 rounded-lg border border-border/60 p-3">
+                                                                <div className="truncate text-sm font-medium">{it.email}</div>
 
-                                                const showSent = Boolean(sentBadgeAt[it.$id])
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    <Badge variant={roleBadgeVariant(it.role)}>
+                                                                        {roleLabel(it.role)}
+                                                                    </Badge>
 
-                                                const authUserId = String(it.userId || "").trim()
-                                                const missingAuthUserId = !authUserId
+                                                                    {it.isActive ? (
+                                                                        <Badge variant="secondary" className="gap-1">
+                                                                            <ShieldCheck className="h-3.5 w-3.5" />
+                                                                            Active
+                                                                        </Badge>
+                                                                    ) : (
+                                                                        <Badge variant="destructive" className="gap-1">
+                                                                            <UserMinus className="h-3.5 w-3.5" />
+                                                                            Inactive
+                                                                        </Badge>
+                                                                    )}
 
-                                                const resendDisabled =
-                                                    missingAuthUserId || isResending || !it.isActive || cooldownActive
+                                                                    {state.isFirstLoginPending ? (
+                                                                        <Badge variant="secondary" className="gap-1">
+                                                                            <Clock className="h-3.5 w-3.5" />
+                                                                            First Login Pending
+                                                                        </Badge>
+                                                                    ) : (
+                                                                        <Badge variant="secondary" className="gap-1">
+                                                                            <CheckCircle2 className="h-3.5 w-3.5" />
+                                                                            Completed
+                                                                        </Badge>
+                                                                    )}
 
-                                                const safeDisplayId = authUserId || "—"
+                                                                    {state.showSent ? (
+                                                                        <Badge variant="secondary" className="gap-1">
+                                                                            <CheckCircle2 className="h-3.5 w-3.5" />
+                                                                            Sent
+                                                                        </Badge>
+                                                                    ) : null}
 
-                                                const st = authUserId ? firstLoginMap[authUserId] : undefined
-                                                const isFirstLoginPending = st
-                                                    ? (!st.completed || st.mustChangePassword)
-                                                    : false
-
-                                                return (
-                                                    <tr
-                                                        key={it.$id}
-                                                        className="border-t border-border/60 hover:bg-muted/20"
-                                                    >
-                                                        <td className="px-4 py-3">
-                                                            <div className="flex min-w-0 items-center gap-3">
-                                                                <UserAvatarCell user={it} />
-
-                                                                <div className="min-w-0">
-                                                                    <div className="truncate font-medium">
-                                                                        {it.name || "—"}
-                                                                    </div>
-                                                                    <div className="truncate text-xs text-muted-foreground">
-                                                                        {it.email}
-                                                                    </div>
-                                                                    <div className="truncate text-xs text-muted-foreground">
-                                                                        ID: {safeDisplayId}
-                                                                    </div>
-
-                                                                    {missingAuthUserId ? (
-                                                                        <div className="mt-1 text-xs text-destructive">
-                                                                            ⚠ Missing Appwrite Auth userId (actions
-                                                                            disabled)
-                                                                        </div>
+                                                                    {state.missingAuthUserId ? (
+                                                                        <Badge variant="destructive">Missing Auth ID</Badge>
                                                                     ) : null}
                                                                 </div>
                                                             </div>
-                                                        </td>
 
-                                                        <td className="px-4 py-3">
-                                                            <Badge variant={roleBadgeVariant(it.role)}>
-                                                                {roleLabel(it.role)}
-                                                            </Badge>
-                                                        </td>
+                                                            <div>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="h-9 w-full"
+                                                                    onClick={() => openDetailsDialog(it)}
+                                                                >
+                                                                    Details
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                            )
+                                        })}
+                                    </Accordion>
+                                </div>
 
-                                                        <td className="px-4 py-3">
-                                                            {dept ? (
-                                                                <div className="min-w-0">
-                                                                    <div className="truncate font-medium">
-                                                                        {dept.name}
-                                                                    </div>
-                                                                    <div className="truncate text-xs text-muted-foreground">
-                                                                        {dept.code}
+                                <div className="hidden max-w-full overflow-hidden rounded-lg border border-border/70 sm:block">
+                                    <div className="max-w-full overflow-x-auto">
+                                        <table className="min-w-full text-sm">
+                                            <thead className="bg-muted/40">
+                                                <tr className="text-left">
+                                                    <th className="px-4 py-3 font-medium">User</th>
+                                                    <th className="px-4 py-3 font-medium">Role</th>
+                                                    <th className="px-4 py-3 font-medium">Department</th>
+                                                    <th className="px-4 py-3 font-medium">Status</th>
+                                                    <th className="px-4 py-3 font-medium">First Login</th>
+                                                    <th className="px-4 py-3 font-medium text-right">Actions</th>
+                                                </tr>
+                                            </thead>
+
+                                            <tbody>
+                                                {filtered.map((it) => {
+                                                    const state = getUserState(it)
+
+                                                    return (
+                                                        <tr
+                                                            key={it.$id}
+                                                            className="border-t border-border/60 hover:bg-muted/20"
+                                                        >
+                                                            <td className="px-4 py-3">
+                                                                <div className="flex min-w-0 items-center gap-3">
+                                                                    <UserAvatarCell user={it} />
+
+                                                                    <div className="min-w-0">
+                                                                        <div className="truncate font-medium">
+                                                                            {it.name || "—"}
+                                                                        </div>
+                                                                        <div className="truncate text-xs text-muted-foreground">
+                                                                            {it.email}
+                                                                        </div>
+                                                                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                                            <span className="truncate text-xs text-muted-foreground">
+                                                                                ID: {state.safeDisplayId}
+                                                                            </span>
+
+                                                                            {state.missingAuthUserId ? (
+                                                                                <Badge variant="destructive">
+                                                                                    Missing Auth ID
+                                                                                </Badge>
+                                                                            ) : null}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
-                                                            ) : (
-                                                                <span className="text-muted-foreground">—</span>
-                                                            )}
-                                                        </td>
+                                                            </td>
 
-                                                        <td className="px-4 py-3">
-                                                            {it.isActive ? (
-                                                                <Badge variant="secondary" className="gap-1">
-                                                                    <ShieldCheck className="h-3.5 w-3.5" />
-                                                                    Active
+                                                            <td className="px-4 py-3">
+                                                                <Badge variant={roleBadgeVariant(it.role)}>
+                                                                    {roleLabel(it.role)}
                                                                 </Badge>
-                                                            ) : (
-                                                                <Badge variant="destructive" className="gap-1">
-                                                                    <UserMinus className="h-3.5 w-3.5" />
-                                                                    Inactive
-                                                                </Badge>
-                                                            )}
-                                                        </td>
+                                                            </td>
 
-                                                        <td className="px-4 py-3">
-                                                            {isFirstLoginPending ? (
-                                                                <Badge variant="secondary" className="gap-1">
-                                                                    <Clock className="h-3.5 w-3.5" />
-                                                                    First Login Pending
-                                                                </Badge>
-                                                            ) : (
-                                                                <Badge variant="secondary" className="gap-1">
-                                                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                                                    Completed
-                                                                </Badge>
-                                                            )}
-                                                        </td>
+                                                            <td className="px-4 py-3">
+                                                                {state.dept ? (
+                                                                    <div className="min-w-0">
+                                                                        <div className="truncate font-medium">
+                                                                            {state.dept.name}
+                                                                        </div>
+                                                                        <div className="truncate text-xs text-muted-foreground">
+                                                                            {state.dept.code}
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-muted-foreground">—</span>
+                                                                )}
+                                                            </td>
 
-                                                        <td className="px-4 py-3 text-right">
-                                                            <div className="flex flex-col items-end gap-2">
-                                                                <div className="flex items-center justify-end gap-2">
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="h-8 whitespace-nowrap"
-                                                                        onClick={() => openResendConfirm(it)}
-                                                                        disabled={resendDisabled}
-                                                                    >
-                                                                        {isResending ? (
-                                                                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                                                                        ) : cooldownActive ? (
-                                                                            <Clock className="mr-2 h-4 w-4" />
-                                                                        ) : (
-                                                                            <Mail className="mr-2 h-4 w-4" />
-                                                                        )}
+                                                            <td className="px-4 py-3">
+                                                                {it.isActive ? (
+                                                                    <Badge variant="secondary" className="gap-1">
+                                                                        <ShieldCheck className="h-3.5 w-3.5" />
+                                                                        Active
+                                                                    </Badge>
+                                                                ) : (
+                                                                    <Badge variant="destructive" className="gap-1">
+                                                                        <UserMinus className="h-3.5 w-3.5" />
+                                                                        Inactive
+                                                                    </Badge>
+                                                                )}
+                                                            </td>
 
-                                                                        {cooldownActive
-                                                                            ? `Resend in ${cooldownRemaining}s`
-                                                                            : "Resend Credentials"}
-                                                                    </Button>
-
-                                                                    <DropdownMenu>
-                                                                        <DropdownMenuTrigger asChild>
-                                                                            <Button variant="ghost" size="icon">
-                                                                                <MoreHorizontal className="h-4 w-4" />
-                                                                            </Button>
-                                                                        </DropdownMenuTrigger>
-
-                                                                        <DropdownMenuContent align="end" className="min-w-44">
-                                                                            <DropdownMenuItem onClick={() => openEdit(it)}>
-                                                                                Edit
-                                                                            </DropdownMenuItem>
-
-                                                                            <DropdownMenuItem
-                                                                                onClick={() => toggleActive(it)}
-                                                                                disabled={missingAuthUserId}
-                                                                            >
-                                                                                {it.isActive ? "Deactivate" : "Activate"}
-                                                                            </DropdownMenuItem>
-
-                                                                            <DropdownMenuSeparator />
-
-                                                                            <DropdownMenuItem
-                                                                                className="text-destructive focus:text-destructive"
-                                                                                onClick={() => openDeleteConfirm(it)}
-                                                                                disabled={missingAuthUserId}
-                                                                            >
-                                                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                                                Delete
-                                                                            </DropdownMenuItem>
-                                                                        </DropdownMenuContent>
-                                                                    </DropdownMenu>
-                                                                </div>
-
-                                                                {showSent ? (
+                                                            <td className="px-4 py-3">
+                                                                {state.isFirstLoginPending ? (
+                                                                    <Badge variant="secondary" className="gap-1">
+                                                                        <Clock className="h-3.5 w-3.5" />
+                                                                        First Login Pending
+                                                                    </Badge>
+                                                                ) : (
                                                                     <Badge variant="secondary" className="gap-1">
                                                                         <CheckCircle2 className="h-3.5 w-3.5" />
-                                                                        Sent
+                                                                        Completed
                                                                     </Badge>
-                                                                ) : null}
+                                                                )}
+                                                            </td>
 
-                                                                {!it.isActive ? (
-                                                                    <span className="text-xs text-muted-foreground">
-                                                                        Resend disabled for inactive users
-                                                                    </span>
-                                                                ) : null}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )
-                                            })}
-                                        </tbody>
-                                    </table>
+                                                            <td className="px-4 py-3 text-right">
+                                                                <div className="flex flex-col items-end gap-2">
+                                                                    <div className="flex items-center justify-end gap-2">
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            className="h-8 whitespace-nowrap"
+                                                                            onClick={() => openResendConfirm(it)}
+                                                                            disabled={state.resendDisabled}
+                                                                        >
+                                                                            {state.isResending ? (
+                                                                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                                                                            ) : state.cooldownActive ? (
+                                                                                <Clock className="mr-2 h-4 w-4" />
+                                                                            ) : (
+                                                                                <Mail className="mr-2 h-4 w-4" />
+                                                                            )}
+
+                                                                            {state.cooldownActive
+                                                                                ? `Resend in ${state.cooldownRemaining}s`
+                                                                                : "Resend Credentials"}
+                                                                        </Button>
+
+                                                                        <DropdownMenu>
+                                                                            <DropdownMenuTrigger asChild>
+                                                                                <Button variant="ghost" size="icon">
+                                                                                    <MoreHorizontal className="h-4 w-4" />
+                                                                                </Button>
+                                                                            </DropdownMenuTrigger>
+
+                                                                            <DropdownMenuContent
+                                                                                align="end"
+                                                                                className="min-w-44"
+                                                                            >
+                                                                                <DropdownMenuItem onClick={() => openEdit(it)}>
+                                                                                    Edit
+                                                                                </DropdownMenuItem>
+
+                                                                                <DropdownMenuItem
+                                                                                    onClick={() => toggleActive(it)}
+                                                                                    disabled={state.missingAuthUserId}
+                                                                                >
+                                                                                    {it.isActive
+                                                                                        ? "Deactivate"
+                                                                                        : "Activate"}
+                                                                                </DropdownMenuItem>
+
+                                                                                <DropdownMenuSeparator />
+
+                                                                                <DropdownMenuItem
+                                                                                    className="text-destructive focus:text-destructive"
+                                                                                    onClick={() => openDeleteConfirm(it)}
+                                                                                    disabled={state.missingAuthUserId}
+                                                                                >
+                                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                                    Delete
+                                                                                </DropdownMenuItem>
+                                                                            </DropdownMenuContent>
+                                                                        </DropdownMenu>
+                                                                    </div>
+
+                                                                    {state.showSent ? (
+                                                                        <Badge variant="secondary" className="gap-1">
+                                                                            <CheckCircle2 className="h-3.5 w-3.5" />
+                                                                            Sent
+                                                                        </Badge>
+                                                                    ) : null}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                            </div>
+                            </>
                         )}
                     </CardContent>
                 </Card>
             </div>
 
-            {/* dialogs below are unchanged (resend, form, delete) */}
+            <Dialog
+                open={openDetails}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        closeDetailsDialog()
+                        return
+                    }
+                    setOpenDetails(true)
+                }}
+            >
+                <DialogContent className="max-w-full max-h-[95svh] overflow-y-auto sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>User Details</DialogTitle>
+                    </DialogHeader>
+
+                    {detailsTarget && detailState ? (
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3 rounded-lg border border-border/70 p-4">
+                                <UserAvatarCell user={detailsTarget} />
+                                <div className="min-w-0">
+                                    <div className="truncate font-medium">{detailsTarget.name || "—"}</div>
+                                    <div className="truncate text-sm text-muted-foreground">{detailsTarget.email}</div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <UserDetailRow label="User ID">
+                                    <span className="break-all">{detailState.safeDisplayId}</span>
+                                </UserDetailRow>
+
+                                <UserDetailRow label="Role">
+                                    <Badge variant={roleBadgeVariant(detailsTarget.role)}>
+                                        {roleLabel(detailsTarget.role)}
+                                    </Badge>
+                                </UserDetailRow>
+
+                                <UserDetailRow label="Department">
+                                    {detailState.dept ? (
+                                        <div className="min-w-0 text-right">
+                                            <div className="truncate font-medium">{detailState.dept.name}</div>
+                                            <div className="truncate text-xs text-muted-foreground">
+                                                {detailState.dept.code}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <span className="text-muted-foreground">—</span>
+                                    )}
+                                </UserDetailRow>
+
+                                <UserDetailRow label="Status">
+                                    {detailsTarget.isActive ? (
+                                        <Badge variant="secondary" className="gap-1">
+                                            <ShieldCheck className="h-3.5 w-3.5" />
+                                            Active
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="destructive" className="gap-1">
+                                            <UserMinus className="h-3.5 w-3.5" />
+                                            Inactive
+                                        </Badge>
+                                    )}
+                                </UserDetailRow>
+
+                                <UserDetailRow label="First Login">
+                                    {detailState.isFirstLoginPending ? (
+                                        <Badge variant="secondary" className="gap-1">
+                                            <Clock className="h-3.5 w-3.5" />
+                                            First Login Pending
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="secondary" className="gap-1">
+                                            <CheckCircle2 className="h-3.5 w-3.5" />
+                                            Completed
+                                        </Badge>
+                                    )}
+                                </UserDetailRow>
+
+                                {detailState.showSent ? (
+                                    <UserDetailRow label="Credentials">
+                                        <Badge variant="secondary" className="gap-1">
+                                            <CheckCircle2 className="h-3.5 w-3.5" />
+                                            Sent
+                                        </Badge>
+                                    </UserDetailRow>
+                                ) : null}
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        const nextTarget = detailsTarget
+                                        closeDetailsDialog()
+                                        openEdit(nextTarget)
+                                    }}
+                                >
+                                    Edit
+                                </Button>
+
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        const nextTarget = detailsTarget
+                                        closeDetailsDialog()
+                                        void toggleActive(nextTarget)
+                                    }}
+                                    disabled={detailState.missingAuthUserId}
+                                >
+                                    {detailsTarget.isActive ? "Deactivate" : "Activate"}
+                                </Button>
+
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        const nextTarget = detailsTarget
+                                        closeDetailsDialog()
+                                        openResendConfirm(nextTarget)
+                                    }}
+                                    disabled={detailState.resendDisabled}
+                                >
+                                    {detailState.cooldownActive
+                                        ? `Resend in ${detailState.cooldownRemaining}s`
+                                        : "Resend Credentials"}
+                                </Button>
+
+                                <Button
+                                    variant="destructive"
+                                    onClick={() => {
+                                        const nextTarget = detailsTarget
+                                        closeDetailsDialog()
+                                        openDeleteConfirm(nextTarget)
+                                    }}
+                                    disabled={detailState.missingAuthUserId}
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Delete
+                                </Button>
+                            </div>
+                        </div>
+                    ) : null}
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={openResend} onOpenChange={setOpenResend}>
                 <DialogContent className="max-w-full sm:max-w-md">
                     <DialogHeader>
@@ -1006,19 +1263,10 @@ export default function AdminUsersPage() {
                     </DialogHeader>
 
                     <div className="space-y-3">
-                        <p className="text-sm text-muted-foreground">
-                            This will generate a <span className="font-medium">new temporary password</span> and email it
-                            to the user again.
-                        </p>
-
                         <div className="rounded-lg border border-border/70 p-3">
                             <div className="text-sm font-medium">{resendTarget?.name || "—"}</div>
                             <div className="text-xs text-muted-foreground">{resendTarget?.email || ""}</div>
                             <div className="text-xs text-muted-foreground">ID: {resendTarget?.userId || "—"}</div>
-                        </div>
-
-                        <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
-                            ✅ The user will be forced to change their password on next login.
                         </div>
 
                         <div className="flex justify-end gap-2">
@@ -1059,11 +1307,7 @@ export default function AdminUsersPage() {
                                 <Label>User ID</Label>
                                 <Input value={form.userId || ""} disabled />
                             </div>
-                        ) : (
-                            <div className="rounded-lg border border-border/70 p-3 text-sm text-muted-foreground">
-                                ✅ User account will be created and login credentials will be sent via email.
-                            </div>
-                        )}
+                        ) : null}
 
                         <div className="grid gap-2">
                             <Label htmlFor="email">Email</Label>
@@ -1210,10 +1454,7 @@ export default function AdminUsersPage() {
 
                     <div className="space-y-3">
                         <p className="text-sm text-muted-foreground">
-                            This will permanently remove the user profile record
-                            <span className="font-medium"> and the Appwrite Auth user</span>. You can also use
-                            <span className="font-medium"> Deactivate </span>
-                            instead.
+                            This permanently deletes the profile and Appwrite Auth user.
                         </p>
 
                         {target ? (
