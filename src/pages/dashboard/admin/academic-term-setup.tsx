@@ -700,9 +700,6 @@ export default function AdminAcademicTermSetupPage() {
                             <CalendarDays className="h-5 w-5" />
                             Academic Term Setup
                         </CardTitle>
-                        <CardDescription>
-                            Manage school years and semesters, define time blocks, and configure system scheduling rules.
-                        </CardDescription>
                     </CardHeader>
 
                     <CardContent className="min-w-0">

@@ -8,7 +8,6 @@ import {
     RefreshCcw,
     Pencil,
     Trash2,
-    DoorOpen,
     Printer,
     AlertTriangle,
     ShieldCheck,
@@ -1570,17 +1569,6 @@ export default function AdminRoomsAndFacilitiesPage() {
             }
         >
             <div className="space-y-6 p-6">
-                <Alert>
-                    <AlertTitle className="flex items-center gap-2">
-                        <DoorOpen className="h-4 w-4" />
-                        Rooms & Facilities
-                    </AlertTitle>
-                    <AlertDescription>
-                        Rooms are used in schedules and validations. Mark rooms as{" "}
-                        <span className="font-medium">Available</span> to include them in assignments.
-                    </AlertDescription>
-                </Alert>
-
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <Card>
                         <CardHeader className="pb-2">
