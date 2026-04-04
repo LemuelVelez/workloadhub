@@ -53,7 +53,6 @@ import {
     termLabel,
 } from "@/components/schedules/schedule-utils"
 
-
 const CREATE_TERM_MODES = {
     existing: "existing",
     new: "new",
@@ -486,7 +485,7 @@ export default function AdminSchedulesPage() {
                 termId: termIdToUse,
                 departmentId: createDeptId,
                 version: versionForTermAndDept,
-                label: createLabel.trim() || `Version ${versionForTermAndDept}`,
+                label: createLabel.trim() || `Semester ${versionForTermAndDept}`,
                 status: createSetActive ? "Active" : "Draft",
                 createdBy: userId,
                 notes: createNotes.trim() || null,
@@ -496,14 +495,14 @@ export default function AdminSchedulesPage() {
 
             toast.success(
                 createTermMode === CREATE_TERM_MODES.new
-                    ? "Schedule version created with academic term"
-                    : "Schedule version created"
+                    ? "Schedule semester created with academic term"
+                    : "Schedule semester created"
             )
             setCreateOpen(false)
             resetCreateForm()
             await fetchAll()
         } catch (e: any) {
-            toast.error(e?.message || "Failed to create schedule version.")
+            toast.error(e?.message || "Failed to create schedule semester.")
         } finally {
             setSaving(false)
         }
@@ -540,15 +539,14 @@ export default function AdminSchedulesPage() {
 
             const payload: any = { status: next }
 
-
             await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, it.$id, payload)
 
-            toast.success(`Schedule set to ${next}`)
+            toast.success(`Schedule semester set to ${next}`)
             setViewOpen(false)
             setActive(null)
             await fetchAll()
         } catch (e: any) {
-            toast.error(e?.message || "Failed to update schedule status.")
+            toast.error(e?.message || "Failed to update schedule semester status.")
         } finally {
             setSaving(false)
         }
@@ -611,19 +609,14 @@ export default function AdminSchedulesPage() {
             }
 
             const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
-            const selectedVersionTermId = String(selectedVersion.termId || "").trim()
             const selectedVersionDeptId = String(selectedVersion.departmentId || "").trim()
 
             const scopedSubjects = allSubjects
                 .filter((s) => s.isActive !== false)
                 .filter((s) => {
                     const subjectDeptId = String(s.departmentId || "").trim()
-                    if (subjectDeptId && subjectDeptId !== selectedVersionDeptId) return false
-
-                    const subjectTermId = String(s.termId || "").trim()
-                    if (!selectedVersionTermId) return !subjectTermId
-
-                    return subjectTermId === selectedVersionTermId
+                    if (!subjectDeptId) return true
+                    return subjectDeptId === selectedVersionDeptId
                 })
                 .sort((a, b) => {
                     const ac = String(a.code || "").toLowerCase()
@@ -972,7 +965,7 @@ export default function AdminSchedulesPage() {
 
     const saveEntry = async () => {
         if (!selectedVersion) {
-            toast.error("Please select a schedule version first.")
+            toast.error("Please select a schedule semester first.")
             return
         }
 
@@ -1150,7 +1143,7 @@ export default function AdminSchedulesPage() {
             .map((v) => {
                 const term = termMap.get(String(v.termId))
                 const dept = deptMap.get(String(v.departmentId))
-                const label = `v${Number(v.version || 0)} • ${v.label || "Untitled"}`
+                const label = `Semester ${Number(v.version || 0)} • ${v.label || "Untitled"}`
                 const meta = `${termLabel(term)} • ${deptLabel(dept)}`
                 return {
                     value: v.$id,
@@ -1162,7 +1155,7 @@ export default function AdminSchedulesPage() {
 
     const selectedVersionLabel = React.useMemo(() => {
         if (!selectedVersion) return "—"
-        return `v${Number(selectedVersion.version || 0)} • ${selectedVersion.label || "Untitled"} (${normalizeScheduleStatus(
+        return `Semester ${Number(selectedVersion.version || 0)} • ${selectedVersion.label || "Untitled"} (${normalizeScheduleStatus(
             selectedVersion.status
         )})`
     }, [selectedVersion])
@@ -1186,7 +1179,7 @@ export default function AdminSchedulesPage() {
 
             <Button size="sm" onClick={() => setCreateOpen(true)} disabled={loading || saving}>
                 <Plus className="mr-2 size-4" />
-                New Version
+                New Semester
             </Button>
         </div>
     )
@@ -1194,7 +1187,7 @@ export default function AdminSchedulesPage() {
     return (
         <DashboardLayout
             title="Schedules"
-            subtitle="Manage schedule versions, merge matching descriptive titles with the same type into compact day/time displays like M-T and slash-separated time blocks, detect conflicts, and monitor laboratory assignments."
+            subtitle="Manage schedule semesters, reuse existing subjects across semesters, detect conflicts, and monitor laboratory assignments."
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">
