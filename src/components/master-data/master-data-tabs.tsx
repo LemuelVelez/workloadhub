@@ -13,8 +13,6 @@ import { MasterDataSectionsTab } from "./master-data-sections-tab"
 import { MasterDataRecordsTab } from "./master-data-records-tab"
 import { MasterDataRecordEditDialog } from "./master-data-record-edit-dialog"
 import { isUnknownLabel } from "./master-data-utils"
-
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -70,13 +68,6 @@ export function MasterDataTabs({ vm }: Props) {
 
     return (
         <>
-            <Alert>
-                <AlertTitle>Master Data</AlertTitle>
-                <AlertDescription>
-                    These are system-wide datasets used by schedules, workloads, and
-                    validations. Update carefully to avoid breaking references.
-                </AlertDescription>
-            </Alert>
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {vm.stats.map((s) => (
@@ -97,10 +88,6 @@ export function MasterDataTabs({ vm }: Props) {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <CardTitle>Manage Records</CardTitle>
-                            <CardDescription>
-                                Add, edit, and maintain Colleges, Programs, Subjects,
-                                Faculty, Sections, and List of Records.
-                            </CardDescription>
                         </div>
 
                         <div className="flex items-center gap-2">

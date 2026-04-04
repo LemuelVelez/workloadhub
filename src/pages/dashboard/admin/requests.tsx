@@ -651,7 +651,6 @@ export default function AdminRequestsPage() {
     return (
         <DashboardLayout
             title="Requests"
-            subtitle="Review schedule change requests submitted by faculty and schedulers."
             actions={HeaderActions}
         >
             <div className="p-6 space-y-6">

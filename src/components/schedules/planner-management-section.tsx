@@ -2580,11 +2580,6 @@ export function PlannerManagementSection({
                 <DialogContent className="z-120 max-h-[78vh] overflow-y-auto sm:max-w-4xl">
                     <DialogHeader>
                         <DialogTitle>{editingEntry ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
-                        <DialogDescription>
-                            {editingEntry
-                                ? "Update the selected schedule entry. Section labels follow the same display format used in Master Data."
-                                : "Use dropdowns for section, subject, faculty, and room. Create separate entries per day when a class meets on different times."}
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
@@ -2622,9 +2617,6 @@ export function PlannerManagementSection({
                                 <div className="rounded-xl border border-dashed p-3">
                                     <div className="text-xs text-muted-foreground">Section Reference Preview</div>
                                     <div className="mt-1 font-medium">{selectedSectionPreviewLabel}</div>
-                                    <div className="mt-1 text-xs text-muted-foreground">
-                                        Section labels follow the same display format used in Master Data.
-                                    </div>
                                 </div>
                             </div>
 
@@ -2742,9 +2734,6 @@ export function PlannerManagementSection({
                                         })}
                                     </SelectContent>
                                 </Select>
-                                <div className="text-xs text-muted-foreground">
-                                    Select an existing faculty profile or manually encode an instructor.
-                                </div>
                             </div>
 
                             <div className="space-y-1">

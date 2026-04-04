@@ -1246,7 +1246,6 @@ export default function AdminSchedulesPage() {
     return (
         <DashboardLayout
             title="Schedules"
-            subtitle="Manage schedule semesters, reuse existing subjects across semesters, detect conflicts, and monitor laboratory assignments."
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">
