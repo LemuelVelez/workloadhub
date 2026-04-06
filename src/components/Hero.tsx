@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom"
 
 import Section from "./Section"
-import { Badge } from "./ui/badge"
 import { Button } from "./ui/button"
 
 import { useSession } from "@/hooks/use-session"
@@ -43,12 +42,6 @@ export default function Hero() {
                             <Button asChild variant="default">
                                 <Link to={actionHref}>{actionLabel}</Link>
                             </Button>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="secondary">Role-based</Badge>
-                            <Badge variant="secondary">Versioned schedules</Badge>
-                            <Badge variant="secondary">Audit logs</Badge>
                         </div>
                     </div>
 

@@ -155,6 +155,7 @@ export default function AdminSchedulesPage() {
     const [active, setActive] = React.useState<ScheduleVersionDoc | null>(null)
 
     const [createOpen, setCreateOpen] = React.useState(false)
+    const [editingVersion, setEditingVersion] = React.useState<ScheduleVersionDoc | null>(null)
     const [createTermMode, setCreateTermMode] = React.useState<CreateTermMode>(CREATE_TERM_MODES.existing)
     const [createTermId, setCreateTermId] = React.useState<string>("")
     const [createSchoolYear, setCreateSchoolYear] = React.useState<string>(() => getCurrentSchoolYear())
@@ -301,6 +302,8 @@ export default function AdminSchedulesPage() {
         const q = search.trim().toLowerCase()
 
         return versions.filter((v) => {
+            const term = termMap.get(String(v.termId)) ?? null
+            const dept = deptMap.get(String(v.departmentId)) ?? null
             const status = normalizeScheduleStatus(v.status)
             const tabOk = tab === "all" ? true : status === tab
             if (!tabOk) return false
@@ -317,6 +320,12 @@ export default function AdminSchedulesPage() {
                 v.$id,
                 v.termId,
                 v.departmentId,
+                term?.schoolYear ?? "",
+                term?.semester ?? "",
+                termLabel(term),
+                dept?.code ?? "",
+                dept?.name ?? "",
+                deptLabel(dept),
                 v.label ?? "",
                 normalizeScheduleStatus(v.status),
                 String(v.version ?? ""),
@@ -328,7 +337,7 @@ export default function AdminSchedulesPage() {
 
             return hay.includes(q)
         })
-    }, [versions, tab, search, filterTermId, filterDeptId])
+    }, [versions, tab, search, filterTermId, filterDeptId, termMap, deptMap])
 
     const stats = React.useMemo(() => {
         const total = versions.length
@@ -391,7 +400,24 @@ export default function AdminSchedulesPage() {
         return Boolean(createTermId)
     }, [createDeptId, createTermMode, createSchoolYear, createSemester, createTermId])
 
-    const resetCreateForm = () => {
+
+    const existingSemesterSchedule = React.useMemo(() => {
+        if (!versionTermId || !createDeptId) return null
+
+        return (
+            versions.find((version) => {
+                if (editingVersion?.$id && version.$id === editingVersion.$id) return false
+
+                return (
+                    String(version.termId) === String(versionTermId) &&
+                    String(version.departmentId) === String(createDeptId)
+                )
+            }) || null
+        )
+    }, [versions, versionTermId, createDeptId, editingVersion])
+
+    const resetCreateForm = React.useCallback(() => {
+        setEditingVersion(null)
         setCreateTermMode(CREATE_TERM_MODES.existing)
         setCreateTermId("")
         setCreateSchoolYear(getCurrentSchoolYear())
@@ -400,9 +426,29 @@ export default function AdminSchedulesPage() {
         setCreateLabel("")
         setCreateNotes("")
         setCreateSetActive(false)
-    }
+    }, [])
 
-    const createVersion = async () => {
+    const openCreateVersion = React.useCallback(() => {
+        resetCreateForm()
+        setCreateOpen(true)
+    }, [resetCreateForm])
+
+    const openEditVersion = React.useCallback((version: ScheduleVersionDoc) => {
+        const term = terms.find((item) => item.$id === String(version.termId)) || null
+
+        setEditingVersion(version)
+        setCreateTermMode(CREATE_TERM_MODES.existing)
+        setCreateTermId(String(version.termId || ""))
+        setCreateSchoolYear(String(term?.schoolYear || getCurrentSchoolYear()))
+        setCreateSemester(String(term?.semester || getCurrentSemester()))
+        setCreateDeptId(String(version.departmentId || ""))
+        setCreateLabel(String(version.label || ""))
+        setCreateNotes(String(version.notes || ""))
+        setCreateSetActive(normalizeScheduleStatus(version.status) === "Active")
+        setCreateOpen(true)
+    }, [terms])
+
+    const saveVersion = async () => {
         let termIdToUse = createTermId
 
         if (createTermMode === CREATE_TERM_MODES.new) {
@@ -476,6 +522,7 @@ export default function AdminSchedulesPage() {
             if (createSetActive) {
                 const others = versions.filter(
                     (x) =>
+                        x.$id !== editingVersion?.$id &&
                         String(x.termId) === String(termIdToUse) &&
                         String(x.departmentId) === String(createDeptId) &&
                         String(x.status) === "Active"
@@ -492,32 +539,83 @@ export default function AdminSchedulesPage() {
                 }
             }
 
-            const versionForTermAndDept =
-                versions
-                    .filter(
-                        (v) =>
-                            String(v.termId) === String(termIdToUse) &&
-                            String(v.departmentId) === String(createDeptId)
-                    )
-                    .reduce((acc, v) => Math.max(acc, Number(v.version || 0)), 0) + 1
+            const computedVersionNumber = editingVersion
+                ? String(editingVersion.termId) === String(termIdToUse) &&
+                  String(editingVersion.departmentId) === String(createDeptId)
+                    ? Number(editingVersion.version || 1)
+                    : versions
+                          .filter(
+                              (v) =>
+                                  v.$id !== editingVersion.$id &&
+                                  String(v.termId) === String(termIdToUse) &&
+                                  String(v.departmentId) === String(createDeptId)
+                          )
+                          .reduce((acc, v) => Math.max(acc, Number(v.version || 0)), 0) + 1
+                : versions
+                      .filter(
+                          (v) =>
+                              String(v.termId) === String(termIdToUse) &&
+                              String(v.departmentId) === String(createDeptId)
+                      )
+                      .reduce((acc, v) => Math.max(acc, Number(v.version || 0)), 0) + 1
 
-            const payload: any = {
-                termId: termIdToUse,
-                departmentId: createDeptId,
-                version: versionForTermAndDept,
-                label: createLabel.trim() || `Semester ${versionForTermAndDept}`,
-                status: createSetActive ? "Active" : "Draft",
-                createdBy: userId,
-                notes: createNotes.trim() || null,
+            if (editingVersion) {
+                const currentStatus = normalizeScheduleStatus(editingVersion.status)
+                const nextStatus = createSetActive
+                    ? "Active"
+                    : currentStatus === "Active"
+                      ? "Draft"
+                      : currentStatus
+
+                const payload: any = {
+                    termId: termIdToUse,
+                    departmentId: createDeptId,
+                    version: computedVersionNumber,
+                    label: createLabel.trim() || editingVersion.label?.trim() || `Semester ${computedVersionNumber}`,
+                    status: nextStatus,
+                    notes: createNotes.trim() || null,
+                }
+
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, editingVersion.$id, payload)
+
+                const termOrDeptChanged =
+                    String(editingVersion.termId) !== String(termIdToUse) ||
+                    String(editingVersion.departmentId) !== String(createDeptId)
+
+                if (termOrDeptChanged) {
+                    const classRes = await databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASSES, [
+                        Query.equal("versionId", editingVersion.$id),
+                        Query.limit(5000),
+                    ])
+
+                    for (const classDoc of (classRes?.documents ?? []) as ClassDoc[]) {
+                        await databases.updateDocument(DATABASE_ID, COLLECTIONS.CLASSES, classDoc.$id, {
+                            termId: termIdToUse,
+                            departmentId: createDeptId,
+                        })
+                    }
+                }
+
+                toast.success("Schedule semester updated.")
+            } else {
+                const payload: any = {
+                    termId: termIdToUse,
+                    departmentId: createDeptId,
+                    version: computedVersionNumber,
+                    label: createLabel.trim() || `Semester ${computedVersionNumber}`,
+                    status: createSetActive ? "Active" : "Draft",
+                    createdBy: userId,
+                    notes: createNotes.trim() || null,
+                }
+
+                await databases.createDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, ID.unique(), payload)
+
+                toast.success(
+                    createTermMode === CREATE_TERM_MODES.new
+                        ? "Schedule semester created with academic term"
+                        : "Schedule semester created"
+                )
             }
-
-            await databases.createDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, ID.unique(), payload)
-
-            toast.success(
-                createTermMode === CREATE_TERM_MODES.new
-                    ? "Schedule semester created with academic term"
-                    : "Schedule semester created"
-            )
             setCreateOpen(false)
             resetCreateForm()
             await fetchAll()
@@ -567,6 +665,64 @@ export default function AdminSchedulesPage() {
             await fetchAll()
         } catch (e: any) {
             toast.error(e?.message || "Failed to update schedule semester status.")
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const deleteVersion = async (it: ScheduleVersionDoc) => {
+        if (!it?.$id) return
+
+        const confirmed = globalThis.confirm(
+            `Delete ${it.label || `Semester ${Number(it.version || 0)}`}? This will also remove its schedule entries.`
+        )
+
+        if (!confirmed) return
+
+        setSaving(true)
+        try {
+            const [meetingRes, classRes] = await Promise.all([
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, [
+                    Query.equal("versionId", it.$id),
+                    Query.limit(5000),
+                ]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASSES, [
+                    Query.equal("versionId", it.$id),
+                    Query.limit(5000),
+                ]),
+            ])
+
+            const meetingDocs = (meetingRes?.documents ?? []) as ClassMeetingDoc[]
+            const classDocs = (classRes?.documents ?? []) as ClassDoc[]
+
+            for (const meeting of meetingDocs) {
+                await databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, meeting.$id)
+            }
+
+            for (const classDoc of classDocs) {
+                await databases.deleteDocument(DATABASE_ID, COLLECTIONS.CLASSES, classDoc.$id)
+            }
+
+            await databases.deleteDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, it.$id)
+
+            if (selectedVersionId === it.$id) {
+                setSelectedVersionId("")
+            }
+
+            if (active?.$id === it.$id) {
+                setViewOpen(false)
+                setActive(null)
+            }
+
+            if (editingVersion?.$id === it.$id) {
+                setCreateOpen(false)
+                resetCreateForm()
+            }
+
+            toast.success("Schedule semester deleted.")
+            await fetchAll()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to delete schedule semester.")
         } finally {
             setSaving(false)
         }
@@ -1236,7 +1392,7 @@ export default function AdminSchedulesPage() {
                 Refresh
             </Button>
 
-            <Button size="sm" onClick={() => setCreateOpen(true)} disabled={loading || saving}>
+            <Button size="sm" onClick={openCreateVersion} disabled={loading || saving}>
                 <Plus className="mr-2 size-4" />
                 New Semester
             </Button>
@@ -1270,8 +1426,11 @@ export default function AdminSchedulesPage() {
                     selectedVersionId={selectedVersionId}
                     setSelectedVersionId={setSelectedVersionId}
                     onRefresh={() => void fetchAll()}
-                    onOpenCreate={() => setCreateOpen(true)}
+                    onOpenCreate={openCreateVersion}
                     onSetStatus={setStatus}
+                    editingVersion={editingVersion}
+                    onEditVersion={openEditVersion}
+                    onDeleteVersion={deleteVersion}
                     viewOpen={viewOpen}
                     setViewOpen={setViewOpen}
                     active={active}
@@ -1300,7 +1459,8 @@ export default function AdminSchedulesPage() {
                     setCreateSetActive={setCreateSetActive}
                     nextVersionNumber={nextVersionNumber}
                     canCreateVersion={canCreateVersion}
-                    onCreateVersion={createVersion}
+                    existingSemesterSchedule={existingSemesterSchedule}
+                    onSaveVersion={saveVersion}
                     resetCreateForm={resetCreateForm}
                 />
 

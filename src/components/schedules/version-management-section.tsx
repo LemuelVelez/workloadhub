@@ -1,19 +1,33 @@
 "use client"
 
+import * as React from "react"
+
 import {
     CalendarDays,
     CheckCircle2,
     Eye,
     MoreHorizontal,
+    Pencil,
     Plus,
     RefreshCcw,
     ShieldCheck,
     ShieldX,
+    Trash2,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -101,6 +115,9 @@ type Props = {
     onRefresh: () => void
     onOpenCreate: () => void
     onSetStatus: (it: ScheduleVersionDoc, next: ScheduleStatus) => Promise<void> | void
+    editingVersion: ScheduleVersionDoc | null
+    onEditVersion: (it: ScheduleVersionDoc) => void
+    onDeleteVersion: (it: ScheduleVersionDoc) => Promise<void> | void
 
     viewOpen: boolean
     setViewOpen: (v: boolean) => void
@@ -132,7 +149,7 @@ type Props = {
     existingSemesterSchedule?: ScheduleVersionDoc | null
     nextVersionNumber: number
     canCreateVersion: boolean
-    onCreateVersion: () => Promise<void> | void
+    onSaveVersion: () => Promise<void> | void
     resetCreateForm: () => void
 }
 
@@ -159,6 +176,9 @@ export function VersionManagementSection({
     onRefresh,
     onOpenCreate,
     onSetStatus,
+    editingVersion,
+    onEditVersion,
+    onDeleteVersion,
     viewOpen,
     setViewOpen,
     active,
@@ -188,14 +208,23 @@ export function VersionManagementSection({
     existingSemesterSchedule = null,
     nextVersionNumber,
     canCreateVersion,
-    onCreateVersion,
+    onSaveVersion,
     resetCreateForm,
 }: Props) {
+    const isEditing = Boolean(editingVersion)
     const schoolYearSelectValue = schoolYearOptions.includes(createSchoolYear)
         ? createSchoolYear
         : CUSTOM_SCHOOL_YEAR_VALUE
 
     const showCustomSchoolYearInput = createTermMode === "new" && schoolYearSelectValue === CUSTOM_SCHOOL_YEAR_VALUE
+    const [deleteTarget, setDeleteTarget] = React.useState<ScheduleVersionDoc | null>(null)
+
+    const handleConfirmDelete = async () => {
+        if (!deleteTarget) return
+        const target = deleteTarget
+        setDeleteTarget(null)
+        await onDeleteVersion(target)
+    }
 
     return (
         <>
@@ -260,10 +289,30 @@ export function VersionManagementSection({
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="w-full lg:w-auto">
                             <TabsList className="grid w-full grid-cols-4 lg:w-auto">
-                                <TabsTrigger value="all">All</TabsTrigger>
-                                <TabsTrigger value="Draft">Draft</TabsTrigger>
-                                <TabsTrigger value="Active">Active</TabsTrigger>
-                                <TabsTrigger value="Archived">Archived</TabsTrigger>
+                                <TabsTrigger
+                                    value="all"
+                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                >
+                                    All
+                                </TabsTrigger>
+                                <TabsTrigger
+                                    value="Draft"
+                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                >
+                                    Draft
+                                </TabsTrigger>
+                                <TabsTrigger
+                                    value="Active"
+                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                >
+                                    Active
+                                </TabsTrigger>
+                                <TabsTrigger
+                                    value="Archived"
+                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                >
+                                    Archived
+                                </TabsTrigger>
                             </TabsList>
                         </Tabs>
 
@@ -441,6 +490,11 @@ export function VersionManagementSection({
                                                                 View details
                                                             </DropdownMenuItem>
 
+                                                            <DropdownMenuItem onClick={() => onEditVersion(it)} disabled={saving}>
+                                                                <Pencil className="mr-2 size-4" />
+                                                                Edit semester
+                                                            </DropdownMenuItem>
+
                                                             <DropdownMenuSeparator />
 
                                                             <DropdownMenuItem
@@ -457,6 +511,17 @@ export function VersionManagementSection({
                                                             >
                                                                 <ShieldX className="mr-2 size-4" />
                                                                 Archive
+                                                            </DropdownMenuItem>
+
+                                                            <DropdownMenuSeparator />
+
+                                                            <DropdownMenuItem
+                                                                onClick={() => setDeleteTarget(it)}
+                                                                disabled={saving}
+                                                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                                                            >
+                                                                <Trash2 className="mr-2 size-4" />
+                                                                Delete semester
                                                             </DropdownMenuItem>
                                                         </DropdownMenuContent>
                                                     </DropdownMenu>
@@ -576,6 +641,20 @@ export function VersionManagementSection({
                             <Button
                                 type="button"
                                 variant="outline"
+                                disabled={!active || saving}
+                                onClick={() => {
+                                    if (!active) return
+                                    setViewOpen(false)
+                                    onEditVersion(active)
+                                }}
+                            >
+                                <Pencil className="mr-2 size-4" />
+                                Edit
+                            </Button>
+
+                            <Button
+                                type="button"
+                                variant="outline"
                                 disabled={!active || saving || String(active?.status) === "Active"}
                                 onClick={() => active && void onSetStatus(active, "Active")}
                             >
@@ -597,6 +676,44 @@ export function VersionManagementSection({
                 </DialogContent>
             </Dialog>
 
+            <AlertDialog
+                open={Boolean(deleteTarget)}
+                onOpenChange={(open) => {
+                    if (!open) setDeleteTarget(null)
+                }}
+            >
+                <AlertDialogContent className="sm:max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete semester schedule?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. It will permanently remove the selected semester schedule and its related classes and meetings.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    {deleteTarget ? (
+                        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm">
+                            <div className="font-medium text-foreground">
+                                {deleteTarget.label || `Semester ${Number(deleteTarget.version || 0)}`}
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                                {termLabel(termMap.get(String(deleteTarget.termId)) ?? null)} • {deptLabel(deptMap.get(String(deleteTarget.departmentId)) ?? null)}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={() => void handleConfirmDelete()}
+                            disabled={saving}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete semester
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             <Dialog
                 open={createOpen}
                 onOpenChange={(v) => {
@@ -606,9 +723,11 @@ export function VersionManagementSection({
             >
                 <DialogContent className="max-h-[78vh] overflow-y-auto sm:max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>Create Semester Schedule</DialogTitle>
+                        <DialogTitle>{isEditing ? "Edit Semester Schedule" : "Create Semester Schedule"}</DialogTitle>
                         <DialogDescription>
-                            Create or reuse a semester schedule for an existing academic term, or create a new semester under the current or custom school year.
+                            {isEditing
+                                ? "Update semester schedule details, term assignment, notes, and active state."
+                                : "Create or reuse a semester schedule for an existing academic term, or create a new semester under the current or custom school year."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -779,9 +898,13 @@ export function VersionManagementSection({
                         <div className="rounded-xl border border-dashed p-3 text-sm">
                             {existingSemesterSchedule ? (
                                 <div className="space-y-1">
-                                    <div className="font-medium">Existing semester schedule found</div>
+                                    <div className="font-medium">
+                                        {isEditing ? "Another semester schedule already exists" : "Existing semester schedule found"}
+                                    </div>
                                     <div className="text-muted-foreground">
-                                        This term and college already have a semester schedule, so reusing it prevents duplicate entries.
+                                        {isEditing
+                                            ? "Another semester schedule already uses this term and college combination. Saving here will keep the current record and update its details."
+                                            : "This term and college already have a semester schedule, so creating another one will add a new version for the same combination."}
                                     </div>
                                 </div>
                             ) : (
@@ -811,7 +934,15 @@ export function VersionManagementSection({
                                 onCheckedChange={(v) => setCreateSetActive(Boolean(v))}
                             />
                             <Label htmlFor="setActive" className="cursor-pointer">
-                                Set this semester schedule as <span className="font-medium">Active</span> after saving
+                                {isEditing ? (
+                                    <>
+                                        Keep or mark this semester schedule as <span className="font-medium">Active</span> when saved
+                                    </>
+                                ) : (
+                                    <>
+                                        Set this semester schedule as <span className="font-medium">Active</span> after saving
+                                    </>
+                                )}
                             </Label>
                         </div>
                     </div>
@@ -823,19 +954,19 @@ export function VersionManagementSection({
 
                         <Button
                             type="button"
-                            onClick={() => void onCreateVersion()}
+                            onClick={() => void onSaveVersion()}
                             disabled={saving || !canCreateVersion}
                             className={cn(saving && "opacity-90")}
                         >
                             {saving ? (
                                 <>
                                     <RefreshCcw className="mr-2 size-4 animate-spin" />
-                                    Saving...
+                                    {isEditing ? "Saving changes..." : "Saving..."}
                                 </>
                             ) : (
                                 <>
                                     <Plus className="mr-2 size-4" />
-                                    Save Semester
+                                    {isEditing ? "Save Changes" : "Save Semester"}
                                 </>
                             )}
                         </Button>
