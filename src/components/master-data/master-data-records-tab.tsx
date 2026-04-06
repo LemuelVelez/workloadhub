@@ -11,8 +11,6 @@ import { RecordMobileCards } from "./master-data-mobile-cards"
 import { RecordsExcelActions } from "./records-excel-actions"
 import { RecordsPdfActions } from "./records-pdf-actions"
 import { buildGroupedRecordRows, formatTimeAmPm } from "./master-data-utils"
-
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
     Accordion,
     AccordionContent,
@@ -172,20 +170,7 @@ export function MasterDataRecordsTab({
             <div className="space-y-3">
                 <div>
                     <div className="font-medium">List of Records</div>
-                    <div className="text-sm text-muted-foreground">
-                        Conflict detection focuses on room + day/time overlap. Same subject
-                        across different faculty is allowed, and subject filters are now
-                        labeled by semester.
-                    </div>
                 </div>
-
-                <Alert>
-                    <AlertTitle>Conflict Rule in Use</AlertTitle>
-                    <AlertDescription>
-                        Detected conflict = same term + same room + same day + overlapping
-                        time. Faculty and subject repetition are allowed.
-                    </AlertDescription>
-                </Alert>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                     <div className="grid gap-2">

@@ -68,7 +68,6 @@ export function MasterDataTabs({ vm }: Props) {
 
     return (
         <>
-
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {vm.stats.map((s) => (
                     <Card key={s.label}>
@@ -126,12 +125,42 @@ export function MasterDataTabs({ vm }: Props) {
                         </div>
 
                         <TabsList className="hidden w-full grid-cols-2 sm:grid lg:grid-cols-6">
-                            <TabsTrigger value="colleges">Colleges</TabsTrigger>
-                            <TabsTrigger value="programs">Programs/Courses</TabsTrigger>
-                            <TabsTrigger value="subjects">Subjects</TabsTrigger>
-                            <TabsTrigger value="faculty">Faculty</TabsTrigger>
-                            <TabsTrigger value="sections">Sections</TabsTrigger>
-                            <TabsTrigger value="records">List of Records</TabsTrigger>
+                            <TabsTrigger
+                                value="colleges"
+                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                            >
+                                Colleges
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="programs"
+                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                            >
+                                Programs/Courses
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="subjects"
+                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                            >
+                                Subjects
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="faculty"
+                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                            >
+                                Faculty
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="sections"
+                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                            >
+                                Sections
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="records"
+                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                            >
+                                List of Records
+                            </TabsTrigger>
                         </TabsList>
 
                         <Separator className="my-4" />

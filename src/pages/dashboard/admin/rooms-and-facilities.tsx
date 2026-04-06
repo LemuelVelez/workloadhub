@@ -1619,10 +1619,6 @@ export default function AdminRoomsAndFacilitiesPage() {
                                     <Printer className="h-4 w-4" />
                                     Room Schedule Print Sheet
                                 </CardTitle>
-                                <CardDescription>
-                                    Preview and export a room monitoring sheet for Morning, Afternoon,
-                                    or combined Morning & Afternoon schedules.
-                                </CardDescription>
                             </div>
 
                             <div className="flex w-full min-w-0 flex-col gap-3 lg:max-w-4xl">
