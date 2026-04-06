@@ -62,7 +62,6 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 
 import type {
     AcademicTermDoc,
@@ -196,16 +195,12 @@ export function VersionManagementSection({
     setCreateSemester,
     schoolYearOptions,
     semesterOptions,
-    matchedCreateTerm,
     createDeptId,
     setCreateDeptId,
     createLabel,
     setCreateLabel,
-    createNotes,
-    setCreateNotes,
     createSetActive,
     setCreateSetActive,
-    existingSemesterSchedule = null,
     nextVersionNumber,
     canCreateVersion,
     onSaveVersion,
@@ -724,14 +719,20 @@ export function VersionManagementSection({
                 <DialogContent className="max-h-[78vh] overflow-y-auto sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>{isEditing ? "Edit Semester Schedule" : "Create Semester Schedule"}</DialogTitle>
-                        <DialogDescription>
-                            {isEditing
-                                ? "Update semester schedule details, term assignment, notes, and active state."
-                                : "Create or reuse a semester schedule for an existing academic term, or create a new semester under the current or custom school year."}
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
+                        <div className="space-y-1">
+                            <Label>Schedule Label</Label>
+                            <Input
+                                value={createLabel}
+                                onChange={(e) => setCreateLabel(e.target.value)}
+                                placeholder="Semester Schedule"
+                            />
+                            <div className="text-xs text-muted-foreground">
+                                If empty, it will default to Semester {nextVersionNumber}.
+                            </div>
+                        </div>
                         <div className="space-y-1">
                             <Label>Term Setup</Label>
                             <Select value={createTermMode} onValueChange={(value) => setCreateTermMode(value as CreateTermMode)}>
@@ -862,70 +863,8 @@ export function VersionManagementSection({
                                         </div>
                                     </div>
                                 ) : null}
-
-                                <div className="rounded-xl border border-dashed p-3 text-sm">
-                                    {matchedCreateTerm ? (
-                                        <div className="space-y-1">
-                                            <div className="font-medium">Existing term detected</div>
-                                            <div className="text-muted-foreground">
-                                                {termLabel(matchedCreateTerm)} already exists, so this semester schedule will reuse that term instead of creating a duplicate.
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-1">
-                                            <div className="font-medium">New academic term preview</div>
-                                            <div className="text-muted-foreground">
-                                                {createSchoolYear || "School Year"} • {createSemester || "Semester"}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
                             </>
                         )}
-
-                        <div className="space-y-1">
-                            <Label>Schedule Label</Label>
-                            <Input
-                                value={createLabel}
-                                onChange={(e) => setCreateLabel(e.target.value)}
-                                placeholder="Semester Schedule"
-                            />
-                            <div className="text-xs text-muted-foreground">
-                                If empty, it will default to Semester {nextVersionNumber}.
-                            </div>
-                        </div>
-
-                        <div className="rounded-xl border border-dashed p-3 text-sm">
-                            {existingSemesterSchedule ? (
-                                <div className="space-y-1">
-                                    <div className="font-medium">
-                                        {isEditing ? "Another semester schedule already exists" : "Existing semester schedule found"}
-                                    </div>
-                                    <div className="text-muted-foreground">
-                                        {isEditing
-                                            ? "Another semester schedule already uses this term and college combination. Saving here will keep the current record and update its details."
-                                            : "This term and college already have a semester schedule, so creating another one will add a new version for the same combination."}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-1">
-                                    <div className="font-medium">New semester schedule</div>
-                                    <div className="text-muted-foreground">
-                                        A fresh semester schedule will be created for the selected term and college.
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="space-y-1">
-                            <Label>Notes (optional)</Label>
-                            <Textarea
-                                value={createNotes}
-                                onChange={(e) => setCreateNotes(e.target.value)}
-                                placeholder="Add notes about this semester schedule..."
-                                className="min-h-24"
-                            />
-                        </div>
 
                         <div className="flex items-center gap-3 rounded-xl border p-3">
                             <Checkbox
