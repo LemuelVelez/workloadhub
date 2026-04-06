@@ -291,25 +291,25 @@ export function VersionManagementSection({
                             <TabsList className="grid w-full grid-cols-4 lg:w-auto">
                                 <TabsTrigger
                                     value="all"
-                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                    className="data-[state=active]:bg-primary! data-[state=active]:text-secondary!"
                                 >
                                     All
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="Draft"
-                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                    className="data-[state=active]:bg-primary! data-[state=active]:text-secondary!"
                                 >
                                     Draft
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="Active"
-                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                    className="data-[state=active]:bg-primary! data-[state=active]:text-secondary!"
                                 >
                                     Active
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="Archived"
-                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                                    className="data-[state=active]:bg-primary! data-[state=active]:text-secondary!"
                                 >
                                     Archived
                                 </TabsTrigger>
@@ -706,7 +706,7 @@ export function VersionManagementSection({
                         <AlertDialogAction
                             onClick={() => void handleConfirmDelete()}
                             disabled={saving}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            className="bg-destructive hover:bg-destructive/90"
                         >
                             Delete semester
                         </AlertDialogAction>

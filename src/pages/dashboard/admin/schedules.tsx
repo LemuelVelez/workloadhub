@@ -673,12 +673,6 @@ export default function AdminSchedulesPage() {
     const deleteVersion = async (it: ScheduleVersionDoc) => {
         if (!it?.$id) return
 
-        const confirmed = globalThis.confirm(
-            `Delete ${it.label || `Semester ${Number(it.version || 0)}`}? This will also remove its schedule entries.`
-        )
-
-        if (!confirmed) return
-
         setSaving(true)
         try {
             const [meetingRes, classRes] = await Promise.all([
