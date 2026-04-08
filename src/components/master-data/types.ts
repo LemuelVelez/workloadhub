@@ -133,7 +133,7 @@ export type DeleteIntent =
 
 export const FACULTY_ROLES = ["FACULTY", "CHAIR", "DEAN"] as const
 
-export const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-screen overflow-y-auto"
+export const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[95svh] overflow-y-auto"
 
 export const YEAR_LEVEL_OPTIONS = [1, 2, 3, 4, 5, 6] as const
 

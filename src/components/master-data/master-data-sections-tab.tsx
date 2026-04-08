@@ -38,6 +38,13 @@ function normalizeProgramCode(value?: string | null) {
         .replace(/[^A-Z0-9]/g, "")
 }
 
+function normalizeSectionYearLevelValue(value?: string | number | null) {
+    return String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+}
+
 function resolveProgramPrefix(vm: MasterDataManagementVM, programId?: string | null) {
     const normalizedProgramId = String(programId ?? "").trim()
     if (!normalizedProgramId) return ""
@@ -56,6 +63,23 @@ function resolveProgramPrefix(vm: MasterDataManagementVM, programId?: string | n
     return ""
 }
 
+function buildStoredSectionYearLevel(
+    vm: MasterDataManagementVM,
+    value?: string | number | null,
+    programId?: string | null
+) {
+    const normalizedYearLevel = normalizeSectionYearLevelValue(value)
+    const yearNumber = normalizedYearLevel.match(/([1-9]\d*)$/)?.[1] ?? normalizedYearLevel
+    const programPrefix = resolveProgramPrefix(vm, programId ?? null)
+
+    if (!normalizedYearLevel) return ""
+    if (!yearNumber) return normalizedYearLevel
+    if (!programPrefix) return normalizedYearLevel
+    if (normalizedYearLevel.startsWith(`${programPrefix} `)) return normalizedYearLevel
+
+    return `${programPrefix} ${yearNumber}`
+}
+
 function buildSectionDisplayLabel(
     vm: MasterDataManagementVM,
     section: {
@@ -64,10 +88,7 @@ function buildSectionDisplayLabel(
         programId?: string | null
     }
 ) {
-    const normalizedYearLevel = String(section.yearLevel ?? "")
-        .trim()
-        .toUpperCase()
-        .replace(/\s+/g, " ")
+    const normalizedYearLevel = normalizeSectionYearLevelValue(section.yearLevel)
     const normalizedName = String(section.name ?? "").trim().toUpperCase()
     const yearNumber = normalizedYearLevel.match(/([1-9]\d*)$/)?.[1] ?? normalizedYearLevel
     const programPrefix = resolveProgramPrefix(vm, section.programId ?? null)
@@ -200,10 +221,18 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 }
 
                 const payload: Record<string, unknown> = {}
+                const nextProgramId =
+                    hasProgramChange
+                        ? bulkEditProgramId === "__none__"
+                            ? null
+                            : bulkEditProgramId
+                        : (section.programId ?? null)
 
                 if (hasProgramChange) {
-                    payload.programId =
-                        bulkEditProgramId === "__none__" ? null : bulkEditProgramId
+                    payload.programId = nextProgramId
+                    payload.yearLevel =
+                        buildStoredSectionYearLevel(vm, section.yearLevel, nextProgramId) ||
+                        normalizeSectionYearLevelValue(section.yearLevel)
                 }
 
                 if (hasStudentCountChange) {
@@ -219,7 +248,16 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     )
                     updated += 1
                 } catch {
-                    failed.push(buildSectionDisplayLabel(vm, section))
+                    failed.push(
+                        buildSectionDisplayLabel(vm, {
+                            ...section,
+                            programId: hasProgramChange ? nextProgramId : section.programId ?? null,
+                            yearLevel:
+                                hasProgramChange
+                                    ? (payload.yearLevel as string | number | null | undefined)
+                                    : section.yearLevel,
+                        })
+                    )
                 }
             }
 
@@ -404,7 +442,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
             )}
 
             <Dialog open={bulkEditOpen} onOpenChange={handleBulkEditOpenChange}>
-                <DialogContent className="sm:max-w-3xl">
+                <DialogContent className="sm:max-w-3xl max-h-[95svh] overflow-auto">
                     <DialogHeader>
                         <DialogTitle>Edit Sections Without Program or Students</DialogTitle>
                         <DialogDescription>
