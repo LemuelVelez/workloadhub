@@ -212,13 +212,76 @@ export function VersionManagementSection({
         : CUSTOM_SCHOOL_YEAR_VALUE
 
     const showCustomSchoolYearInput = createTermMode === "new" && schoolYearSelectValue === CUSTOM_SCHOOL_YEAR_VALUE
-    const [deleteTarget, setDeleteTarget] = React.useState<ScheduleVersionDoc | null>(null)
+    const [selectedScheduleIds, setSelectedScheduleIds] = React.useState<string[]>([])
+    const [deleteTargets, setDeleteTargets] = React.useState<ScheduleVersionDoc[]>([])
+
+    React.useEffect(() => {
+        const visibleIdSet = new Set(filtered.map((item) => String(item.$id || "")))
+        setSelectedScheduleIds((current) => current.filter((id) => visibleIdSet.has(id)))
+    }, [filtered])
+
+    const selectedSchedules = React.useMemo(
+        () => filtered.filter((item) => selectedScheduleIds.includes(String(item.$id || ""))),
+        [filtered, selectedScheduleIds]
+    )
+
+    const allVisibleSelected = filtered.length > 0 && selectedSchedules.length === filtered.length
+    const someVisibleSelected = selectedSchedules.length > 0 && !allVisibleSelected
+
+    const toggleScheduleSelection = React.useCallback((scheduleId: string, checked: boolean) => {
+        setSelectedScheduleIds((current) => {
+            if (checked) {
+                return Array.from(new Set([...current, scheduleId]))
+            }
+
+            return current.filter((id) => id !== scheduleId)
+        })
+    }, [])
+
+    const toggleSelectAllSchedules = React.useCallback(
+        (checked: boolean) => {
+            setSelectedScheduleIds((current) => {
+                const next = new Set(current)
+
+                for (const schedule of filtered) {
+                    const scheduleId = String(schedule.$id || "")
+                    if (!scheduleId) continue
+
+                    if (checked) {
+                        next.add(scheduleId)
+                    } else {
+                        next.delete(scheduleId)
+                    }
+                }
+
+                return Array.from(next)
+            })
+        },
+        [filtered]
+    )
+
+    const openSingleDeleteDialog = React.useCallback((target: ScheduleVersionDoc) => {
+        setDeleteTargets([target])
+    }, [])
+
+    const openBulkDeleteDialog = React.useCallback(() => {
+        if (selectedSchedules.length === 0) return
+        setDeleteTargets(selectedSchedules)
+    }, [selectedSchedules])
 
     const handleConfirmDelete = async () => {
-        if (!deleteTarget) return
-        const target = deleteTarget
-        setDeleteTarget(null)
-        await onDeleteVersion(target)
+        if (deleteTargets.length === 0) return
+
+        const targets = [...deleteTargets]
+        const deletedIdSet = new Set(targets.map((target) => String(target.$id || "")))
+
+        setDeleteTargets([])
+
+        for (const target of targets) {
+            await onDeleteVersion(target)
+        }
+
+        setSelectedScheduleIds((current) => current.filter((id) => !deletedIdSet.has(id)))
     }
 
     return (
@@ -267,12 +330,25 @@ export function VersionManagementSection({
                             </CardDescription>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading || saving}>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                            {selectedSchedules.length > 0 ? (
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={openBulkDeleteDialog}
+                                    disabled={loading || saving}
+                                    className="rounded-xl"
+                                >
+                                    <Trash2 className="mr-2 size-4" />
+                                    Delete Selected ({selectedSchedules.length})
+                                </Button>
+                            ) : null}
+
+                            <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading || saving} className="rounded-xl">
                                 <RefreshCcw className="mr-2 size-4" />
                                 Refresh
                             </Button>
-                            <Button size="sm" onClick={onOpenCreate} disabled={loading || saving}>
+                            <Button size="sm" onClick={onOpenCreate} disabled={loading || saving} className="rounded-xl">
                                 <Plus className="mr-2 size-4" />
                                 New Semester
                             </Button>
@@ -376,6 +452,44 @@ export function VersionManagementSection({
                         </div>
                     </div>
 
+                    {selectedSchedules.length > 0 ? (
+                        <div className="flex flex-col gap-3 rounded-2xl border border-destructive/20 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="space-y-1">
+                                <div className="text-sm font-medium">
+                                    {selectedSchedules.length} semester schedule{selectedSchedules.length === 1 ? "" : "s"} selected
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                    Use the row checkboxes or the table header checkbox to manage bulk deletion.
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="rounded-xl"
+                                    onClick={() => setSelectedScheduleIds([])}
+                                    disabled={loading || saving}
+                                >
+                                    Clear Selection
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    className="rounded-xl"
+                                    onClick={openBulkDeleteDialog}
+                                    disabled={loading || saving}
+                                >
+                                    <Trash2 className="mr-2 size-4" />
+                                    Delete Selected
+                                </Button>
+                            </div>
+                        </div>
+                    ) : null}
+
                     <Separator />
 
                     {loading ? (
@@ -404,6 +518,16 @@ export function VersionManagementSection({
                             <Table>
                                 <TableHeader>
                                     <TableRow>
+                                        <TableHead className="w-14">
+                                            <div className="flex items-center justify-center">
+                                                <Checkbox
+                                                    checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                                                    onCheckedChange={(checked) => toggleSelectAllSchedules(Boolean(checked))}
+                                                    aria-label="Select all visible semester schedules"
+                                                    disabled={loading || saving || filtered.length === 0}
+                                                />
+                                            </div>
+                                        </TableHead>
                                         <TableHead>Semester</TableHead>
                                         <TableHead>Label</TableHead>
                                         <TableHead>Status</TableHead>
@@ -419,17 +543,31 @@ export function VersionManagementSection({
                                         const Icon = statusIcon(String(it.status))
                                         const term = termMap.get(String(it.termId)) ?? null
                                         const dept = deptMap.get(String(it.departmentId)) ?? null
-                                        const isSelected = it.$id === selectedVersionId
+                                        const isPlannerSelected = it.$id === selectedVersionId
+                                        const isChecked = selectedScheduleIds.includes(String(it.$id || ""))
 
                                         return (
                                             <TableRow key={it.$id} className="align-top">
+                                                <TableCell className="align-middle">
+                                                    <div className="flex items-center justify-center">
+                                                        <Checkbox
+                                                            checked={isChecked}
+                                                            onCheckedChange={(checked) =>
+                                                                toggleScheduleSelection(String(it.$id || ""), Boolean(checked))
+                                                            }
+                                                            aria-label={`Select ${it.label || termLabel(term) || shortId(it.$id)} for deletion`}
+                                                            disabled={saving}
+                                                        />
+                                                    </div>
+                                                </TableCell>
+
                                                 <TableCell className="font-medium">
                                                     <div className="flex items-center gap-2">
                                                         <Icon className="size-4 text-muted-foreground" />
                                                         <span className="truncate">
                                                             {term ? termLabel(term) : it.label || shortId(it.$id)}
                                                         </span>
-                                                        {isSelected ? (
+                                                        {isPlannerSelected ? (
                                                             <Badge variant="secondary" className="rounded-lg">
                                                                 Selected
                                                             </Badge>
@@ -511,7 +649,7 @@ export function VersionManagementSection({
                                                             <DropdownMenuSeparator />
 
                                                             <DropdownMenuItem
-                                                                onClick={() => setDeleteTarget(it)}
+                                                                onClick={() => openSingleDeleteDialog(it)}
                                                                 disabled={saving}
                                                                 className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                                                             >
@@ -672,26 +810,48 @@ export function VersionManagementSection({
             </Dialog>
 
             <AlertDialog
-                open={Boolean(deleteTarget)}
+                open={deleteTargets.length > 0}
                 onOpenChange={(open) => {
-                    if (!open) setDeleteTarget(null)
+                    if (!open) setDeleteTargets([])
                 }}
             >
                 <AlertDialogContent className="sm:max-w-md">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Delete semester schedule?</AlertDialogTitle>
+                        <AlertDialogTitle>
+                            {deleteTargets.length > 1 ? "Delete selected semester schedules?" : "Delete semester schedule?"}
+                        </AlertDialogTitle>
                         <AlertDialogDescription>
-                            This action cannot be undone. It will permanently remove the selected semester schedule and its related classes and meetings.
+                            This action cannot be undone. It will permanently remove the selected semester schedule{deleteTargets.length > 1 ? "s" : ""} and related classes and meetings.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
 
-                    {deleteTarget ? (
-                        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm">
+                    {deleteTargets.length > 0 ? (
+                        <div className="space-y-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm">
                             <div className="font-medium text-foreground">
-                                {deleteTarget.label || `Semester ${Number(deleteTarget.version || 0)}`}
+                                {deleteTargets.length > 1
+                                    ? `${deleteTargets.length} semester schedules will be deleted`
+                                    : deleteTargets[0]?.label || `Semester ${Number(deleteTargets[0]?.version || 0)}`}
                             </div>
-                            <div className="mt-1 text-muted-foreground">
-                                {termLabel(termMap.get(String(deleteTarget.termId)) ?? null)} • {deptLabel(deptMap.get(String(deleteTarget.departmentId)) ?? null)}
+
+                            <div className="space-y-2">
+                                {deleteTargets.slice(0, 5).map((target) => (
+                                    <div key={target.$id} className="rounded-lg border border-border/60 bg-background/80 px-3 py-2">
+                                        <div className="font-medium text-foreground">
+                                            {target.label || `Semester ${Number(target.version || 0)}`}
+                                        </div>
+                                        <div className="mt-1 text-muted-foreground">
+                                            {termLabel(termMap.get(String(target.termId)) ?? null)} • {deptLabel(
+                                                deptMap.get(String(target.departmentId)) ?? null
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {deleteTargets.length > 5 ? (
+                                    <div className="text-xs text-muted-foreground">
+                                        And {deleteTargets.length - 5} more semester schedule{deleteTargets.length - 5 === 1 ? "" : "s"}.
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                     ) : null}
@@ -703,7 +863,7 @@ export function VersionManagementSection({
                             disabled={saving}
                             className="bg-destructive hover:bg-destructive/90"
                         >
-                            Delete semester
+                            {deleteTargets.length > 1 ? "Delete selected" : "Delete semester"}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

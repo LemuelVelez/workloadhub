@@ -192,13 +192,25 @@ function resolveSubjectAcademicYear(
     return normalizeAcademicYearLabel(readFirstStringValue(subject, SUBJECT_YEAR_KEYS))
 }
 
+function sortSubjects(subjects: LooseSubjectDoc[]) {
+    return [...subjects].sort((a, b) => {
+        const aCode = String(a.code ?? "").toLowerCase()
+        const bCode = String(b.code ?? "").toLowerCase()
+        if (aCode !== bCode) return aCode.localeCompare(bCode)
+
+        return String(a.title ?? "").localeCompare(String(b.title ?? ""))
+    })
+}
+
 export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkLinkOpen, setBulkLinkOpen] = React.useState(false)
     const [bulkLinkTermId, setBulkLinkTermId] = React.useState("")
     const [bulkLinkSemesterHint, setBulkLinkSemesterHint] = React.useState("")
     const [bulkLinkSubjectIds, setBulkLinkSubjectIds] = React.useState<string[]>([])
     const [bulkLinkLockedSubjectIds, setBulkLinkLockedSubjectIds] = React.useState<string[]>([])
+    const [bulkLinkSourceSubjectIds, setBulkLinkSourceSubjectIds] = React.useState<string[]>([])
     const [bulkLinking, setBulkLinking] = React.useState(false)
+    const [bulkUnlinking, setBulkUnlinking] = React.useState(false)
     const [expandedGroups, setExpandedGroups] = React.useState<string[]>([])
 
     const termMap = React.useMemo(() => {
@@ -209,11 +221,31 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         return map
     }, [vm.terms])
 
-    const allUnlinkedSubjects = React.useMemo(() => {
-        return (vm.subjects as LooseSubjectDoc[]).filter(
-            (subject) => !resolveSubjectTermId(subject)
-        )
-    }, [vm.subjects])
+    const filteredSubjects = React.useMemo(
+        () => vm.filteredSubjects as LooseSubjectDoc[],
+        [vm.filteredSubjects]
+    )
+
+    const allVisibleSubjects = React.useMemo(
+        () => sortSubjects(filteredSubjects),
+        [filteredSubjects]
+    )
+
+    const allVisibleUnlinkedSubjects = React.useMemo(
+        () =>
+            allVisibleSubjects.filter(
+                (subject) => !resolveSubjectTermId(subject)
+            ),
+        [allVisibleSubjects]
+    )
+
+    const allVisibleLinkedSubjects = React.useMemo(
+        () =>
+            allVisibleSubjects.filter((subject) =>
+                Boolean(resolveSubjectTermId(subject))
+            ),
+        [allVisibleSubjects]
+    )
 
     const groupedSubjects = React.useMemo(() => {
         const groups = new Map<
@@ -229,7 +261,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             }
         >()
 
-        for (const subject of vm.filteredSubjects as LooseSubjectDoc[]) {
+        for (const subject of filteredSubjects) {
             const linkedTermId = resolveSubjectTermId(subject)
             const semesterLabel =
                 resolveSubjectSemester(subject, termMap) ||
@@ -289,15 +321,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             })
             .map((group) => ({
                 ...group,
-                subjects: [...group.subjects].sort((a, b) => {
-                    const aCode = String(a.code ?? "").toLowerCase()
-                    const bCode = String(b.code ?? "").toLowerCase()
-                    if (aCode !== bCode) return aCode.localeCompare(bCode)
-
-                    return String(a.title ?? "").localeCompare(String(b.title ?? ""))
-                }),
+                subjects: sortSubjects(group.subjects),
             }))
-    }, [termMap, vm.filteredSubjects, vm])
+    }, [filteredSubjects, termMap, vm])
 
     React.useEffect(() => {
         const nextValues = groupedSubjects.map((group) => group.key)
@@ -335,37 +361,40 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         return resolveTermSemester(termMap, bulkLinkTermId.trim())
     }, [bulkLinkTermId, termMap])
 
+    const bulkLinkBaseSubjects = React.useMemo(() => {
+        if (bulkLinkSourceSubjectIds.length === 0) {
+            return allVisibleSubjects
+        }
+
+        const allowedIds = new Set(bulkLinkSourceSubjectIds)
+        return allVisibleSubjects.filter((subject) =>
+            allowedIds.has(String(subject.$id))
+        )
+    }, [allVisibleSubjects, bulkLinkSourceSubjectIds])
+
     const bulkLinkEligibleSubjects = React.useMemo(() => {
         const baseSubjects =
             bulkLinkLockedSubjectIds.length > 0
-                ? allUnlinkedSubjects.filter((subject) =>
+                ? bulkLinkBaseSubjects.filter((subject) =>
                       bulkLinkLockedSubjectIds.includes(String(subject.$id))
                   )
-                : allUnlinkedSubjects
+                : bulkLinkBaseSubjects
 
-        return baseSubjects
-            .filter((subject) => {
-                const subjectSemester = resolveSubjectSemester(subject, termMap)
+        return baseSubjects.filter((subject) => {
+            const subjectSemester = resolveSubjectSemester(subject, termMap)
 
-                if (normalizedBulkLinkSemesterHint && subjectSemester) {
-                    return subjectSemester === normalizedBulkLinkSemesterHint
-                }
+            if (normalizedBulkLinkSemesterHint && subjectSemester) {
+                return subjectSemester === normalizedBulkLinkSemesterHint
+            }
 
-                if (selectedBulkLinkSemester && subjectSemester) {
-                    return subjectSemester === selectedBulkLinkSemester
-                }
+            if (selectedBulkLinkSemester && subjectSemester) {
+                return subjectSemester === selectedBulkLinkSemester
+            }
 
-                return true
-            })
-            .sort((a, b) => {
-                const aCode = String(a.code ?? "").toLowerCase()
-                const bCode = String(b.code ?? "").toLowerCase()
-                if (aCode !== bCode) return aCode.localeCompare(bCode)
-
-                return String(a.title ?? "").localeCompare(String(b.title ?? ""))
-            })
+            return true
+        })
     }, [
-        allUnlinkedSubjects,
+        bulkLinkBaseSubjects,
         bulkLinkLockedSubjectIds,
         normalizedBulkLinkSemesterHint,
         selectedBulkLinkSemester,
@@ -402,30 +431,51 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         setBulkLinkSubjectIds(
             bulkLinkEligibleSubjects.map((subject) => String(subject.$id))
         )
-    }, [bulkLinkOpen, bulkLinkEligibleSubjects, bulkLinkLockedSubjectIds])
+    }, [bulkLinkEligibleSubjects, bulkLinkLockedSubjectIds, bulkLinkOpen])
 
-    const openBulkLinkDialog = React.useCallback((semesterHint = "") => {
-        setBulkLinkSemesterHint(semesterHint)
-        setBulkLinkTermId("")
-        setBulkLinkSubjectIds([])
-        setBulkLinkLockedSubjectIds([])
-        setBulkLinkOpen(true)
-    }, [])
+    const openBulkLinkDialog = React.useCallback(
+        ({
+            semesterHint = "",
+            subjectIds = [],
+            lockedSubjectIds = [],
+        }: {
+            semesterHint?: string
+            subjectIds?: string[]
+            lockedSubjectIds?: string[]
+        } = {}) => {
+            const normalizedSubjectIds = subjectIds.map((value) => String(value))
+            const normalizedLockedSubjectIds = lockedSubjectIds.map((value) =>
+                String(value)
+            )
+
+            setBulkLinkSemesterHint(semesterHint)
+            setBulkLinkTermId("")
+            setBulkLinkSourceSubjectIds(normalizedSubjectIds)
+            setBulkLinkSubjectIds(
+                normalizedLockedSubjectIds.length > 0
+                    ? normalizedLockedSubjectIds
+                    : normalizedSubjectIds
+            )
+            setBulkLinkLockedSubjectIds(normalizedLockedSubjectIds)
+            setBulkLinkOpen(true)
+        },
+        []
+    )
 
     const openSingleSubjectLinkDialog = React.useCallback(
         (subject: LooseSubjectDoc) => {
+            const subjectId = String(subject.$id)
             const semesterHint =
                 resolveSubjectSemester(subject, termMap) || ""
 
-            setBulkLinkSemesterHint(
-                semesterHint === INHERIT_SEMESTER_LABEL ? "" : semesterHint
-            )
-            setBulkLinkTermId("")
-            setBulkLinkSubjectIds([String(subject.$id)])
-            setBulkLinkLockedSubjectIds([String(subject.$id)])
-            setBulkLinkOpen(true)
+            openBulkLinkDialog({
+                semesterHint:
+                    semesterHint === INHERIT_SEMESTER_LABEL ? "" : semesterHint,
+                subjectIds: [subjectId],
+                lockedSubjectIds: [subjectId],
+            })
         },
-        [termMap]
+        [openBulkLinkDialog, termMap]
     )
 
     const handleBulkLinkOpenChange = React.useCallback((nextOpen: boolean) => {
@@ -436,6 +486,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             setBulkLinkSemesterHint("")
             setBulkLinkSubjectIds([])
             setBulkLinkLockedSubjectIds([])
+            setBulkLinkSourceSubjectIds([])
         }
     }, [])
 
@@ -461,14 +512,38 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             )
 
             if (result.updated > 0 && result.failed.length === 0) {
-                setBulkLinkOpen(false)
-                setBulkLinkSubjectIds([])
-                setBulkLinkLockedSubjectIds([])
+                handleBulkLinkOpenChange(false)
             }
         } finally {
             setBulkLinking(false)
         }
-    }, [bulkLinkSubjectIds, bulkLinkTermId, vm])
+    }, [bulkLinkSubjectIds, bulkLinkTermId, handleBulkLinkOpenChange, vm])
+
+    const unlinkSubjectIds = React.useCallback(
+        async (subjectIds: string[]) => {
+            const uniqueIds = Array.from(
+                new Set(
+                    subjectIds
+                        .map((value) => String(value).trim())
+                        .filter(Boolean)
+                )
+            )
+
+            if (uniqueIds.length === 0) return
+
+            setBulkUnlinking(true)
+            try {
+                await Promise.allSettled(
+                    uniqueIds.map((subjectId) =>
+                        Promise.resolve(vm.setSubjectTermLink(subjectId, null))
+                    )
+                )
+            } finally {
+                setBulkUnlinking(false)
+            }
+        },
+        [vm]
+    )
 
     const handleTableActionClick = React.useCallback(
         (action: () => void | Promise<unknown>) =>
@@ -487,7 +562,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         []
     )
 
-    const isSingleSubjectLinkMode = bulkLinkLockedSubjectIds.length === 1
+    const isSingleSubjectLinkMode =
+        bulkLinkLockedSubjectIds.length === 1 &&
+        bulkLinkSourceSubjectIds.length === 1
+
+    const hasVisibleSubjects = allVisibleSubjects.length > 0
 
     return (
         <TabsContent value="subjects" className="space-y-4">
@@ -504,11 +583,59 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={allUnlinkedSubjects.length === 0}
-                        onClick={() => openBulkLinkDialog()}
+                        disabled={!hasVisibleSubjects || bulkLinking || bulkUnlinking}
+                        onClick={() =>
+                            openBulkLinkDialog({
+                                subjectIds: allVisibleSubjects.map((subject) =>
+                                    String(subject.$id)
+                                ),
+                            })
+                        }
                     >
                         <Link2 className="mr-2 h-4 w-4" />
-                        Edit All Link to Term
+                        Edit All Links to Term
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                            allVisibleUnlinkedSubjects.length === 0 ||
+                            bulkLinking ||
+                            bulkUnlinking
+                        }
+                        onClick={() =>
+                            openBulkLinkDialog({
+                                subjectIds: allVisibleUnlinkedSubjects.map((subject) =>
+                                    String(subject.$id)
+                                ),
+                            })
+                        }
+                    >
+                        <Link2 className="mr-2 h-4 w-4" />
+                        Link All Subjects
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                            allVisibleLinkedSubjects.length === 0 ||
+                            bulkLinking ||
+                            bulkUnlinking
+                        }
+                        onClick={() =>
+                            void unlinkSubjectIds(
+                                allVisibleLinkedSubjects.map((subject) =>
+                                    String(subject.$id)
+                                )
+                            )
+                        }
+                    >
+                        <Unlink2 className="mr-2 h-4 w-4" />
+                        {bulkUnlinking ? "Unlinking..." : "Unlink All Subjects"}
                     </Button>
 
                     <Button
@@ -531,7 +658,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     <Skeleton className="h-10 w-full" />
                     <Skeleton className="h-10 w-full" />
                 </div>
-            ) : vm.filteredSubjects.length === 0 ? (
+            ) : filteredSubjects.length === 0 ? (
                 <div className="text-sm text-muted-foreground">No subjects found.</div>
             ) : (
                 <Accordion
@@ -568,29 +695,87 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                     </div>
                                 </AccordionTrigger>
 
-                                {group.inheritedCount > 0 ? (
-                                    <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+                                <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={bulkLinking || bulkUnlinking}
+                                        onClick={handleTableActionClick(() =>
+                                            openBulkLinkDialog({
+                                                semesterHint:
+                                                    group.semesterLabel ===
+                                                    INHERIT_SEMESTER_LABEL
+                                                        ? ""
+                                                        : group.semesterLabel,
+                                                subjectIds: group.subjects.map((subject) =>
+                                                    String(subject.$id)
+                                                ),
+                                            })
+                                        )}
+                                    >
+                                        <Link2 className="mr-2 h-4 w-4" />
+                                        Edit Group Links
+                                    </Button>
+
+                                    {group.inheritedCount > 0 ? (
                                         <Button
                                             type="button"
                                             variant="outline"
                                             size="sm"
+                                            disabled={bulkLinking || bulkUnlinking}
                                             onClick={handleTableActionClick(() =>
-                                                openBulkLinkDialog(
-                                                    group.semesterLabel === INHERIT_SEMESTER_LABEL
-                                                        ? ""
-                                                        : group.semesterLabel
-                                                )
+                                                openBulkLinkDialog({
+                                                    semesterHint:
+                                                        group.semesterLabel ===
+                                                        INHERIT_SEMESTER_LABEL
+                                                            ? ""
+                                                            : group.semesterLabel,
+                                                    subjectIds: group.subjects
+                                                        .filter(
+                                                            (subject) =>
+                                                                !resolveSubjectTermId(subject)
+                                                        )
+                                                        .map((subject) =>
+                                                            String(subject.$id)
+                                                        ),
+                                                })
                                             )}
                                         >
                                             <Link2 className="mr-2 h-4 w-4" />
                                             Link Existing to Term
                                         </Button>
+                                    ) : null}
 
-                                        <Badge variant="outline">
-                                            Unlinked subjects can be linked directly from here
-                                        </Badge>
-                                    </div>
-                                ) : null}
+                                    {group.linkedCount > 0 ? (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={bulkLinking || bulkUnlinking}
+                                            onClick={handleTableActionClick(() =>
+                                                unlinkSubjectIds(
+                                                    group.subjects
+                                                        .filter((subject) =>
+                                                            Boolean(
+                                                                resolveSubjectTermId(subject)
+                                                            )
+                                                        )
+                                                        .map((subject) =>
+                                                            String(subject.$id)
+                                                        )
+                                                )
+                                            )}
+                                        >
+                                            <Unlink2 className="mr-2 h-4 w-4" />
+                                            Unlink Group
+                                        </Button>
+                                    ) : null}
+
+                                    <Badge variant="outline">
+                                        Visible actions affect the current list or group only.
+                                    </Badge>
+                                </div>
                             </div>
 
                             <AccordionContent className="pb-0">
@@ -762,12 +947,12 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         <DialogTitle>
                             {isSingleSubjectLinkMode
                                 ? "Link Subject to Term"
-                                : "Link Existing Subjects to Term"}
+                                : "Edit Subject Term Links"}
                         </DialogTitle>
                         <DialogDescription>
                             {isSingleSubjectLinkMode
                                 ? "Permanently connect this subject to an academic term for proper semester segregation."
-                                : "Bulk edit already-added subjects and permanently connect them to an academic term for proper semester segregation."}
+                                : "Bulk edit the selected subjects and link or relink them to the correct academic term."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -799,13 +984,13 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             <div className="text-xs text-muted-foreground">
                                 {normalizedBulkLinkSemesterHint
                                     ? `Filtered for ${normalizedBulkLinkSemesterHint} subjects.`
-                                    : "Choose the target term for the selected existing subjects."}
+                                    : "Choose the target term for the selected subjects."}
                             </div>
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
                             <div className="text-muted-foreground">
-                                Eligible existing subjects:{" "}
+                                Eligible subjects:{" "}
                                 <span className="font-medium text-foreground">
                                     {bulkLinkEligibleSubjects.length}
                                 </span>
@@ -846,16 +1031,19 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             <div className="space-y-2 p-3">
                                 {bulkLinkEligibleSubjects.length === 0 ? (
                                     <div className="text-sm text-muted-foreground">
-                                        No existing unlinked subjects match the selected term
-                                        or semester filter.
+                                        No subjects match the selected term or semester filter.
                                     </div>
                                 ) : (
                                     bulkLinkEligibleSubjects.map((subject) => {
                                         const subjectId = String(subject.$id)
+                                        const linkedTermId = resolveSubjectTermId(subject)
                                         const subjectSemester =
                                             resolveSubjectSemester(subject, termMap) ||
                                             INHERIT_SEMESTER_LABEL
                                         const checked = bulkLinkSubjectIds.includes(subjectId)
+                                        const currentTermLabel = linkedTermId
+                                            ? vm.termLabel(vm.terms, linkedTermId)
+                                            : "Not linked to a term yet"
 
                                         return (
                                             <label
@@ -872,6 +1060,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             Boolean(value)
                                                         )
                                                     }
+                                                    disabled={bulkLinkLockedSubjectIds.includes(subjectId)}
                                                 />
 
                                                 <div className="min-w-0 flex-1 space-y-1">
@@ -881,6 +1070,15 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                         </span>
                                                         <Badge variant="outline">
                                                             {subjectSemester}
+                                                        </Badge>
+                                                        <Badge
+                                                            variant={
+                                                                linkedTermId
+                                                                    ? "secondary"
+                                                                    : "outline"
+                                                            }
+                                                        >
+                                                            {linkedTermId ? "Linked" : "Unlinked"}
                                                         </Badge>
                                                     </div>
 
@@ -894,6 +1092,10 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             (subject.departmentId as string | null) ??
                                                                 null
                                                         )}
+                                                    </div>
+
+                                                    <div className="text-xs text-muted-foreground">
+                                                        Current term: {currentTermLabel}
                                                     </div>
                                                 </div>
                                             </label>
@@ -916,9 +1118,13 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         <Button
                             type="button"
                             onClick={() => void linkSelectedSubjectsToTerm()}
-                            disabled={bulkLinking || !bulkLinkTermId}
+                            disabled={
+                                bulkLinking ||
+                                !bulkLinkTermId ||
+                                bulkLinkSubjectIds.length === 0
+                            }
                         >
-                            {bulkLinking ? "Linking..." : "Save Term Links"}
+                            {bulkLinking ? "Saving..." : "Save Term Links"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
