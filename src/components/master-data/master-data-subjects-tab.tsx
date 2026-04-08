@@ -4,6 +4,9 @@
 
 import * as React from "react"
 import { Link2, Pencil, Plus, Trash2, Unlink2 } from "lucide-react"
+import { toast } from "sonner"
+
+import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
 
 import type { AcademicTermDoc, SubjectDoc } from "../../../model/schemaModel"
 import type { MasterDataManagementVM } from "./use-master-data"
@@ -213,6 +216,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkUnlinking, setBulkUnlinking] = React.useState(false)
     const [expandedGroups, setExpandedGroups] = React.useState<string[]>([])
 
+    const [bulkCollegeOpen, setBulkCollegeOpen] = React.useState(false)
+    const [bulkCollegeId, setBulkCollegeId] = React.useState("")
+    const [bulkCollegeSubjectIds, setBulkCollegeSubjectIds] = React.useState<string[]>([])
+    const [bulkCollegeSaving, setBulkCollegeSaving] = React.useState(false)
+
     const termMap = React.useMemo(() => {
         const map = new Map<string, LooseAcademicTermDoc>()
         for (const term of vm.terms as LooseAcademicTermDoc[]) {
@@ -243,6 +251,14 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         () =>
             allVisibleSubjects.filter((subject) =>
                 Boolean(resolveSubjectTermId(subject))
+            ),
+        [allVisibleSubjects]
+    )
+
+    const allVisibleSubjectsWithoutCollege = React.useMemo(
+        () =>
+            allVisibleSubjects.filter(
+                (subject) => !String(subject.departmentId ?? "").trim()
             ),
         [allVisibleSubjects]
     )
@@ -545,6 +561,125 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         [vm]
     )
 
+    React.useEffect(() => {
+        if (!bulkCollegeOpen) return
+        if (bulkCollegeId) return
+
+        const nextCollegeId =
+            String(vm.defaultCollegeId ?? "").trim() ||
+            String(vm.colleges[0]?.$id ?? "").trim()
+
+        setBulkCollegeId(nextCollegeId)
+    }, [bulkCollegeId, bulkCollegeOpen, vm.colleges, vm.defaultCollegeId])
+
+    const openBulkCollegeDialog = React.useCallback(() => {
+        setBulkCollegeSubjectIds(
+            allVisibleSubjectsWithoutCollege.map((subject) => String(subject.$id))
+        )
+        setBulkCollegeOpen(true)
+    }, [allVisibleSubjectsWithoutCollege])
+
+    const handleBulkCollegeOpenChange = React.useCallback((nextOpen: boolean) => {
+        setBulkCollegeOpen(nextOpen)
+
+        if (!nextOpen) {
+            setBulkCollegeId("")
+            setBulkCollegeSubjectIds([])
+        }
+    }, [])
+
+    const toggleBulkCollegeSubject = React.useCallback(
+        (subjectId: string, checked: boolean) => {
+            setBulkCollegeSubjectIds((current) => {
+                if (checked) {
+                    if (current.includes(subjectId)) return current
+                    return [...current, subjectId]
+                }
+
+                return current.filter((id) => id !== subjectId)
+            })
+        },
+        []
+    )
+
+    const saveBulkCollegeSubjects = React.useCallback(async () => {
+        const normalizedCollegeId = String(bulkCollegeId ?? "").trim()
+        const selectedSubjectIds = Array.from(
+            new Set(
+                bulkCollegeSubjectIds
+                    .map((subjectId) => String(subjectId).trim())
+                    .filter(Boolean)
+            )
+        )
+
+        if (!normalizedCollegeId) {
+            toast.error("Please select a college.")
+            return
+        }
+
+        if (selectedSubjectIds.length === 0) {
+            toast.error("Please select at least one subject.")
+            return
+        }
+
+        setBulkCollegeSaving(true)
+        try {
+            const subjectMap = new Map(
+                allVisibleSubjectsWithoutCollege.map((subject) => [String(subject.$id), subject])
+            )
+
+            let updated = 0
+            const failed: string[] = []
+
+            for (const subjectId of selectedSubjectIds) {
+                const subject = subjectMap.get(subjectId)
+
+                try {
+                    await databases.updateDocument(
+                        DATABASE_ID,
+                        COLLECTIONS.SUBJECTS,
+                        subjectId,
+                        {
+                            departmentId: normalizedCollegeId,
+                        }
+                    )
+                    updated += 1
+                } catch {
+                    failed.push(String(subject?.code ?? subjectId))
+                }
+            }
+
+            if (updated > 0) {
+                await vm.refreshAll()
+            }
+
+            if (updated > 0 && failed.length === 0) {
+                toast.success(
+                    `${updated} subject${updated === 1 ? "" : "s"} updated with a college.`
+                )
+                handleBulkCollegeOpenChange(false)
+                return
+            }
+
+            if (updated > 0) {
+                toast.error(
+                    `Updated ${updated} subject${updated === 1 ? "" : "s"}, but failed for: ${failed.join(", ")}`
+                )
+                return
+            }
+
+            toast.error("No subjects were updated.")
+        } finally {
+            setBulkCollegeSaving(false)
+        }
+    }, [
+        allVisibleSubjectsWithoutCollege,
+        bulkCollegeId,
+        bulkCollegeSubjectIds,
+        handleBulkCollegeOpenChange,
+        vm,
+    ])
+
     const handleTableActionClick = React.useCallback(
         (action: () => void | Promise<unknown>) =>
             (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -594,6 +729,22 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     >
                         <Link2 className="mr-2 h-4 w-4" />
                         Edit All Links to Term
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                            allVisibleSubjectsWithoutCollege.length === 0 ||
+                            bulkCollegeSaving ||
+                            bulkLinking ||
+                            bulkUnlinking
+                        }
+                        onClick={openBulkCollegeDialog}
+                    >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
                     </Button>
 
                     <Button
@@ -940,6 +1091,154 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     ))}
                 </Accordion>
             )}
+
+            <Dialog open={bulkCollegeOpen} onOpenChange={handleBulkCollegeOpenChange}>
+                <DialogContent className="sm:max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Edit Subjects Without College</DialogTitle>
+                        <DialogDescription>
+                            Select a college and apply it to the subjects that currently do not
+                            have one.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid gap-4 py-2">
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">College</label>
+                            <Select value={bulkCollegeId} onValueChange={setBulkCollegeId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select College" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {vm.colleges.length === 0 ? (
+                                        <SelectItem value="__none__" disabled>
+                                            No colleges found
+                                        </SelectItem>
+                                    ) : (
+                                        vm.colleges.map((college) => (
+                                            <SelectItem key={college.$id} value={college.$id}>
+                                                {vm.collegeLabel(vm.colleges, college.$id)}
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                            <div className="text-muted-foreground">
+                                Eligible subjects:{" "}
+                                <span className="font-medium text-foreground">
+                                    {allVisibleSubjectsWithoutCollege.length}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                        setBulkCollegeSubjectIds(
+                                            allVisibleSubjectsWithoutCollege.map((subject) =>
+                                                String(subject.$id)
+                                            )
+                                        )
+                                    }
+                                    disabled={allVisibleSubjectsWithoutCollege.length === 0}
+                                >
+                                    Select All
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setBulkCollegeSubjectIds([])}
+                                    disabled={bulkCollegeSubjectIds.length === 0}
+                                >
+                                    Clear
+                                </Button>
+                            </div>
+                        </div>
+
+                        <ScrollArea className="h-80 rounded-md border">
+                            <div className="space-y-2 p-3">
+                                {allVisibleSubjectsWithoutCollege.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground">
+                                        No subjects without college found in the current list.
+                                    </div>
+                                ) : (
+                                    allVisibleSubjectsWithoutCollege.map((subject) => {
+                                        const subjectId = String(subject.$id)
+                                        const checked = bulkCollegeSubjectIds.includes(subjectId)
+
+                                        return (
+                                            <label
+                                                key={subjectId}
+                                                htmlFor={`bulk-college-subject-${subjectId}`}
+                                                className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                            >
+                                                <Checkbox
+                                                    id={`bulk-college-subject-${subjectId}`}
+                                                    checked={checked}
+                                                    onCheckedChange={(value) =>
+                                                        toggleBulkCollegeSubject(
+                                                            subjectId,
+                                                            Boolean(value)
+                                                        )
+                                                    }
+                                                />
+
+                                                <div className="min-w-0 flex-1 space-y-1">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="font-medium">
+                                                            {subject.code}
+                                                        </span>
+                                                        <Badge variant="outline">No College</Badge>
+                                                    </div>
+
+                                                    <div className="text-sm text-foreground">
+                                                        {subject.title}
+                                                    </div>
+
+                                                    <div className="text-xs text-muted-foreground">
+                                                        Semester:{" "}
+                                                        {resolveSubjectSemester(subject, termMap) ||
+                                                            INHERIT_SEMESTER_LABEL}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        )
+                                    })
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleBulkCollegeOpenChange(false)}
+                            disabled={bulkCollegeSaving}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={() => void saveBulkCollegeSubjects()}
+                            disabled={
+                                bulkCollegeSaving ||
+                                !bulkCollegeId ||
+                                bulkCollegeSubjectIds.length === 0
+                            }
+                        >
+                            {bulkCollegeSaving ? "Saving..." : "Save"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={bulkLinkOpen} onOpenChange={handleBulkLinkOpenChange}>
                 <DialogContent className="sm:max-w-3xl">

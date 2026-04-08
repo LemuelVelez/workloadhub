@@ -105,6 +105,49 @@ function normalizeSectionNameValue(value?: string | null) {
     return matched ?? normalized
 }
 
+function resolveSectionProgramPrefix(
+    programs: ProgramDoc[],
+    programId?: string | null
+) {
+    const normalizedProgramId = str(programId)
+    if (!normalizedProgramId) return ""
+
+    const matchedProgram = programs.find(
+        (program) => str(program.$id) === normalizedProgramId
+    )
+
+    const normalizedCode = str(matchedProgram?.code)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+
+    if (!normalizedCode) return ""
+    if (normalizedCode === "CS" || normalizedCode === "BSCS" || normalizedCode.endsWith("CS")) {
+        return "CS"
+    }
+    if (normalizedCode === "IS" || normalizedCode === "BSIS" || normalizedCode.endsWith("IS")) {
+        return "IS"
+    }
+
+    return ""
+}
+
+function buildStoredSectionYearLevel(
+    value: string | number | null | undefined,
+    programId: string | null | undefined,
+    programs: ProgramDoc[]
+) {
+    const normalizedYearLevel = normalizeSectionYearLevelValue(value)
+    const yearNumber = extractSectionYearNumber(normalizedYearLevel)
+    const programPrefix = resolveSectionProgramPrefix(programs, programId)
+
+    if (!normalizedYearLevel) return ""
+    if (!yearNumber) return normalizedYearLevel
+    if (!programPrefix) return normalizedYearLevel
+    if (normalizedYearLevel.startsWith(`${programPrefix} `)) return normalizedYearLevel
+
+    return `${programPrefix} ${yearNumber}`
+}
+
 function buildSectionDisplayLabel(
     yearLevel?: string | number | null,
     name?: string | null
@@ -116,7 +159,7 @@ function buildSectionDisplayLabel(
     if (!normalizedYearLevel) return normalizedName
     if (!normalizedName) return normalizedYearLevel
 
-    return `${normalizedYearLevel} ${normalizedName}`
+    return `${normalizedYearLevel} - ${normalizedName}`
 }
 
 export function useMasterDataManagement() {
@@ -179,16 +222,16 @@ export function useMasterDataManagement() {
                 }))
             )
 
-            setPrograms(
-                programDocs.map((p: any) => ({
-                    $id: p.$id,
-                    departmentId: str(p.departmentId),
-                    code: str(p.code),
-                    name: str(p.name),
-                    description: p.description ?? null,
-                    isActive: toBool(p.isActive),
-                }))
-            )
+            const mappedPrograms: ProgramDoc[] = programDocs.map((p: any) => ({
+                $id: p.$id,
+                departmentId: str(p.departmentId),
+                code: str(p.code),
+                name: str(p.name),
+                description: p.description ?? null,
+                isActive: toBool(p.isActive),
+            }))
+
+            setPrograms(mappedPrograms)
 
             setSubjects(
                 subjectDocs.map((s: any) => ({
@@ -254,16 +297,26 @@ export function useMasterDataManagement() {
             })
 
             setSections(
-                (sectionDocs ?? []).map((s: any) => ({
-                    $id: s.$id,
-                    termId: str(s.termId),
-                    departmentId: str(s.departmentId),
-                    programId: s.programId ? str(s.programId) : null,
-                    yearLevel: (normalizeSectionYearLevelValue(s.yearLevel) || "1") as any,
-                    name: normalizeSectionNameValue(s.name),
-                    studentCount: s.studentCount != null ? num(s.studentCount, 0) : null,
-                    isActive: toBool(s.isActive),
-                }))
+                (sectionDocs ?? []).map((s: any) => {
+                    const programId = s.programId ? str(s.programId) : null
+                    return {
+                        $id: s.$id,
+                        termId: str(s.termId),
+                        departmentId: str(s.departmentId),
+                        programId,
+                        yearLevel:
+                            (buildStoredSectionYearLevel(
+                                s.yearLevel,
+                                programId,
+                                mappedPrograms
+                            ) ||
+                                normalizeSectionYearLevelValue(s.yearLevel) ||
+                                "1") as any,
+                        name: normalizeSectionNameValue(s.name),
+                        studentCount: s.studentCount != null ? num(s.studentCount, 0) : null,
+                        isActive: toBool(s.isActive),
+                    }
+                })
             )
 
             setRooms(
@@ -849,7 +902,8 @@ export function useMasterDataManagement() {
     async function saveSection() {
         const termId = str(sectionTermId)
         const departmentId = str(sectionCollegeId)
-        const yearLevel = normalizeSectionYearLevelValue(sectionYear)
+        const programId = str(sectionProgramId) === "__none__" ? null : str(sectionProgramId)
+        const yearLevel = buildStoredSectionYearLevel(sectionYear, programId, programs)
         const yearNumber = extractSectionYearNumber(yearLevel)
         const name = normalizeSectionNameValue(sectionName)
 
@@ -874,7 +928,6 @@ export function useMasterDataManagement() {
             return
         }
 
-        const programId = str(sectionProgramId) === "__none__" ? null : str(sectionProgramId)
         const studentCount = str(sectionStudentCount) ? num(sectionStudentCount, 0) : null
         const editingSectionId = sectionEditing?.$id ?? null
 

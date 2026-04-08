@@ -2,12 +2,26 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { Plus, Pencil, Trash2 } from "lucide-react"
+import * as React from "react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 
+import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
 import type { MasterDataManagementVM } from "./use-master-data"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -17,7 +31,230 @@ type Props = {
     vm: MasterDataManagementVM
 }
 
+function normalizeProgramCode(value?: string | null) {
+    return String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+}
+
+function resolveProgramPrefix(vm: MasterDataManagementVM, programId?: string | null) {
+    const normalizedProgramId = String(programId ?? "").trim()
+    if (!normalizedProgramId) return ""
+
+    const program = vm.programs.find((item) => String(item.$id) === normalizedProgramId)
+    const normalizedCode = normalizeProgramCode(program?.code)
+
+    if (!normalizedCode) return ""
+    if (normalizedCode === "CS" || normalizedCode === "BSCS" || normalizedCode.endsWith("CS")) {
+        return "CS"
+    }
+    if (normalizedCode === "IS" || normalizedCode === "BSIS" || normalizedCode.endsWith("IS")) {
+        return "IS"
+    }
+
+    return ""
+}
+
+function buildSectionDisplayLabel(
+    vm: MasterDataManagementVM,
+    section: {
+        yearLevel?: string | number | null
+        name?: string | null
+        programId?: string | null
+    }
+) {
+    const normalizedYearLevel = String(section.yearLevel ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+    const normalizedName = String(section.name ?? "").trim().toUpperCase()
+    const yearNumber = normalizedYearLevel.match(/([1-9]\d*)$/)?.[1] ?? normalizedYearLevel
+    const programPrefix = resolveProgramPrefix(vm, section.programId ?? null)
+
+    const displayYearLevel =
+        normalizedYearLevel && programPrefix && !normalizedYearLevel.startsWith(`${programPrefix} `)
+            ? `${programPrefix} ${yearNumber}`
+            : normalizedYearLevel
+
+    if (!displayYearLevel && !normalizedName) return "—"
+    if (!displayYearLevel) return normalizedName
+    if (!normalizedName) return displayYearLevel
+
+    return `${displayYearLevel} - ${normalizedName}`
+}
+
 export function MasterDataSectionsTab({ vm }: Props) {
+    const [bulkEditOpen, setBulkEditOpen] = React.useState(false)
+    const [bulkEditProgramId, setBulkEditProgramId] = React.useState("__keep__")
+    const [bulkEditStudentCount, setBulkEditStudentCount] = React.useState("")
+    const [bulkEditSectionIds, setBulkEditSectionIds] = React.useState<string[]>([])
+    const [bulkEditing, setBulkEditing] = React.useState(false)
+
+    const eligibleSections = React.useMemo(
+        () =>
+            vm.filteredSections.filter(
+                (section) =>
+                    !String(section.programId ?? "").trim() ||
+                    section.studentCount == null
+            ),
+        [vm.filteredSections]
+    )
+
+    const eligibleSectionMap = React.useMemo(
+        () => new Map(eligibleSections.map((section) => [String(section.$id), section])),
+        [eligibleSections]
+    )
+
+    const bulkProgramOptions = React.useMemo(() => {
+        const departmentIds = new Set(
+            eligibleSections
+                .map((section) => String(section.departmentId ?? "").trim())
+                .filter(Boolean)
+        )
+
+        if (departmentIds.size === 0) return vm.programs
+
+        return vm.programs.filter((program) =>
+            departmentIds.has(String(program.departmentId ?? "").trim())
+        )
+    }, [eligibleSections, vm.programs])
+
+    const openBulkEditDialog = React.useCallback(() => {
+        setBulkEditProgramId("__keep__")
+        setBulkEditStudentCount("")
+        setBulkEditSectionIds(eligibleSections.map((section) => String(section.$id)))
+        setBulkEditOpen(true)
+    }, [eligibleSections])
+
+    const handleBulkEditOpenChange = React.useCallback((nextOpen: boolean) => {
+        setBulkEditOpen(nextOpen)
+
+        if (!nextOpen) {
+            setBulkEditProgramId("__keep__")
+            setBulkEditStudentCount("")
+            setBulkEditSectionIds([])
+        }
+    }, [])
+
+    const toggleBulkEditSection = React.useCallback(
+        (sectionId: string, checked: boolean) => {
+            setBulkEditSectionIds((current) => {
+                if (checked) {
+                    if (current.includes(sectionId)) return current
+                    return [...current, sectionId]
+                }
+
+                return current.filter((id) => id !== sectionId)
+            })
+        },
+        []
+    )
+
+    const saveBulkEditSections = React.useCallback(async () => {
+        const selectedSectionIds = Array.from(
+            new Set(
+                bulkEditSectionIds
+                    .map((sectionId) => String(sectionId).trim())
+                    .filter(Boolean)
+            )
+        )
+
+        const hasProgramChange = bulkEditProgramId !== "__keep__"
+        const hasStudentCountChange = bulkEditStudentCount.trim() !== ""
+
+        if (!hasProgramChange && !hasStudentCountChange) {
+            toast.error("Choose a program, a student count, or both.")
+            return
+        }
+
+        if (selectedSectionIds.length === 0) {
+            toast.error("Please select at least one section.")
+            return
+        }
+
+        const numericStudentCount =
+            bulkEditStudentCount.trim() === ""
+                ? null
+                : Number(bulkEditStudentCount)
+
+        if (
+            hasStudentCountChange &&
+            (!Number.isFinite(numericStudentCount) || Number(numericStudentCount) < 0)
+        ) {
+            toast.error("Student count must be a valid non-negative number.")
+            return
+        }
+
+        setBulkEditing(true)
+        try {
+            let updated = 0
+            const failed: string[] = []
+
+            for (const sectionId of selectedSectionIds) {
+                const section = eligibleSectionMap.get(sectionId)
+
+                if (!section) {
+                    failed.push(sectionId)
+                    continue
+                }
+
+                const payload: Record<string, unknown> = {}
+
+                if (hasProgramChange) {
+                    payload.programId =
+                        bulkEditProgramId === "__none__" ? null : bulkEditProgramId
+                }
+
+                if (hasStudentCountChange) {
+                    payload.studentCount = numericStudentCount
+                }
+
+                try {
+                    await databases.updateDocument(
+                        DATABASE_ID,
+                        COLLECTIONS.SECTIONS,
+                        sectionId,
+                        payload
+                    )
+                    updated += 1
+                } catch {
+                    failed.push(buildSectionDisplayLabel(vm, section))
+                }
+            }
+
+            if (updated > 0) {
+                await vm.refreshAll()
+            }
+
+            if (updated > 0 && failed.length === 0) {
+                toast.success(
+                    `${updated} section${updated === 1 ? "" : "s"} updated.`
+                )
+                handleBulkEditOpenChange(false)
+                return
+            }
+
+            if (updated > 0) {
+                toast.error(
+                    `Updated ${updated} section${updated === 1 ? "" : "s"}, but failed for: ${failed.join(", ")}`
+                )
+                return
+            }
+
+            toast.error("No sections were updated.")
+        } finally {
+            setBulkEditing(false)
+        }
+    }, [
+        bulkEditProgramId,
+        bulkEditSectionIds,
+        bulkEditStudentCount,
+        eligibleSectionMap,
+        handleBulkEditOpenChange,
+        vm,
+    ])
+
     return (
         <TabsContent value="sections" className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -51,6 +288,16 @@ export function MasterDataSectionsTab({ vm }: Props) {
                             </SelectContent>
                         </Select>
                     </div>
+
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={openBulkEditDialog}
+                        disabled={eligibleSections.length === 0 || bulkEditing}
+                    >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                    </Button>
 
                     <Button
                         size="sm"
@@ -105,9 +352,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                 .map((s) => (
                                     <TableRow key={s.$id}>
                                         <TableCell className="font-medium">
-                                            {`${String(s.yearLevel ?? "").trim()}${
-                                                s.name ? ` - ${s.name}` : ""
-                                            }`.trim() || "—"}
+                                            {buildSectionDisplayLabel(vm, s)}
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
                                             {vm.collegeLabel(vm.colleges, s.departmentId)}
@@ -157,6 +402,172 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     </Table>
                 </div>
             )}
+
+            <Dialog open={bulkEditOpen} onOpenChange={handleBulkEditOpenChange}>
+                <DialogContent className="sm:max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Edit Sections Without Program or Students</DialogTitle>
+                        <DialogDescription>
+                            Apply a program, a student count, or both to the sections that still
+                            have missing values.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid gap-4 py-2">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium">Program</label>
+                                <Select
+                                    value={bulkEditProgramId}
+                                    onValueChange={setBulkEditProgramId}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Keep current program" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="__keep__">Keep Current Program</SelectItem>
+                                        <SelectItem value="__none__">Clear Program</SelectItem>
+                                        {bulkProgramOptions.map((program) => (
+                                            <SelectItem key={program.$id} value={program.$id}>
+                                                {vm.programLabel(vm.programs, program.$id)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium">Student Count</label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    inputMode="numeric"
+                                    value={bulkEditStudentCount}
+                                    onChange={(event) =>
+                                        setBulkEditStudentCount(event.target.value)
+                                    }
+                                    placeholder="Leave blank to keep current"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                            <div className="text-muted-foreground">
+                                Eligible sections:{" "}
+                                <span className="font-medium text-foreground">
+                                    {eligibleSections.length}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                        setBulkEditSectionIds(
+                                            eligibleSections.map((section) =>
+                                                String(section.$id)
+                                            )
+                                        )
+                                    }
+                                    disabled={eligibleSections.length === 0}
+                                >
+                                    Select All
+                                </Button>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setBulkEditSectionIds([])}
+                                    disabled={bulkEditSectionIds.length === 0}
+                                >
+                                    Clear
+                                </Button>
+                            </div>
+                        </div>
+
+                        <ScrollArea className="h-80 rounded-md border">
+                            <div className="space-y-2 p-3">
+                                {eligibleSections.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground">
+                                        No sections without program or students found in the
+                                        current list.
+                                    </div>
+                                ) : (
+                                    eligibleSections.map((section) => {
+                                        const sectionId = String(section.$id)
+                                        const checked = bulkEditSectionIds.includes(sectionId)
+
+                                        return (
+                                            <label
+                                                key={sectionId}
+                                                htmlFor={`bulk-edit-section-${sectionId}`}
+                                                className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                            >
+                                                <Checkbox
+                                                    id={`bulk-edit-section-${sectionId}`}
+                                                    checked={checked}
+                                                    onCheckedChange={(value) =>
+                                                        toggleBulkEditSection(
+                                                            sectionId,
+                                                            Boolean(value)
+                                                        )
+                                                    }
+                                                />
+
+                                                <div className="min-w-0 flex-1 space-y-1">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="font-medium">
+                                                            {buildSectionDisplayLabel(vm, section)}
+                                                        </span>
+                                                        {!String(section.programId ?? "").trim() ? (
+                                                            <Badge variant="outline">
+                                                                No Program
+                                                            </Badge>
+                                                        ) : null}
+                                                        {section.studentCount == null ? (
+                                                            <Badge variant="outline">
+                                                                No Students
+                                                            </Badge>
+                                                        ) : null}
+                                                    </div>
+
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {vm.collegeLabel(
+                                                            vm.colleges,
+                                                            section.departmentId
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        )
+                                    })
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleBulkEditOpenChange(false)}
+                            disabled={bulkEditing}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={() => void saveBulkEditSections()}
+                            disabled={bulkEditing || bulkEditSectionIds.length === 0}
+                        >
+                            {bulkEditing ? "Saving..." : "Save"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </TabsContent>
     )
 }

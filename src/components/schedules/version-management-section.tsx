@@ -2,18 +2,7 @@
 
 import * as React from "react"
 
-import {
-    CalendarDays,
-    CheckCircle2,
-    Eye,
-    MoreHorizontal,
-    Pencil,
-    Plus,
-    RefreshCcw,
-    ShieldCheck,
-    ShieldX,
-    Trash2,
-} from "lucide-react"
+import { CalendarDays, Plus, RefreshCcw, Trash2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -34,7 +23,6 @@ import {
     Card,
     CardContent,
     CardDescription,
-    CardFooter,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
@@ -42,19 +30,10 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -171,18 +150,10 @@ export function VersionManagementSection({
     filterDeptId,
     setFilterDeptId,
     selectedVersionId,
-    setSelectedVersionId,
     onRefresh,
     onOpenCreate,
-    onSetStatus,
     editingVersion,
-    onEditVersion,
     onDeleteVersion,
-    viewOpen,
-    setViewOpen,
-    active,
-    setActive,
-    onOpenView,
     createOpen,
     setCreateOpen,
     createTermMode,
@@ -199,6 +170,8 @@ export function VersionManagementSection({
     setCreateDeptId,
     createLabel,
     setCreateLabel,
+    createNotes,
+    setCreateNotes,
     createSetActive,
     setCreateSetActive,
     nextVersionNumber,
@@ -534,7 +507,6 @@ export function VersionManagementSection({
                                         <TableHead>Academic Term</TableHead>
                                         <TableHead>College</TableHead>
                                         <TableHead className="text-right">Created</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
 
@@ -600,65 +572,6 @@ export function VersionManagementSection({
                                                 </TableCell>
 
                                                 <TableCell className="text-right text-sm">{fmtDate(it.$createdAt)}</TableCell>
-
-                                                <TableCell className="text-right">
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="rounded-xl">
-                                                                <MoreHorizontal className="size-4" />
-                                                            </Button>
-                                                        </DropdownMenuTrigger>
-
-                                                        <DropdownMenuContent align="end" className="w-60">
-                                                            <DropdownMenuLabel>Options</DropdownMenuLabel>
-                                                            <DropdownMenuSeparator />
-
-                                                            <DropdownMenuItem onClick={() => setSelectedVersionId(it.$id)}>
-                                                                <CalendarDays className="mr-2 size-4" />
-                                                                Open in planner
-                                                            </DropdownMenuItem>
-
-                                                            <DropdownMenuItem onClick={() => onOpenView(it)}>
-                                                                <Eye className="mr-2 size-4" />
-                                                                View details
-                                                            </DropdownMenuItem>
-
-                                                            <DropdownMenuItem onClick={() => onEditVersion(it)} disabled={saving}>
-                                                                <Pencil className="mr-2 size-4" />
-                                                                Edit semester
-                                                            </DropdownMenuItem>
-
-                                                            <DropdownMenuSeparator />
-
-                                                            <DropdownMenuItem
-                                                                onClick={() => void onSetStatus(it, "Active")}
-                                                                disabled={saving || String(it.status) === "Active"}
-                                                            >
-                                                                <ShieldCheck className="mr-2 size-4" />
-                                                                Set Active
-                                                            </DropdownMenuItem>
-
-                                                            <DropdownMenuItem
-                                                                onClick={() => void onSetStatus(it, "Archived")}
-                                                                disabled={saving || String(it.status) === "Archived"}
-                                                            >
-                                                                <ShieldX className="mr-2 size-4" />
-                                                                Archive
-                                                            </DropdownMenuItem>
-
-                                                            <DropdownMenuSeparator />
-
-                                                            <DropdownMenuItem
-                                                                onClick={() => openSingleDeleteDialog(it)}
-                                                                disabled={saving}
-                                                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                                                            >
-                                                                <Trash2 className="mr-2 size-4" />
-                                                                Delete semester
-                                                            </DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
-                                                </TableCell>
                                             </TableRow>
                                         )
                                     })}
@@ -668,146 +581,6 @@ export function VersionManagementSection({
                     )}
                 </CardContent>
             </Card>
-
-            <Dialog
-                open={viewOpen}
-                onOpenChange={(v) => {
-                    if (!v) setActive(null)
-                    setViewOpen(v)
-                }}
-            >
-                <DialogContent className="max-h-[78vh] overflow-y-auto sm:max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>Semester Schedule</DialogTitle>
-                        <DialogDescription>Review semester schedule information and manage status.</DialogDescription>
-                    </DialogHeader>
-
-                    {!active ? (
-                        <div className="space-y-3">
-                            <Skeleton className="h-6 w-1/3" />
-                            <Skeleton className="h-24 w-full" />
-                            <Skeleton className="h-10 w-full" />
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="grid gap-3 sm:grid-cols-2">
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Semester</CardTitle>
-                                        <CardDescription>Semester schedule record</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="text-2xl font-semibold">
-                                        {termLabel(termMap.get(String(active.termId)) ?? null)}
-                                    </CardContent>
-                                    <CardFooter className="pt-0 text-xs text-muted-foreground">
-                                        {shortId(active.$id)}
-                                    </CardFooter>
-                                </Card>
-
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Status</CardTitle>
-                                        <CardDescription>Current state</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <Badge variant={statusBadgeVariant(String(active.status))}>
-                                            {normalizeScheduleStatus(active.status)}
-                                        </Badge>
-                                    </CardContent>
-                                    <CardFooter className="pt-0 text-xs text-muted-foreground">
-                                        Updated: {fmtDate(active.$updatedAt)}
-                                    </CardFooter>
-                                </Card>
-                            </div>
-
-                            <Card className="rounded-2xl">
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-sm">Metadata</CardTitle>
-                                    <CardDescription>Term + College</CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-2 text-sm">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-muted-foreground">Label</span>
-                                        <span className="font-medium">{active.label || "—"}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-muted-foreground">Term</span>
-                                        <span className="font-medium">
-                                            {termLabel(termMap.get(String(active.termId)) ?? null)}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-muted-foreground">College</span>
-                                        <span className="font-medium">
-                                            {deptLabel(deptMap.get(String(active.departmentId)) ?? null)}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-muted-foreground">Created</span>
-                                        <span className="font-medium">{fmtDate(active.$createdAt)}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-muted-foreground">Created By</span>
-                                        <span className="font-medium">{active.createdBy || "—"}</span>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            {active.notes ? (
-                                <Card className="rounded-2xl">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm">Notes</CardTitle>
-                                        <CardDescription>Admin notes</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="text-sm leading-relaxed">{active.notes}</CardContent>
-                                </Card>
-                            ) : null}
-                        </div>
-                    )}
-
-                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                        <Button type="button" variant="outline" onClick={() => setViewOpen(false)} disabled={saving}>
-                            Close
-                        </Button>
-
-                        <div className="flex items-center gap-2">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                disabled={!active || saving}
-                                onClick={() => {
-                                    if (!active) return
-                                    setViewOpen(false)
-                                    onEditVersion(active)
-                                }}
-                            >
-                                <Pencil className="mr-2 size-4" />
-                                Edit
-                            </Button>
-
-                            <Button
-                                type="button"
-                                variant="outline"
-                                disabled={!active || saving || String(active?.status) === "Active"}
-                                onClick={() => active && void onSetStatus(active, "Active")}
-                            >
-                                <CheckCircle2 className="mr-2 size-4" />
-                                Set Active
-                            </Button>
-
-                            <Button
-                                type="button"
-                                variant="destructive"
-                                disabled={!active || saving || String(active?.status) === "Archived"}
-                                onClick={() => active && void onSetStatus(active, "Archived")}
-                            >
-                                <ShieldX className="mr-2 size-4" />
-                                Archive
-                            </Button>
-                        </div>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             <AlertDialog
                 open={deleteTargets.length > 0}
@@ -1025,6 +798,15 @@ export function VersionManagementSection({
                                 ) : null}
                             </>
                         )}
+
+                        <div className="space-y-1">
+                            <Label>Notes</Label>
+                            <Input
+                                value={createNotes}
+                                onChange={(e) => setCreateNotes(e.target.value)}
+                                placeholder="Optional notes for this semester schedule"
+                            />
+                        </div>
 
                         <div className="flex items-center gap-3 rounded-xl border p-3">
                             <Checkbox
