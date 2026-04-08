@@ -134,6 +134,45 @@ function getAcademicTermDateRange(schoolYearValue: string, semesterValue: string
     }
 }
 
+
+function getScopedSectionsForVersion(
+    allSections: SectionDoc[],
+    version: Pick<ScheduleVersionDoc, "termId" | "departmentId"> | null
+) {
+    const termId = String(version?.termId || "").trim()
+    const departmentId = String(version?.departmentId || "").trim()
+
+    const activeSections = allSections.filter((section) => section.isActive !== false)
+
+    const sortForDisplay = (items: SectionDoc[]) => items.slice().sort(sortSectionsForDisplay)
+
+    const exactMatches = activeSections.filter((section) => {
+        const sectionTermId = String(section.termId || "").trim()
+        const sectionDepartmentId = String(section.departmentId || "").trim()
+
+        return (
+            (!termId || !sectionTermId || sectionTermId === termId) &&
+            (!departmentId || !sectionDepartmentId || sectionDepartmentId === departmentId)
+        )
+    })
+
+    if (exactMatches.length > 0) return sortForDisplay(exactMatches)
+
+    const departmentMatches = departmentId
+        ? activeSections.filter((section) => String(section.departmentId || "").trim() === departmentId)
+        : []
+
+    if (departmentMatches.length > 0) return sortForDisplay(departmentMatches)
+
+    const termMatches = termId
+        ? activeSections.filter((section) => String(section.termId || "").trim() === termId)
+        : []
+
+    if (termMatches.length > 0) return sortForDisplay(termMatches)
+
+    return sortForDisplay(activeSections)
+}
+
 export default function AdminSchedulesPage() {
     const { user } = useSession()
     const userId = String(user?.$id || user?.id || "").trim()
@@ -752,11 +791,7 @@ export default function AdminSchedulesPage() {
                 ]),
                 databases.listDocuments(DATABASE_ID, COLLECTIONS.SUBJECTS, [Query.limit(5000)]),
                 databases.listDocuments(DATABASE_ID, COLLECTIONS.ROOMS, [Query.limit(2000)]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [
-                    Query.equal("termId", selectedVersion.termId),
-                    Query.equal("departmentId", selectedVersion.departmentId),
-                    Query.limit(2000),
-                ]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [Query.limit(5000)]),
             ])
 
             let facultyDocs: UserProfileDoc[] = []
@@ -806,9 +841,10 @@ export default function AdminSchedulesPage() {
                 .filter((r) => r.isActive !== false)
                 .sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")))
 
-            const scopedSections = ((secRes?.documents ?? []) as SectionDoc[])
-                .filter((s) => s.isActive !== false)
-                .sort(sortSectionsForDisplay)
+            const scopedSections = getScopedSectionsForVersion(
+                (secRes?.documents ?? []) as SectionDoc[],
+                selectedVersion
+            )
 
             const scopedFaculty = facultyDocs
                 .filter((f) => f.isActive !== false)
@@ -834,6 +870,18 @@ export default function AdminSchedulesPage() {
     React.useEffect(() => {
         void fetchScheduleContext()
     }, [fetchScheduleContext])
+
+    React.useEffect(() => {
+        if (!entryDialogOpen) return
+
+        setFormSectionId((prev) => {
+            if (prev && sections.some((section) => section.$id === prev)) {
+                return prev
+            }
+
+            return sections[0]?.$id || ""
+        })
+    }, [entryDialogOpen, sections])
 
     React.useEffect(() => {
         setFormSubjectIds((prev) => {
