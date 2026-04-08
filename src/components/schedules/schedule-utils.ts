@@ -359,8 +359,22 @@ export function fmtDate(iso?: string | null) {
 export function normalizeScheduleStatus(status?: string | null) {
     const s = String(status || "").trim()
     if (!s) return "Draft"
-    if (s.toLowerCase() === "locked") return "Archived"
+
+    const normalized = s.toLowerCase()
+    if (normalized === "locked") return "Archived"
+    if (normalized === "archived") return "Archived"
+    if (normalized === "active") return "Active"
+    if (normalized === "draft") return "Draft"
+
     return s
+}
+
+export function isActiveScheduleStatus(status?: string | null) {
+    return normalizeScheduleStatus(status) === "Active"
+}
+
+export function isArchivedScheduleStatus(status?: string | null) {
+    return normalizeScheduleStatus(status) === "Archived"
 }
 
 export function statusBadgeVariant(status: string): "default" | "secondary" | "outline" {
@@ -637,3 +651,4 @@ function buildTimeOptions(stepMinutes = 30) {
 }
 
 export const TIME_OPTIONS = buildTimeOptions(30)
+

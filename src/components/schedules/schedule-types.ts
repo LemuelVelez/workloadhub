@@ -1,4 +1,4 @@
-export type ScheduleStatus = "Draft" | "Active" | "Archived" | (string & {})
+export type ScheduleStatus = "Draft" | "Active" | "Locked" | "Archived" | (string & {})
 export type MeetingType = "LECTURE" | "LAB" | "OTHER" | (string & {})
 
 export type ScheduleVersionDoc = {
@@ -216,3 +216,4 @@ export const DAY_OPTIONS: ReadonlyArray<string> = [
 
 export const FACULTY_OPTION_NONE = "__none__"
 export const FACULTY_OPTION_MANUAL = "__manual__"
+

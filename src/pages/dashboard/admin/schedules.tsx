@@ -47,6 +47,7 @@ import {
     meetingTypeLabel,
     normalizeText,
     rangesOverlap,
+    isActiveScheduleStatus,
     normalizeScheduleStatus,
     roleLooksLikeFaculty,
     roomTypeLabel,
@@ -131,6 +132,48 @@ function getAcademicTermDateRange(schoolYearValue: string, semesterValue: string
     return {
         startDate: `${startYear}-08-01`,
         endDate: `${startYear}-12-31`,
+    }
+}
+
+function toStoredScheduleStatus(nextStatus: ScheduleStatus, currentRawStatus?: string | null): ScheduleStatus {
+    const normalizedNextStatus = normalizeScheduleStatus(nextStatus)
+
+    if (normalizedNextStatus === "Archived") {
+        const currentRaw = String(currentRawStatus || "").trim()
+        if (currentRaw && normalizeScheduleStatus(currentRaw) === "Archived") {
+            return currentRaw as ScheduleStatus
+        }
+
+        return "Locked"
+    }
+
+    if (normalizedNextStatus === "Active") {
+        return "Active"
+    }
+
+    return "Draft"
+}
+
+function buildScheduleStatusPayload(
+    nextStatus: ScheduleStatus,
+    actorUserId: string,
+    currentRawStatus?: string | null
+) {
+    const storedStatus = toStoredScheduleStatus(nextStatus, currentRawStatus)
+    const normalizedStoredStatus = normalizeScheduleStatus(storedStatus)
+
+    if (normalizedStoredStatus === "Archived") {
+        return {
+            status: storedStatus,
+            lockedBy: actorUserId,
+            lockedAt: new Date().toISOString(),
+        }
+    }
+
+    return {
+        status: storedStatus,
+        lockedBy: null,
+        lockedAt: null,
     }
 }
 
@@ -283,7 +326,7 @@ export default function AdminSchedulesPage() {
 
             setSelectedVersionId((prev) => {
                 if (prev && vDocs.some((x) => x.$id === prev)) return prev
-                const activeFirst = vDocs.find((x) => String(x.status) === "Active")
+                const activeFirst = vDocs.find((x) => isActiveScheduleStatus(x.status))
                 return activeFirst?.$id || vDocs[0]?.$id || ""
             })
         } catch (e: any) {
@@ -523,13 +566,13 @@ export default function AdminSchedulesPage() {
                         x.$id !== editingVersion?.$id &&
                         String(x.termId) === String(termIdToUse) &&
                         String(x.departmentId) === String(createDeptId) &&
-                        String(x.status) === "Active"
+                        isActiveScheduleStatus(x.status)
                 )
 
                 for (const other of others) {
                     try {
                         await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, other.$id, {
-                            status: "Draft",
+                            ...buildScheduleStatusPayload("Draft", userId),
                         })
                     } catch {
                         // best effort
@@ -570,7 +613,7 @@ export default function AdminSchedulesPage() {
                     departmentId: createDeptId,
                     version: computedVersionNumber,
                     label: createLabel.trim() || editingVersion.label?.trim() || `Semester ${computedVersionNumber}`,
-                    status: nextStatus,
+                    ...buildScheduleStatusPayload(nextStatus, userId, editingVersion.status),
                     notes: createNotes.trim() || null,
                 }
 
@@ -601,7 +644,7 @@ export default function AdminSchedulesPage() {
                     departmentId: createDeptId,
                     version: computedVersionNumber,
                     label: createLabel.trim() || `Semester ${computedVersionNumber}`,
-                    status: createSetActive ? "Active" : "Draft",
+                    ...buildScheduleStatusPayload(createSetActive ? "Active" : "Draft", userId),
                     createdBy: userId,
                     notes: createNotes.trim() || null,
                 }
@@ -639,13 +682,13 @@ export default function AdminSchedulesPage() {
                         x.$id !== it.$id &&
                         String(x.termId) === String(it.termId) &&
                         String(x.departmentId) === String(it.departmentId) &&
-                        String(x.status) === "Active"
+                        isActiveScheduleStatus(x.status)
                 )
 
                 for (const o of others) {
                     try {
                         await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, o.$id, {
-                            status: "Draft",
+                            ...buildScheduleStatusPayload("Draft", userId),
                         })
                     } catch {
                         // best effort
@@ -653,11 +696,15 @@ export default function AdminSchedulesPage() {
                 }
             }
 
-            const payload: any = { status: next }
+            const payload: any = buildScheduleStatusPayload(next, userId, it.status)
 
             await databases.updateDocument(DATABASE_ID, COLLECTIONS.SCHEDULE_VERSIONS, it.$id, payload)
 
-            toast.success(`Schedule semester set to ${next}`)
+            if (normalizeScheduleStatus(payload.status) === "Active") {
+                setSelectedVersionId(it.$id)
+            }
+
+            toast.success(`Schedule semester set to ${normalizeScheduleStatus(payload.status)}`)
             setViewOpen(false)
             setActive(null)
             await fetchAll()
