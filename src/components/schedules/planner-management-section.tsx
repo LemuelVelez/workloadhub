@@ -11,6 +11,7 @@ import {
     CalendarDays,
     Eye,
     FlaskConical,
+    Loader2,
     PencilLine,
     Plus,
     Printer,
@@ -22,7 +23,7 @@ import {
     X,
 } from "lucide-react"
 import { toast } from "sonner"
-import { Document, Page, PDFViewer, StyleSheet, Text, View, pdf } from "@react-pdf/renderer"
+import { Document, Image, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer"
 
 import { cn } from "@/lib/utils"
 
@@ -214,21 +215,240 @@ const PLANNER_SORT_OPTIONS: Array<{ value: PlannerSortKey; label: string }> = [
     { value: "conflicts", label: "Conflict Count" },
 ]
 
+const LEFT_LOGO_PATH = "/logo.png"
+const RIGHT_LOGO_PATH = "/CCS.jpg"
+
+const HEADER_REPUBLIC = "Republic of the Philippines"
+const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"
+const HEADER_SUBTITLE = "The Premier University in Zamboanga del Norte"
+const HEADER_COLLEGE = "COLLEGE OF COMPUTING STUDIES"
+const HEADER_DOCUMENT = "SCHEDULE PLANNER REPORT"
+
+const assetUrlCache = new Map<string, Promise<string>>()
+
+function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = filename
+    anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+async function blobToDataUrl(blob: Blob) {
+    return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(String(reader.result ?? ""))
+        reader.onerror = () => reject(new Error("Failed to read file data."))
+        reader.readAsDataURL(blob)
+    })
+}
+
+function isSvgAsset(path: string, blob: Blob) {
+    return /\.svg(?:$|\?)/i.test(path) || /image\/svg\+xml/i.test(blob.type)
+}
+
+async function loadImageElement(src: string) {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new window.Image()
+        image.decoding = "async"
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error("Failed to decode image asset."))
+        image.src = src
+    })
+}
+
+async function rasterizeSvgBlobToPngDataUrl(blob: Blob) {
+    const objectUrl = URL.createObjectURL(blob)
+
+    try {
+        const image = await loadImageElement(objectUrl)
+        const width = Math.max(image.naturalWidth || image.width || 1, 1)
+        const height = Math.max(image.naturalHeight || image.height || 1, 1)
+
+        const canvas = document.createElement("canvas")
+        canvas.width = width
+        canvas.height = height
+
+        const context = canvas.getContext("2d")
+        if (!context) {
+            throw new Error("Failed to prepare canvas for SVG conversion.")
+        }
+
+        context.clearRect(0, 0, width, height)
+        context.drawImage(image, 0, 0, width, height)
+
+        return canvas.toDataURL("image/png")
+    } finally {
+        URL.revokeObjectURL(objectUrl)
+    }
+}
+
+async function assetBlobToPdfDataUrl(path: string, blob: Blob) {
+    if (isSvgAsset(path, blob)) {
+        return await rasterizeSvgBlobToPngDataUrl(blob)
+    }
+
+    return await blobToDataUrl(blob)
+}
+
+function getAssetAsDataUrl(path: string) {
+    if (!assetUrlCache.has(path)) {
+        const promise = (async () => {
+            try {
+                const response = await fetch(path, { cache: "force-cache" })
+                if (!response.ok) {
+                    throw new Error(`Failed to load asset: ${path}`)
+                }
+
+                const blob = await response.blob()
+                return await assetBlobToPdfDataUrl(path, blob)
+            } catch (error) {
+                assetUrlCache.delete(path)
+                throw error
+            }
+        })()
+
+        assetUrlCache.set(path, promise)
+    }
+
+    return assetUrlCache.get(path)!
+}
+
 const pdfStyles = StyleSheet.create({
-    page: { padding: 20, fontSize: 9, fontFamily: "Helvetica", color: "#0f172a" },
-    title: { fontSize: 14, marginBottom: 6, fontWeight: "bold" },
-    meta: { marginBottom: 3 },
-    table: { borderWidth: 1, borderColor: "#cbd5e1", marginTop: 10 },
-    header: { flexDirection: "row", backgroundColor: "#e2e8f0", borderBottomWidth: 1, borderBottomColor: "#cbd5e1" },
-    row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
-    cell: { padding: 4, borderRightWidth: 1, borderRightColor: "#e2e8f0" },
-    lastCell: { borderRightWidth: 0 },
-    day: { width: "12%" },
-    time: { width: "18%" },
-    subject: { width: "28%" },
-    section: { width: "12%" },
-    faculty: { width: "18%" },
-    room: { width: "12%" },
+    page: {
+        paddingTop: 18,
+        paddingRight: 22,
+        paddingBottom: 36,
+        paddingLeft: 22,
+        fontFamily: "Helvetica",
+        color: "#1F2937",
+        fontSize: 8.5,
+    },
+    headerWrap: {
+        width: "100%",
+    },
+    headerRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        width: "100%",
+    },
+    logoWrap: {
+        width: 72,
+        height: 60,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    logo: {
+        width: 54,
+        height: 54,
+        objectFit: "contain",
+    },
+    centerHeader: {
+        flexGrow: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 6,
+    },
+    republic: {
+        fontSize: 7,
+        color: "#4B5563",
+        textAlign: "center",
+        marginBottom: 1,
+    },
+    school: {
+        fontSize: 10.5,
+        fontWeight: "bold",
+        textAlign: "center",
+        marginBottom: 1,
+    },
+    campusLine: {
+        fontSize: 7.2,
+        color: "#4B5563",
+        textAlign: "center",
+        marginBottom: 4,
+    },
+    college: {
+        fontSize: 9.25,
+        fontWeight: "bold",
+        textAlign: "center",
+        marginBottom: 1,
+    },
+    documentTitle: {
+        fontSize: 15.5,
+        fontStyle: "italic",
+        textAlign: "center",
+        color: "#4B5563",
+        marginTop: 8,
+        marginBottom: 2,
+    },
+    metaCenter: {
+        fontSize: 8.1,
+        textAlign: "center",
+        color: "#475569",
+        marginBottom: 1,
+    },
+    table: {
+        marginTop: 10,
+        borderWidth: 1,
+        borderColor: "#CBD5E1",
+    },
+    headerRowTable: {
+        flexDirection: "row",
+        backgroundColor: "#0F172A",
+    },
+    headerCell: {
+        padding: 6,
+        color: "#FFFFFF",
+        fontWeight: "bold",
+        borderRightWidth: 1,
+        borderRightColor: "#CBD5E1",
+    },
+    row: {
+        flexDirection: "row",
+    },
+    cell: {
+        padding: 6,
+        borderTopWidth: 1,
+        borderTopColor: "#CBD5E1",
+        borderRightWidth: 1,
+        borderRightColor: "#CBD5E1",
+        color: "#0F172A",
+    },
+    zebra: {
+        backgroundColor: "#F8FAFC",
+    },
+    conflictRow: {
+        backgroundColor: "#FEE2E2",
+    },
+    footerText: {
+        position: "absolute",
+        bottom: 12,
+        left: 22,
+        right: 22,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        fontSize: 8,
+        color: "#64748B",
+    },
+    footerRuleWrap: {
+        position: "absolute",
+        bottom: 24,
+        left: 22,
+        right: 22,
+    },
+    blueRule: {
+        height: 2,
+        backgroundColor: "#7FA7E8",
+        width: "100%",
+    },
+    goldRule: {
+        height: 1.5,
+        backgroundColor: "#E9C76B",
+        width: "100%",
+        marginTop: 2,
+    },
 })
 
 function comparePlannerText(a?: string | number | null, b?: string | number | null) {
@@ -488,6 +708,8 @@ function SchedulePdfDocument({
     generatedAt,
     filteredByConflict,
     scopeLabel,
+    leftLogoSrc,
+    rightLogoSrc,
 }: {
     rows: PlannerDisplayRow[]
     versionLabel: string
@@ -496,40 +718,148 @@ function SchedulePdfDocument({
     generatedAt: string
     filteredByConflict: boolean
     scopeLabel?: string
+    leftLogoSrc: string
+    rightLogoSrc: string
 }) {
+    const columns = [
+        { key: "day", label: "Day", width: "10%", align: "left" as const },
+        { key: "time", label: "Time", width: "14%", align: "left" as const },
+        { key: "subject", label: "Subject", width: "27%", align: "left" as const },
+        { key: "section", label: "Section", width: "14%", align: "left" as const },
+        { key: "faculty", label: "Instructor", width: "18%", align: "left" as const },
+        { key: "room", label: "Room", width: "9%", align: "left" as const },
+        { key: "conflict", label: "Conflict", width: "8%", align: "center" as const },
+    ]
+
     return (
-        <Document>
-            <Page size="A4" style={pdfStyles.page}>
-                <Text style={pdfStyles.title}>Schedule Planner Report</Text>
-                <Text style={pdfStyles.meta}>Version: {versionLabel || "—"}</Text>
-                <Text style={pdfStyles.meta}>Term: {termLabel || "—"}</Text>
-                <Text style={pdfStyles.meta}>College: {deptLabel || "—"}</Text>
-                <Text style={pdfStyles.meta}>Filter: {filteredByConflict ? "Conflicts only" : "All entries"}</Text>
-                {scopeLabel ? <Text style={pdfStyles.meta}>Scope: {scopeLabel}</Text> : null}
-                <Text style={pdfStyles.meta}>Generated: {generatedAt}</Text>
+        <Document title={`${HEADER_DOCUMENT}${scopeLabel ? ` - ${scopeLabel}` : ""}`}>
+            <Page size="A4" orientation="landscape" style={pdfStyles.page}>
+                <View style={pdfStyles.headerWrap}>
+                    <View style={pdfStyles.headerRow}>
+                        <View style={pdfStyles.logoWrap}>
+                            <Image src={leftLogoSrc} style={pdfStyles.logo} />
+                        </View>
+
+                        <View style={pdfStyles.centerHeader}>
+                            <Text style={pdfStyles.republic}>{HEADER_REPUBLIC}</Text>
+                            <Text style={pdfStyles.school}>{HEADER_INSTITUTION}</Text>
+                            <Text style={pdfStyles.campusLine}>{HEADER_SUBTITLE}</Text>
+                            <Text style={pdfStyles.college}>{HEADER_COLLEGE}</Text>
+                        </View>
+
+                        <View style={pdfStyles.logoWrap}>
+                            <Image src={rightLogoSrc} style={pdfStyles.logo} />
+                        </View>
+                    </View>
+                </View>
+
+                <Text style={pdfStyles.documentTitle}>{HEADER_DOCUMENT}</Text>
+                <Text style={pdfStyles.metaCenter}>
+                    Version: {versionLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
+                </Text>
+                <Text style={pdfStyles.metaCenter}>
+                    Filter: {filteredByConflict ? "Conflicts only" : "All entries"}
+                    {scopeLabel ? ` • Scope: ${scopeLabel}` : ""}
+                </Text>
+                <Text style={pdfStyles.metaCenter}>Generated at: {generatedAt}</Text>
 
                 <View style={pdfStyles.table}>
-                    <View style={pdfStyles.header}>
-                        <Text style={[pdfStyles.cell, pdfStyles.day]}>Day</Text>
-                        <Text style={[pdfStyles.cell, pdfStyles.time]}>Time</Text>
-                        <Text style={[pdfStyles.cell, pdfStyles.subject]}>Subject</Text>
-                        <Text style={[pdfStyles.cell, pdfStyles.section]}>Section</Text>
-                        <Text style={[pdfStyles.cell, pdfStyles.faculty]}>Instructor</Text>
-                        <Text style={[pdfStyles.cell, pdfStyles.room, pdfStyles.lastCell]}>Room</Text>
+                    <View style={pdfStyles.headerRowTable} wrap={false}>
+                        {columns.map((column, index) => {
+                            const isLast = index === columns.length - 1
+
+                            return (
+                                <View
+                                    key={column.key}
+                                    style={{
+                                        width: column.width,
+                                        borderRightWidth: isLast ? 0 : 1,
+                                        borderRightColor: "#CBD5E1",
+                                    }}
+                                >
+                                    <Text
+                                        style={[
+                                            pdfStyles.headerCell,
+                                            {
+                                                borderRightWidth: 0,
+                                                textAlign: column.align,
+                                            },
+                                        ]}
+                                    >
+                                        {column.label}
+                                    </Text>
+                                </View>
+                            )
+                        })}
                     </View>
 
-                    {rows.map((row) => (
-                        <View key={row.key} style={pdfStyles.row}>
-                            <Text style={[pdfStyles.cell, pdfStyles.day]}>{row.dayDisplay}</Text>
-                            <Text style={[pdfStyles.cell, pdfStyles.time]}>{row.timeDisplay}</Text>
-                            <Text style={[pdfStyles.cell, pdfStyles.subject]}>
-                                {row.subjectCodeDisplay} • {row.descriptiveTitleDisplay}
-                            </Text>
-                            <Text style={[pdfStyles.cell, pdfStyles.section]}>{row.sectionDisplay}</Text>
-                            <Text style={[pdfStyles.cell, pdfStyles.faculty]}>{row.facultyDisplay}</Text>
-                            <Text style={[pdfStyles.cell, pdfStyles.room, pdfStyles.lastCell]}>{row.roomDisplay}</Text>
-                        </View>
-                    ))}
+                    {rows.map((row, index) => {
+                        const rowStyle = row.hasConflict ? pdfStyles.conflictRow : index % 2 === 1 ? pdfStyles.zebra : undefined
+                        const subjectDisplay = row.descriptiveTitleDisplay && row.descriptiveTitleDisplay !== "—"
+                            ? `${row.subjectCodeDisplay} • ${row.descriptiveTitleDisplay}`
+                            : row.subjectCodeDisplay || "—"
+
+                        const values: Record<string, string> = {
+                            day: row.dayDisplay || "—",
+                            time: row.timeDisplay || "—",
+                            subject: subjectDisplay || "—",
+                            section: row.sectionDisplay || "—",
+                            faculty: row.facultyDisplay || "—",
+                            room: row.roomDisplay || "—",
+                            conflict: row.hasConflict ? "Conflict" : "Clear",
+                        }
+
+                        return (
+                            <View key={row.key} style={[pdfStyles.row, rowStyle]} wrap={false}>
+                                {columns.map((column, columnIndex) => {
+                                    const isLast = columnIndex === columns.length - 1
+                                    const value = values[column.key] || "—"
+
+                                    return (
+                                        <View
+                                            key={column.key}
+                                            style={{
+                                                width: column.width,
+                                                borderRightWidth: isLast ? 0 : 1,
+                                                borderRightColor: "#CBD5E1",
+                                            }}
+                                        >
+                                            <Text
+                                                style={[
+                                                    pdfStyles.cell,
+                                                    {
+                                                        borderRightWidth: 0,
+                                                        textAlign: column.align,
+                                                        fontWeight: column.key === "conflict" ? "bold" : "normal",
+                                                        color:
+                                                            column.key === "conflict"
+                                                                ? row.hasConflict
+                                                                    ? "#7F1D1D"
+                                                                    : "#065F46"
+                                                                : "#0F172A",
+                                                    },
+                                                ]}
+                                            >
+                                                {value}
+                                            </Text>
+                                        </View>
+                                    )
+                                })}
+                            </View>
+                        )
+                    })}
+                </View>
+
+                <View style={pdfStyles.footerRuleWrap} fixed>
+                    <View style={pdfStyles.blueRule} />
+                    <View style={pdfStyles.goldRule} />
+                </View>
+
+                <View style={pdfStyles.footerText} fixed>
+                    <Text>
+                        {rows.length} grouped entr{rows.length === 1 ? "y" : "ies"}
+                    </Text>
+                    <Text>WorkloadHub</Text>
                 </View>
             </Page>
         </Document>
@@ -598,6 +928,10 @@ export function PlannerManagementSection({
     const [plannerFacultyFilter, setPlannerFacultyFilter] = React.useState("all")
     const [plannerSortKey, setPlannerSortKey] = React.useState<PlannerSortKey>("day")
     const [plannerSortDirection, setPlannerSortDirection] = React.useState<PlannerSortDirection>("asc")
+    const [pdfPreviewBusy, setPdfPreviewBusy] = React.useState(false)
+    const [pdfExportBusy, setPdfExportBusy] = React.useState(false)
+    const [pdfPreviewUrl, setPdfPreviewUrl] = React.useState<string | null>(null)
+    const pdfPreviewUrlRef = React.useRef<string | null>(null)
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
@@ -876,6 +1210,55 @@ export function PlannerManagementSection({
             .replace(/^-+|-+$/g, "") || "schedule"
     }, [])
 
+    const revokePdfPreviewUrl = React.useCallback(() => {
+        if (pdfPreviewUrlRef.current) {
+            URL.revokeObjectURL(pdfPreviewUrlRef.current)
+            pdfPreviewUrlRef.current = null
+        }
+        setPdfPreviewUrl(null)
+    }, [])
+
+    const buildRowsPdf = React.useCallback(
+        async ({
+            rows,
+            fileNameBase,
+            scopeLabel,
+        }: {
+            rows: PlannerDisplayRow[]
+            fileNameBase: string
+            scopeLabel?: string
+        }) => {
+            if (!selectedVersion || rows.length === 0) {
+                throw new Error("No schedule entries to export.")
+            }
+
+            const [leftLogoSrc, rightLogoSrc] = await Promise.all([
+                getAssetAsDataUrl(LEFT_LOGO_PATH),
+                getAssetAsDataUrl(RIGHT_LOGO_PATH),
+            ])
+
+            const documentNode = (
+                <SchedulePdfDocument
+                    rows={rows}
+                    versionLabel={selectedVersionLabel}
+                    termLabel={selectedTermLabel}
+                    deptLabel={selectedDeptLabel}
+                    generatedAt={generatedAt}
+                    filteredByConflict={showConflictsOnly}
+                    scopeLabel={scopeLabel}
+                    leftLogoSrc={leftLogoSrc}
+                    rightLogoSrc={rightLogoSrc}
+                />
+            )
+
+            const blob = await pdf(documentNode).toBlob()
+            const fileName = `${fileNameBase}-${new Date().toISOString().slice(0, 10)}.pdf`
+
+            return { blob, fileName }
+        },
+        [generatedAt, selectedDeptLabel, selectedTermLabel, selectedVersion, selectedVersionLabel, showConflictsOnly]
+    )
+
     const openPdfPreview = React.useCallback(
         (previewState: PdfPreviewState) => {
             if (!selectedVersion || previewState.rows.length === 0) {
@@ -890,7 +1273,56 @@ export function PlannerManagementSection({
 
     const closePdfPreview = React.useCallback(() => {
         setPdfPreviewState(null)
-    }, [])
+        setPdfPreviewBusy(false)
+        revokePdfPreviewUrl()
+    }, [revokePdfPreviewUrl])
+
+    React.useEffect(() => {
+        if (!pdfPreviewState) {
+            setPdfPreviewBusy(false)
+            revokePdfPreviewUrl()
+            return
+        }
+
+        let cancelled = false
+
+        void (async () => {
+            setPdfPreviewBusy(true)
+            revokePdfPreviewUrl()
+
+            try {
+                const { blob } = await buildRowsPdf({
+                    rows: pdfPreviewState.rows,
+                    fileNameBase: pdfPreviewState.fileNameBase,
+                    scopeLabel: pdfPreviewState.scopeLabel,
+                })
+
+                if (cancelled) return
+
+                const url = URL.createObjectURL(blob)
+                pdfPreviewUrlRef.current = url
+                setPdfPreviewUrl(url)
+            } catch (e: any) {
+                if (!cancelled) {
+                    toast.error(e?.message || "Failed to generate PDF preview.")
+                }
+            } finally {
+                if (!cancelled) {
+                    setPdfPreviewBusy(false)
+                }
+            }
+        })()
+
+        return () => {
+            cancelled = true
+        }
+    }, [pdfPreviewState, buildRowsPdf, revokePdfPreviewUrl])
+
+    React.useEffect(() => {
+        return () => {
+            revokePdfPreviewUrl()
+        }
+    }, [revokePdfPreviewUrl])
 
     const downloadRowsPdf = React.useCallback(
         async ({
@@ -907,33 +1339,22 @@ export function PlannerManagementSection({
                 return
             }
 
+            setPdfExportBusy(true)
             try {
-                const documentNode = (
-                    <SchedulePdfDocument
-                        rows={rows}
-                        versionLabel={selectedVersionLabel}
-                        termLabel={selectedTermLabel}
-                        deptLabel={selectedDeptLabel}
-                        generatedAt={generatedAt}
-                        filteredByConflict={showConflictsOnly}
-                        scopeLabel={scopeLabel}
-                    />
-                )
-
-                const blob = await pdf(documentNode).toBlob()
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement("a")
-                a.href = url
-                a.download = `${fileNameBase}-${new Date().toISOString().slice(0, 10)}.pdf`
-                a.click()
-                URL.revokeObjectURL(url)
-
+                const { blob, fileName } = await buildRowsPdf({
+                    rows,
+                    fileNameBase,
+                    scopeLabel,
+                })
+                downloadBlob(blob, fileName)
                 toast.success("Schedule PDF exported.")
             } catch (e: any) {
                 toast.error(e?.message || "Failed to export PDF.")
+            } finally {
+                setPdfExportBusy(false)
             }
         },
-        [generatedAt, selectedDeptLabel, selectedTermLabel, selectedVersion, selectedVersionLabel, showConflictsOnly]
+        [buildRowsPdf, selectedVersion]
     )
 
     const downloadPdf = async () => {
@@ -1654,51 +2075,79 @@ export function PlannerManagementSection({
                     if (!open) closePdfPreview()
                 }}
             >
-                <DialogContent className="z-120 h-[82vh] max-h-[82vh] overflow-y-auto p-4 sm:max-w-6xl">
+                <DialogContent className="z-120 min-w-0 h-[95svh] overflow-auto sm:max-w-6xl">
                     <DialogHeader>
                         <DialogTitle>{pdfPreviewState?.title || "Schedule PDF Preview"}</DialogTitle>
                         <DialogDescription>
-                            {pdfPreviewState?.description || "Preview the generated PDF before export."}
+                            {pdfPreviewState?.description || "Preview the branded PDF layout before downloading."}
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="h-[66vh] overflow-hidden rounded-xl border">
-                        <PDFViewer style={{ width: "100%", height: "100%" }}>
-                            <SchedulePdfDocument
-                                rows={activePdfPreviewRows}
-                                versionLabel={selectedVersionLabel}
-                                termLabel={selectedTermLabel}
-                                deptLabel={selectedDeptLabel}
-                                generatedAt={generatedAt}
-                                filteredByConflict={showConflictsOnly}
-                                scopeLabel={pdfPreviewState?.scopeLabel}
-                            />
-                        </PDFViewer>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary">{selectedVersionLabel || "No version"}</Badge>
+                        <Badge variant="secondary">{selectedTermLabel || "No term"}</Badge>
+                        <Badge variant="secondary">{selectedDeptLabel || "No college"}</Badge>
+                        {pdfPreviewState?.scopeLabel ? (
+                            <Badge variant="secondary">{pdfPreviewState.scopeLabel}</Badge>
+                        ) : null}
+                        <Badge variant="outline">
+                            {activePdfPreviewRows.length} grouped entr{activePdfPreviewRows.length === 1 ? "y" : "ies"}
+                        </Badge>
+                        <Badge variant="outline">
+                            {activePdfPreviewStats.conflicts} conflict{activePdfPreviewStats.conflicts === 1 ? "" : "s"}
+                        </Badge>
                     </div>
 
-                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                        <Button variant="outline" onClick={closePdfPreview}>
-                            Close
-                        </Button>
-                        <Button
-                            onClick={() =>
-                                pdfPreviewState
-                                    ? void downloadRowsPdf({
-                                          rows: pdfPreviewState.rows,
-                                          fileNameBase: pdfPreviewState.fileNameBase,
-                                          scopeLabel: pdfPreviewState.scopeLabel,
-                                      })
-                                    : undefined
-                            }
-                            disabled={!selectedVersion || activePdfPreviewRows.length === 0}
-                        >
-                            Export PDF
-                        </Button>
+                    <div className="mt-3 rounded-md border min-w-0 max-w-full overflow-hidden">
+                        {pdfPreviewBusy ? (
+                            <div className="p-4 space-y-3">
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Generating PDF preview...
+                                </div>
+                                <Skeleton className="h-8 w-full" />
+                                <Skeleton className="h-[60vh] w-full" />
+                            </div>
+                        ) : pdfPreviewUrl ? (
+                            <iframe title="Schedule PDF Preview" src={pdfPreviewUrl} className="h-[60vh] w-full" />
+                        ) : (
+                            <div className="p-4 text-sm text-muted-foreground">
+                                PDF preview is not ready. Click “Preview PDF” again or export PDF.
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="text-xs text-muted-foreground">
+                            PDF export now includes the JRMSU and CCS logos, official institutional header,
+                            branded title area, footer rules, and conflict highlighting.
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" onClick={closePdfPreview}>
+                                Close
+                            </Button>
+                            <Button
+                                onClick={() =>
+                                    pdfPreviewState
+                                        ? void downloadRowsPdf({
+                                              rows: pdfPreviewState.rows,
+                                              fileNameBase: pdfPreviewState.fileNameBase,
+                                              scopeLabel: pdfPreviewState.scopeLabel,
+                                          })
+                                        : undefined
+                                }
+                                disabled={!selectedVersion || activePdfPreviewRows.length === 0 || pdfExportBusy}
+                            >
+                                {pdfExportBusy ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Printer className="mr-2 h-4 w-4" />
+                                )}
+                                {pdfExportBusy ? "Exporting..." : "Download PDF"}
+                            </Button>
+                        </div>
                     </DialogFooter>
-
-                    <div className="text-xs text-muted-foreground">
-                        Preview rows: {activePdfPreviewRows.length} • Conflicts: {activePdfPreviewStats.conflicts}
-                    </div>
                 </DialogContent>
             </Dialog>
 
@@ -2086,3 +2535,5 @@ export function PlannerManagementSection({
         </>
     )
 }
+
+
