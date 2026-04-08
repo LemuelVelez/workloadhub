@@ -218,18 +218,12 @@ export function VersionManagementSection({
     const showCustomSchoolYearInput = createTermMode === "new" && schoolYearSelectValue === CUSTOM_SCHOOL_YEAR_VALUE
     const [selectedScheduleIds, setSelectedScheduleIds] = React.useState<string[]>([])
     const [deleteTargets, setDeleteTargets] = React.useState<ScheduleVersionDoc[]>([])
-    const [openMenuVersionId, setOpenMenuVersionId] = React.useState<string | null>(null)
 
     React.useEffect(() => {
         const visibleIdSet = new Set(filtered.map((item) => String(item.$id || "")))
         setSelectedScheduleIds((current) => current.filter((id) => visibleIdSet.has(id)))
     }, [filtered])
 
-    React.useEffect(() => {
-        if (!openMenuVersionId) return
-        if (filtered.some((item) => String(item.$id || "") === openMenuVersionId)) return
-        setOpenMenuVersionId(null)
-    }, [filtered, openMenuVersionId])
 
     const selectedSchedules = React.useMemo(
         () => filtered.filter((item) => selectedScheduleIds.includes(String(item.$id || ""))),
@@ -280,20 +274,26 @@ export function VersionManagementSection({
         setDeleteTargets(selectedSchedules)
     }, [selectedSchedules])
 
-    const runMenuAction = React.useCallback((event: Event, action: () => void) => {
-        event.preventDefault()
-        event.stopPropagation()
-        setOpenMenuVersionId(null)
+    const queueEditVersionOpen = React.useCallback(
+        (version: ScheduleVersionDoc, options?: { closeView?: boolean }) => {
+            if (options?.closeView) {
+                setActive(null)
+                setViewOpen(false)
+            }
 
-        if (typeof window === "undefined") {
-            action()
-            return
-        }
+            const openEditDialog = () => {
+                onEditVersion(version)
+            }
 
-        window.setTimeout(() => {
-            action()
-        }, 0)
-    }, [])
+            if (typeof window !== "undefined") {
+                window.setTimeout(openEditDialog, 0)
+                return
+            }
+
+            openEditDialog()
+        },
+        [onEditVersion, setActive, setViewOpen]
+    )
 
     const handleConfirmDelete = async () => {
         if (deleteTargets.length === 0) return
@@ -628,13 +628,7 @@ export function VersionManagementSection({
                                                 <TableCell className="text-right text-sm">{fmtDate(it.$createdAt)}</TableCell>
 
                                                 <TableCell className="text-right">
-                                                    <DropdownMenu
-                                                        modal={false}
-                                                        open={openMenuVersionId === it.$id}
-                                                        onOpenChange={(open) => {
-                                                            setOpenMenuVersionId(open ? it.$id : null)
-                                                        }}
-                                                    >
+                                                    <DropdownMenu modal={false}>
                                                         <DropdownMenuTrigger asChild>
                                                             <Button
                                                                 type="button"
@@ -652,27 +646,21 @@ export function VersionManagementSection({
                                                             <DropdownMenuSeparator />
 
                                                             <DropdownMenuItem
-                                                                onSelect={(event) => {
-                                                                    runMenuAction(event, () => setSelectedVersionId(it.$id))
-                                                                }}
+                                                                onClick={() => setSelectedVersionId(it.$id)}
                                                             >
                                                                 <CalendarDays className="mr-2 size-4" />
                                                                 Open in planner
                                                             </DropdownMenuItem>
 
                                                             <DropdownMenuItem
-                                                                onSelect={(event) => {
-                                                                    runMenuAction(event, () => onOpenView(it))
-                                                                }}
+                                                                onClick={() => onOpenView(it)}
                                                             >
                                                                 <Eye className="mr-2 size-4" />
                                                                 View details
                                                             </DropdownMenuItem>
 
                                                             <DropdownMenuItem
-                                                                onSelect={(event) => {
-                                                                    runMenuAction(event, () => onEditVersion(it))
-                                                                }}
+                                                                onSelect={() => queueEditVersionOpen(it)}
                                                                 disabled={saving}
                                                             >
                                                                 <Pencil className="mr-2 size-4" />
@@ -682,10 +670,8 @@ export function VersionManagementSection({
                                                             <DropdownMenuSeparator />
 
                                                             <DropdownMenuItem
-                                                                onSelect={(event) => {
-                                                                    runMenuAction(event, () => {
-                                                                        void onSetStatus(it, "Active")
-                                                                    })
+                                                                onClick={() => {
+                                                                    void onSetStatus(it, "Active")
                                                                 }}
                                                                 disabled={saving || isActiveScheduleStatus(it.status)}
                                                             >
@@ -694,10 +680,8 @@ export function VersionManagementSection({
                                                             </DropdownMenuItem>
 
                                                             <DropdownMenuItem
-                                                                onSelect={(event) => {
-                                                                    runMenuAction(event, () => {
-                                                                        void onSetStatus(it, "Archived")
-                                                                    })
+                                                                onClick={() => {
+                                                                    void onSetStatus(it, "Archived")
                                                                 }}
                                                                 disabled={saving || isArchivedScheduleStatus(it.status)}
                                                             >
@@ -708,9 +692,7 @@ export function VersionManagementSection({
                                                             <DropdownMenuSeparator />
 
                                                             <DropdownMenuItem
-                                                                onSelect={(event) => {
-                                                                    runMenuAction(event, () => openSingleDeleteDialog(it))
-                                                                }}
+                                                                onClick={() => openSingleDeleteDialog(it)}
                                                                 disabled={saving}
                                                                 className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                                                             >
@@ -838,8 +820,7 @@ export function VersionManagementSection({
                                 disabled={!active || saving}
                                 onClick={() => {
                                     if (!active) return
-                                    setViewOpen(false)
-                                    onEditVersion(active)
+                                    queueEditVersionOpen(active, { closeView: true })
                                 }}
                             >
                                 <Pencil className="mr-2 size-4" />
@@ -1145,5 +1126,3 @@ export function VersionManagementSection({
         </>
     )
 }
-
-
