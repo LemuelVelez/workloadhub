@@ -794,7 +794,11 @@ function SchedulePdfDocument({
                     </View>
 
                     {rows.map((row, index) => {
-                        const rowStyle = row.hasConflict ? pdfStyles.conflictRow : index % 2 === 1 ? pdfStyles.zebra : undefined
+                        const rowStyles = [
+                            pdfStyles.row,
+                            ...(row.hasConflict ? [pdfStyles.conflictRow] : []),
+                            ...(row.hasConflict || index % 2 !== 1 ? [] : [pdfStyles.zebra]),
+                        ]
                         const subjectDisplay = row.descriptiveTitleDisplay && row.descriptiveTitleDisplay !== "—"
                             ? `${row.subjectCodeDisplay} • ${row.descriptiveTitleDisplay}`
                             : row.subjectCodeDisplay || "—"
@@ -810,7 +814,7 @@ function SchedulePdfDocument({
                         }
 
                         return (
-                            <View key={row.key} style={[pdfStyles.row, rowStyle]} wrap={false}>
+                            <View key={row.key} style={rowStyles} wrap={false}>
                                 {columns.map((column, columnIndex) => {
                                     const isLast = columnIndex === columns.length - 1
                                     const value = values[column.key] || "—"
@@ -2535,5 +2539,3 @@ export function PlannerManagementSection({
         </>
     )
 }
-
-
