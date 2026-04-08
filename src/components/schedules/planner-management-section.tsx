@@ -186,6 +186,11 @@ type PlannerCourseAccordionGroup = {
     rows: PlannerDisplayRow[]
 }
 
+type PlannerCourseAccordionGroupAccumulator = PlannerCourseAccordionGroup & {
+    instructorKeys: Set<string>
+    sectionDisplays: Set<string>
+}
+
 type PdfPreviewState = {
     title: string
     description: string
@@ -383,6 +388,38 @@ function mergeConflictFlags(flagsCollection: Array<ConflictFlags | undefined>): 
     )
 }
 
+function normalizePlannerSectionDisplayValue(value?: string | null) {
+    return String(value || "")
+        .trim()
+        .replace(/\s+/g, " ")
+}
+
+function getPlannerCourseYearKey(sectionDisplay?: string | null) {
+    const normalizedSectionDisplay = normalizePlannerSectionDisplayValue(sectionDisplay)
+    if (!normalizedSectionDisplay || normalizedSectionDisplay === "—") {
+        return "Unspecified"
+    }
+
+    const firstSectionDisplay = normalizedSectionDisplay
+        .split(/\s*\/\s*/)
+        .map((part) => part.trim())
+        .filter(Boolean)[0] || normalizedSectionDisplay
+
+    const [courseYearPart] = firstSectionDisplay.split(/\s+-\s+/)
+    return courseYearPart?.trim() || firstSectionDisplay
+}
+
+function formatPlannerCourseGroupSubtitle(sectionDisplays: string[]) {
+    const normalizedSectionDisplays = Array.from(
+        new Set(sectionDisplays.map((sectionDisplay) => normalizePlannerSectionDisplayValue(sectionDisplay)).filter(Boolean))
+    )
+
+    if (normalizedSectionDisplays.length === 0) return ""
+    if (normalizedSectionDisplays.length === 1) return normalizedSectionDisplays[0]
+
+    return joinDisplayValues(normalizedSectionDisplays, " • ")
+}
+
 function buildPlannerDisplayRows({
     rows,
     conflictFlagsByMeetingId,
@@ -398,8 +435,9 @@ function buildPlannerDisplayRows({
         const { descriptiveTitle } = splitSubjectLabelParts(row.subjectLabel)
         const sectionDisplay = getRowSectionDisplayLabel(row, sectionDisplayLookup)
         const meetingType = meetingTypeLabel(row.meetingType)
+        const normalizedSectionDisplay = normalizePlannerSectionDisplayValue(sectionDisplay)
         const groupingKey = [
-            sectionDisplay.split("-")[0].trim() || "section",
+            normalizedSectionDisplay.toLowerCase() || "section",
             descriptiveTitle.toLowerCase(),
             meetingType,
         ].join("::")
@@ -764,30 +802,38 @@ export function PlannerManagementSection({
     }, [laboratoryRows, conflictFlagsByMeetingId, sectionDisplayLookup])
 
     const plannerCourseAccordionGroups = React.useMemo<PlannerCourseAccordionGroup[]>(() => {
-        const courseMap = new Map<string, PlannerCourseAccordionGroup & { instructorKeys: Set<string> }>()
+        const courseMap = new Map<string, PlannerCourseAccordionGroupAccumulator>()
 
         for (const row of displayedPlannerRows) {
-            const courseKey = row.sectionDisplay.split("-")[0].trim() || row.sectionDisplay || "Unspecified"
+            const courseKey = getPlannerCourseYearKey(row.sectionDisplay)
             const existing = courseMap.get(courseKey) || {
                 key: courseKey,
                 label: `COURSE:${courseKey.replace(/\s+/g, "-").toUpperCase()}`,
-                subtitle: row.sectionDisplay,
+                subtitle: "",
                 rowCount: 0,
                 conflictedCount: 0,
                 instructorCount: 0,
                 rows: [],
                 instructorKeys: new Set<string>(),
+                sectionDisplays: new Set<string>(),
             }
 
             existing.rowCount += 1
             if (row.hasConflict) existing.conflictedCount += 1
             existing.rows.push(row)
             existing.instructorKeys.add(String(row.facultyDisplay || row.primaryRow.facultyName || "Unassigned"))
+            existing.sectionDisplays.add(normalizePlannerSectionDisplayValue(row.sectionDisplay) || "—")
             existing.instructorCount = existing.instructorKeys.size
             courseMap.set(courseKey, existing)
         }
 
-        return Array.from(courseMap.values()).sort((a, b) => comparePlannerText(a.label, b.label))
+        return Array.from(courseMap.values())
+            .map(({ instructorKeys, sectionDisplays, ...group }) => ({
+                ...group,
+                instructorCount: instructorKeys.size,
+                subtitle: formatPlannerCourseGroupSubtitle(Array.from(sectionDisplays)),
+            }))
+            .sort((a, b) => comparePlannerText(a.label, b.label))
     }, [displayedPlannerRows])
 
     const generatedAt = React.useMemo(() => fmtDate(new Date().toISOString()), [
@@ -1278,7 +1324,7 @@ export function PlannerManagementSection({
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
                             <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                                <span>Grouped planner rows are shown by course/year, descriptive title, and meeting type.</span>
+                                <span>Accordion groups are shown by course/year. Planner rows are grouped by section, descriptive title, and meeting type.</span>
                                 <span>
                                     Showing {displayedPlannerRows.length} grouped entries from {visibleRows.length} visible meetings
                                 </span>
@@ -1364,6 +1410,10 @@ export function PlannerManagementSection({
                                                             </div>
                                                             <div className="grid grid-cols-2 gap-3 text-sm">
                                                                 <div>
+                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Section</div>
+                                                                    <div>{row.sectionDisplay || "—"}</div>
+                                                                </div>
+                                                                <div>
                                                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</div>
                                                                     <div>{row.meetingTypeDisplay}</div>
                                                                 </div>
@@ -1418,6 +1468,7 @@ export function PlannerManagementSection({
                                                         <TableRow>
                                                             <TableHead className="w-28 whitespace-normal wrap-break-word align-top">Code</TableHead>
                                                             <TableHead className="w-72 whitespace-normal wrap-break-word align-top">Descriptive Title</TableHead>
+                                                            <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Section</TableHead>
                                                             <TableHead className="w-20 whitespace-normal wrap-break-word align-top">Type</TableHead>
                                                             <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Day</TableHead>
                                                             <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Time</TableHead>
@@ -1439,6 +1490,9 @@ export function PlannerManagementSection({
                                                                             Units: {row.primaryRow.subjectUnits ?? "—"}
                                                                         </div>
                                                                     </div>
+                                                                </TableCell>
+                                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                                    {row.sectionDisplay || "—"}
                                                                 </TableCell>
                                                                 <TableCell className="whitespace-normal wrap-break-word align-top">
                                                                     <Badge variant="outline" className="rounded-lg whitespace-normal wrap-break-word text-center">
