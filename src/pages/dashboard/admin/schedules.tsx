@@ -236,7 +236,6 @@ export default function AdminSchedulesPage() {
         return m
     }, [facultyProfiles])
 
-
     const selectedFormSection = React.useMemo(
         () => sections.find((section) => section.$id === formSectionId) || null,
         [sections, formSectionId]
@@ -399,7 +398,6 @@ export default function AdminSchedulesPage() {
 
         return Boolean(createTermId)
     }, [createDeptId, createTermMode, createSchoolYear, createSemester, createTermId])
-
 
     const existingSemesterSchedule = React.useMemo(() => {
         if (!versionTermId || !createDeptId) return null
@@ -780,7 +778,6 @@ export default function AdminSchedulesPage() {
 
             const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
             const selectedVersionDeptId = String(selectedVersion.departmentId || "").trim()
-
             const selectedVersionTermId = String(selectedVersion.termId || "").trim()
 
             const scopedSubjects = allSubjects
@@ -841,10 +838,10 @@ export default function AdminSchedulesPage() {
     React.useEffect(() => {
         setFormSubjectIds((prev) => {
             const availableIds = new Set(filteredFormSubjects.map((subject) => subject.$id))
-            const next = prev.filter((subjectId) => availableIds.has(subjectId))
+            const currentSelection = prev.find((subjectId) => availableIds.has(subjectId))
 
-            if (next.length > 0) {
-                return editingEntry ? next.slice(0, 1) : next
+            if (currentSelection) {
+                return [currentSelection]
             }
 
             const fallbackSubjectId = filteredFormSubjects[0]?.$id || ""
@@ -852,7 +849,7 @@ export default function AdminSchedulesPage() {
 
             return [fallbackSubjectId]
         })
-    }, [filteredFormSubjects, editingEntry])
+    }, [filteredFormSubjects])
 
     const scheduleRows = React.useMemo<ScheduleRow[]>(() => {
         const classMap = new Map<string, ClassDoc>()
@@ -1080,17 +1077,7 @@ export default function AdminSchedulesPage() {
         setFormMeetingType((row.meetingType || "LECTURE") as MeetingType)
         setFormAllowConflictSave(false)
         setEntryDialogOpen(true)
-    }, [
-        setFormSectionId,
-        setFormSubjectIds,
-        setFormFacultyChoice,
-        setFormManualFaculty,
-        setFormRoomId,
-        setFormDayOfWeek,
-        setFormStartTime,
-        setFormEndTime,
-        setFormMeetingType,
-    ])
+    }, [])
 
     const candidateConflicts = React.useMemo<CandidateConflict[]>(() => {
         if (!entryDialogOpen) return []
@@ -1162,12 +1149,10 @@ export default function AdminSchedulesPage() {
             return
         }
 
-        const normalizedSubjectIds = Array.from(
-            new Set(formSubjectIds.map((subjectId) => String(subjectId || "").trim()).filter(Boolean))
-        )
+        const selectedSubjectId = String(formSubjectIds[0] || "").trim()
 
-        if (normalizedSubjectIds.length === 0) {
-            toast.error(editingEntry ? "Please select a subject." : "Please select at least one subject.")
+        if (!selectedSubjectId) {
+            toast.error("Please select a subject.")
             return
         }
 
@@ -1204,11 +1189,6 @@ export default function AdminSchedulesPage() {
             return
         }
 
-        if (!editingEntry && normalizedSubjectIds.length > 1 && !formAllowConflictSave) {
-            toast.error("Multiple selected subjects will share the same schedule slot. Enable override to continue.")
-            return
-        }
-
         setEntrySaving(true)
         try {
             const manualFaculty = formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
@@ -1238,7 +1218,7 @@ export default function AdminSchedulesPage() {
                     editingEntry.classId,
                     {
                         ...classPayload,
-                        subjectId: normalizedSubjectIds[0],
+                        subjectId: selectedSubjectId,
                     }
                 )
 
@@ -1257,34 +1237,28 @@ export default function AdminSchedulesPage() {
 
                 toast.success("Schedule entry updated.")
             } else {
-                for (const subjectId of normalizedSubjectIds) {
-                    const createdClass = await databases.createDocument(
-                        DATABASE_ID,
-                        COLLECTIONS.CLASSES,
-                        ID.unique(),
-                        {
-                            ...classPayload,
-                            subjectId,
-                            status: "Planned",
-                        }
-                    )
-
-                    await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                        versionId: selectedVersion.$id,
-                        classId: createdClass.$id,
-                        dayOfWeek: getCanonicalDayValue(formDayOfWeek),
-                        startTime: formStartTime,
-                        endTime: formEndTime,
-                        roomId: formRoomId || null,
-                        meetingType: formMeetingType,
-                    })
-                }
-
-                toast.success(
-                    normalizedSubjectIds.length > 1
-                        ? `${normalizedSubjectIds.length} schedule entries created.`
-                        : "Schedule entry created."
+                const createdClass = await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASSES,
+                    ID.unique(),
+                    {
+                        ...classPayload,
+                        subjectId: selectedSubjectId,
+                        status: "Planned",
+                    }
                 )
+
+                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                    versionId: selectedVersion.$id,
+                    classId: createdClass.$id,
+                    dayOfWeek: getCanonicalDayValue(formDayOfWeek),
+                    startTime: formStartTime,
+                    endTime: formEndTime,
+                    roomId: formRoomId || null,
+                    meetingType: formMeetingType,
+                })
+
+                toast.success("Schedule entry created.")
             }
 
             handleEntryDialogOpenChange(false)

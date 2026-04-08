@@ -38,7 +38,6 @@ function normalizeMeridiem(value: string) {
     return String(value || "").replace(MERIDIEM_REGEX, (match) => match.toLowerCase())
 }
 
-
 function normalizeToken(value?: unknown) {
     return String(value ?? "")
         .trim()
@@ -108,18 +107,23 @@ function collectProgramAliases(values: Array<unknown>) {
 function getSectionProgramAliases(section?: SectionDoc | null) {
     if (!section) return new Set<string>()
 
-    const yearLevelText = String(section.yearLevel ?? "").trim().toUpperCase()
-    const inferredProgramFromYear = yearLevelText.startsWith("CS ")
-        ? "CS"
-        : yearLevelText.startsWith("IS ")
-          ? "IS"
-          : ""
+    const inferredProgramValues = [section.yearLevel, section.label, section.name]
+        .map((value) => String(value ?? "").trim().toUpperCase())
+        .filter(Boolean)
+        .map((value) => {
+            if (value.startsWith("CS")) return "CS"
+            if (value.startsWith("IS")) return "IS"
+            return ""
+        })
+        .filter(Boolean)
 
     return collectProgramAliases([
         section.programId,
         section.programCode,
         section.programName,
-        inferredProgramFromYear,
+        section.label,
+        section.name,
+        ...inferredProgramValues,
     ])
 }
 
@@ -127,7 +131,7 @@ function getSectionYearAliases(section?: SectionDoc | null) {
     if (!section) return new Set<string>()
 
     const aliases = new Set<string>()
-    const rawValues = [section.yearLevel]
+    const rawValues = [section.yearLevel, section.label, section.name]
 
     for (const value of rawValues) {
         const normalized = normalizeToken(value)
@@ -226,7 +230,7 @@ export function subjectHasSectionScopedMetadata(subject?: SubjectDoc | null) {
 
 export function sectionSortValue(section?: SectionDoc | null) {
     if (!section) return Number.MAX_SAFE_INTEGER
-    const yearToken = extractYearLevelToken(section.yearLevel)
+    const yearToken = extractYearLevelToken(section.yearLevel ?? section.label ?? section.name)
     return Number.parseInt(yearToken || "999", 10)
 }
 
@@ -234,8 +238,8 @@ export function sortSectionsForDisplay(a?: SectionDoc | null, b?: SectionDoc | n
     const yearDiff = sectionSortValue(a) - sectionSortValue(b)
     if (yearDiff !== 0) return yearDiff
 
-    const programDiff = String(a?.programCode || a?.programName || "").localeCompare(
-        String(b?.programCode || b?.programName || ""),
+    const programDiff = String(a?.programCode || a?.programName || a?.label || "").localeCompare(
+        String(b?.programCode || b?.programName || b?.label || ""),
         undefined,
         { sensitivity: "base" }
     )
