@@ -1678,41 +1678,23 @@ export function PlannerManagementSection({
                             <div className="space-y-3">
                                 <div className="space-y-1">
                                     <Label>Section</Label>
-                                    <Select
-                                        value={sections.length > 0 ? formSectionId || undefined : undefined}
-                                        onValueChange={setFormSectionId}
-                                        disabled={sections.length === 0}
-                                    >
+                                    <Select value={formSectionId} onValueChange={setFormSectionId}>
                                         <SelectTrigger className="rounded-xl">
                                             <SelectValue placeholder="Select section" />
                                         </SelectTrigger>
                                         <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                            {sections.length === 0 ? (
-                                                <SelectItem value="__no_section__" disabled>
-                                                    No sections available
+                                            {sections.map((section) => (
+                                                <SelectItem key={section.$id} value={section.$id}>
+                                                    {sectionDisplayLookup[section.$id] || section.$id}
                                                 </SelectItem>
-                                            ) : (
-                                                sections.map((section) => (
-                                                    <SelectItem key={section.$id} value={section.$id}>
-                                                        {sectionDisplayLookup[section.$id] || section.$id}
-                                                    </SelectItem>
-                                                ))
-                                            )}
+                                            ))}
                                         </SelectContent>
                                     </Select>
-
-                                    {sections.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground">
-                                            No sections were loaded for this schedule version yet.
-                                        </p>
-                                    ) : null}
                                 </div>
 
                                 <div className="rounded-xl border border-dashed p-3">
                                     <div className="text-xs text-muted-foreground">Section Reference Preview</div>
-                                    <div className="mt-1 font-medium">
-                                        {sections.length === 0 ? "No sections available" : selectedSectionPreviewLabel}
-                                    </div>
+                                    <div className="mt-1 font-medium">{selectedSectionPreviewLabel}</div>
                                 </div>
                             </div>
 
@@ -2024,7 +2006,7 @@ export function PlannerManagementSection({
                         <Button
                             type="button"
                             onClick={() => void onSaveEntry()}
-                            disabled={entrySaving || sections.length === 0}
+                            disabled={entrySaving}
                             className={cn(entrySaving && "opacity-90")}
                         >
                             {entrySaving ? (
