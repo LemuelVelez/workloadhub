@@ -1768,6 +1768,150 @@ export function PlannerManagementSection({
         [onEditEntry]
     )
 
+    const renderSubjectMatchingFilters = React.useCallback(
+        (className?: string) => (
+            <div className={cn("rounded-2xl border bg-muted/20 p-4", className)}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                        <div className="text-sm font-semibold">Subject Matching Filters</div>
+                        <div className="text-xs text-muted-foreground">
+                            Narrow the subject list by college, program, year level, semester, and academic term before assigning the subject to a faculty member.
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary" className="rounded-lg">
+                            {filteredSubjectOptions.length} match{filteredSubjectOptions.length === 1 ? "" : "es"}
+                        </Badge>
+                        <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={applyScheduleContextSubjectFilters}>
+                            Use schedule context
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={clearSubjectFilters}>
+                            Clear filters
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="space-y-1">
+                        <Label>College</Label>
+                        <Select value={subjectCollegeFilter} onValueChange={setSubjectCollegeFilter}>
+                            <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="All colleges" />
+                            </SelectTrigger>
+                            <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All colleges</SelectItem>
+                                {subjectCollegeOptions.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                        {option}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                        <Label>Program</Label>
+                        <Select value={subjectProgramFilter} onValueChange={setSubjectProgramFilter}>
+                            <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="All programs" />
+                            </SelectTrigger>
+                            <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All programs</SelectItem>
+                                {subjectProgramOptions.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                        {option}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                        <Label>Year Level</Label>
+                        <Select value={subjectYearLevelFilter} onValueChange={setSubjectYearLevelFilter}>
+                            <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="All year levels" />
+                            </SelectTrigger>
+                            <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All year levels</SelectItem>
+                                {subjectYearLevelOptions.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                        {option}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                        <Label>Semester</Label>
+                        <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
+                            <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="All semesters" />
+                            </SelectTrigger>
+                            <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
+                                {subjectSemesterOptions.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                        {option}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                        <Label>Academic Term</Label>
+                        <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
+                            <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="All academic terms" />
+                            </SelectTrigger>
+                            <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
+                                {subjectAcademicTermOptions.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                        {option}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                    {activeSubjectFilterBadges.length > 0 ? (
+                        activeSubjectFilterBadges.map((badgeLabel) => (
+                            <Badge key={badgeLabel} variant="outline" className="rounded-full">
+                                {badgeLabel}
+                            </Badge>
+                        ))
+                    ) : (
+                        <div className="text-xs text-muted-foreground">
+                            No additional subject filters are applied.
+                        </div>
+                    )}
+                </div>
+            </div>
+        ),
+        [
+            activeSubjectFilterBadges,
+            applyScheduleContextSubjectFilters,
+            clearSubjectFilters,
+            filteredSubjectOptions.length,
+            subjectAcademicTermFilter,
+            subjectAcademicTermOptions,
+            subjectCollegeFilter,
+            subjectCollegeOptions,
+            subjectProgramFilter,
+            subjectProgramOptions,
+            subjectSemesterFilter,
+            subjectSemesterOptions,
+            subjectYearLevelFilter,
+            subjectYearLevelOptions,
+        ]
+    )
+
     const activePdfPreviewRows = pdfPreviewState?.rows ?? displayedPlannerRows
     const activePdfPreviewStats = buildPlannerStatsForRows(activePdfPreviewRows)
 
@@ -2496,6 +2640,10 @@ export function PlannerManagementSection({
                 </DialogContent>
             </Dialog>
 
+            {entryDialogOpen ? (
+                <div className="mb-4">{renderSubjectMatchingFilters()}</div>
+            ) : null}
+
             <Dialog
                 open={entryDialogOpen}
                 onOpenChange={(v) => {
@@ -2522,7 +2670,7 @@ export function PlannerManagementSection({
                             </div>
                         ) : null}
 
-                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+                        <div className="grid gap-4 lg:grid-cols-2">
                             <div className="space-y-3">
                                 <div className="space-y-1">
                                     <Label>Section</Label>
@@ -2569,130 +2717,6 @@ export function PlannerManagementSection({
                             </div>
 
                             <div className="space-y-3">
-                                <div className="rounded-2xl border bg-muted/20 p-4">
-                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                        <div className="space-y-1">
-                                            <div className="text-sm font-semibold">Subject Matching Filters</div>
-                                            <div className="text-xs text-muted-foreground">
-                                                Narrow the subject list by college, program, year level, semester, and academic term before assigning the subject to a faculty member.
-                                            </div>
-                                        </div>
-
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Badge variant="secondary" className="rounded-lg">
-                                                {filteredSubjectOptions.length} match{filteredSubjectOptions.length === 1 ? "" : "es"}
-                                            </Badge>
-                                            <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={applyScheduleContextSubjectFilters}>
-                                                Use schedule context
-                                            </Button>
-                                            <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={clearSubjectFilters}>
-                                                Clear filters
-                                            </Button>
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                                        <div className="space-y-1">
-                                            <Label>College</Label>
-                                            <Select value={subjectCollegeFilter} onValueChange={setSubjectCollegeFilter}>
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="All colleges" />
-                                                </SelectTrigger>
-                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All colleges</SelectItem>
-                                                    {subjectCollegeOptions.map((option) => (
-                                                        <SelectItem key={option} value={option}>
-                                                            {option}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <Label>Program</Label>
-                                            <Select value={subjectProgramFilter} onValueChange={setSubjectProgramFilter}>
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="All programs" />
-                                                </SelectTrigger>
-                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All programs</SelectItem>
-                                                    {subjectProgramOptions.map((option) => (
-                                                        <SelectItem key={option} value={option}>
-                                                            {option}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <Label>Year Level</Label>
-                                            <Select value={subjectYearLevelFilter} onValueChange={setSubjectYearLevelFilter}>
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="All year levels" />
-                                                </SelectTrigger>
-                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All year levels</SelectItem>
-                                                    {subjectYearLevelOptions.map((option) => (
-                                                        <SelectItem key={option} value={option}>
-                                                            {option}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <Label>Semester</Label>
-                                            <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="All semesters" />
-                                                </SelectTrigger>
-                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
-                                                    {subjectSemesterOptions.map((option) => (
-                                                        <SelectItem key={option} value={option}>
-                                                            {option}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <Label>Academic Term</Label>
-                                            <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="All academic terms" />
-                                                </SelectTrigger>
-                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
-                                                    {subjectAcademicTermOptions.map((option) => (
-                                                        <SelectItem key={option} value={option}>
-                                                            {option}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {activeSubjectFilterBadges.length > 0 ? (
-                                            activeSubjectFilterBadges.map((badgeLabel) => (
-                                                <Badge key={badgeLabel} variant="outline" className="rounded-full">
-                                                    {badgeLabel}
-                                                </Badge>
-                                            ))
-                                        ) : (
-                                            <div className="text-xs text-muted-foreground">
-                                                No additional subject filters are applied.
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
                                 <div className="space-y-1">
                                     <Label>Subject</Label>
                                     <Select
