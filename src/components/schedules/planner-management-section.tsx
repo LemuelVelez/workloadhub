@@ -70,7 +70,6 @@ import type {
     SectionDoc,
     SubjectDoc,
     UserProfileDoc,
-    VersionSelectOption,
 } from "./schedule-types"
 import { BASE_DAY_OPTIONS, DAY_OPTIONS, FACULTY_OPTION_MANUAL, FACULTY_OPTION_NONE } from "./schedule-types"
 import {
@@ -92,9 +91,6 @@ import {
 
 type Props = {
     selectedVersion: ScheduleVersionDoc | null
-    selectedVersionId: string
-    onSelectedVersionChange: (id: string) => void
-    versionSelectOptions: VersionSelectOption[]
 
     showConflictsOnly: boolean
     onShowConflictsOnlyChange: (v: boolean) => void
@@ -872,9 +868,6 @@ function SchedulePdfDocument({
 
 export function PlannerManagementSection({
     selectedVersion,
-    selectedVersionId,
-    onSelectedVersionChange,
-    versionSelectOptions,
     showConflictsOnly,
     onShowConflictsOnlyChange,
     entriesLoading,
@@ -1006,7 +999,7 @@ export function PlannerManagementSection({
 
     React.useEffect(() => {
         resetPlannerViewControls()
-    }, [selectedVersionId, resetPlannerViewControls])
+    }, [selectedVersion?.$id, resetPlannerViewControls])
 
     const renderConflictBadges = React.useCallback((flags?: ConflictFlags) => {
         if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
@@ -1176,7 +1169,7 @@ export function PlannerManagementSection({
 
     const generatedAt = React.useMemo(() => fmtDate(new Date().toISOString()), [
         displayedPlannerRows.length,
-        selectedVersionId,
+        selectedVersion?.$id,
         showConflictsOnly,
         plannerSearch,
         plannerDayFilter,
@@ -1418,31 +1411,8 @@ export function PlannerManagementSection({
                 </CardHeader>
 
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-12">
-                        <div className="min-w-0 space-y-1 md:col-span-2 xl:col-span-6">
-                            <Label>Schedule Version</Label>
-                            <Select
-                                value={selectedVersionId || "__none__"}
-                                onValueChange={(v) => onSelectedVersionChange(v === "__none__" ? "" : v)}
-                            >
-                                <SelectTrigger className="w-full rounded-xl">
-                                    <SelectValue placeholder="Select version for schedule planning" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {versionSelectOptions.length === 0 ? (
-                                        <SelectItem value="__none__">No versions available</SelectItem>
-                                    ) : (
-                                        versionSelectOptions.map((opt) => (
-                                            <SelectItem key={opt.value} value={opt.value}>
-                                                {opt.label} • {opt.meta}
-                                            </SelectItem>
-                                        ))
-                                    )}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="min-w-0 space-y-1 xl:col-span-2">
+                    <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+                        <div className="min-w-0 space-y-1 xl:col-span-3">
                             <Label>Conflict Filter</Label>
                             <div className="flex h-10 min-w-0 items-center gap-2 rounded-xl border px-3">
                                 <Checkbox
@@ -1456,7 +1426,7 @@ export function PlannerManagementSection({
                             </div>
                         </div>
 
-                        <div className="flex flex-wrap items-end justify-start gap-2 md:justify-end xl:col-span-4">
+                        <div className="flex flex-wrap items-end justify-start gap-2 xl:col-span-9 xl:justify-end">
                             <Button
                                 variant="outline"
                                 className="w-full rounded-xl sm:w-auto"

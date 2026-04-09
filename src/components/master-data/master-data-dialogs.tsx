@@ -196,6 +196,11 @@ export function MasterDataDialogs({ vm }: Props) {
         (program) => program.$id === vm.sectionProgramId
     )
 
+
+    const subjectProgramsForSelectedCollege = vm.programs
+        .filter((program) => String(program.departmentId ?? "") === String(vm.subjectCollegeId ?? ""))
+        .sort((a, b) => `${a.code} ${a.name}`.localeCompare(`${b.code} ${b.name}`))
+
     const sectionYearSelectValue = extractSectionYearNumber(vm.sectionYear)
     const currentSectionTrackPrefix = extractSectionTrackPrefixFromYearLevel(vm.sectionYear)
 
@@ -335,22 +340,21 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.subjectEditing ? "Edit Subject" : "Add Subject"}</DialogTitle>
                         <DialogDescription>
-                            Subjects include units, lecture/lab hour breakdown, and an optional academic term link for proper semester segregation.
+                            Subjects are now scoped to a college, program, year level, and optional academic term so records only show the correct subjects for matching sections.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <Label>College (optional)</Label>
+                            <Label>College</Label>
                             <Select
                                 value={vm.subjectCollegeId || "__none__"}
                                 onValueChange={(v) => vm.setSubjectCollegeId(v === "__none__" ? "" : v)}
                             >
                                 <SelectTrigger>
-                                    <SelectValue placeholder="No College" />
+                                    <SelectValue placeholder="Select College" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="__none__">No College</SelectItem>
                                     {vm.colleges.map((d) => (
                                         <SelectItem key={d.$id} value={d.$id}>
                                             {d.code} — {d.name}
@@ -358,6 +362,49 @@ export function MasterDataDialogs({ vm }: Props) {
                                     ))}
                                 </SelectContent>
                             </Select>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="grid gap-2">
+                                <Label>Program</Label>
+                                <Select
+                                    value={vm.subjectProgramId || "__none__"}
+                                    onValueChange={vm.setSubjectProgramId}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select Program" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {subjectProgramsForSelectedCollege.length === 0 ? (
+                                            <SelectItem value="__none__" disabled>
+                                                No programs found for the selected college
+                                            </SelectItem>
+                                        ) : (
+                                            subjectProgramsForSelectedCollege.map((program) => (
+                                                <SelectItem key={program.$id} value={program.$id}>
+                                                    {program.code} — {program.name}
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label>Year Level</Label>
+                                <Select value={vm.subjectYearLevel} onValueChange={vm.setSubjectYearLevel}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select Year Level" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {YEAR_LEVEL_OPTIONS.map((year) => (
+                                            <SelectItem key={year} value={String(year)}>
+                                                {String(year)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
 
                         <div className="grid gap-2">
@@ -380,8 +427,14 @@ export function MasterDataDialogs({ vm }: Props) {
                                 </SelectContent>
                             </Select>
                             <div className="text-xs text-muted-foreground">
-                                Link the subject directly to a term so only matching semester subjects appear when selecting records.
+                                Link the subject directly to a term so only matching semester subjects appear when selecting records. If you leave this blank, the subject can still inherit the selected record term later.
                             </div>
+                        </div>
+
+                        <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                            Subject scope preview: <span className="font-medium text-foreground">{vm.subjectProgramId === "__none__" ? "Select a program" : vm.programLabel(vm.programs, vm.subjectProgramId)}</span>
+                            {" • "}
+                            <span className="font-medium text-foreground">{vm.subjectYearLevel || "Select a year level"}</span>
                         </div>
 
                         <div className="grid gap-2">

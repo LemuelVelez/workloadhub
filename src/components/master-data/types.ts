@@ -18,7 +18,10 @@ export type ProgramDoc = {
 
 export type SubjectDoc = {
     $id: string
+    termId?: string | null
     departmentId?: string | null
+    programId?: string | null
+    yearLevel?: string | number | null
     code: string
     title: string
     units: number
@@ -119,6 +122,9 @@ export type ListRecordRow = {
     classCode: string
     collegeLabel: string
     programLabel: string
+    sectionId?: string | null
+    sectionProgramId?: string | null
+    sectionYearLevel?: string | null
     sectionLabel: string
 }
 

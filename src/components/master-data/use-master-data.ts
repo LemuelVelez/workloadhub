@@ -36,6 +36,8 @@ import type {
 } from "./types"
 
 const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
+const SUBJECT_PROGRAM_KEYS = ["programId", "program", "program_id", "programID"] as const
+const SUBJECT_SCOPE_YEAR_LEVEL_KEYS = ["yearLevel", "sectionYearLevel", "sectionYear", "year_level"] as const
 
 async function listDocs(collectionId: string, queries: any[] = []) {
     const res = await databases.listDocuments(DATABASE_ID, collectionId, queries)
@@ -71,6 +73,59 @@ function buildSubjectTermPayload(
         acc[key] = nextValue
         return acc
     }, {})
+}
+
+
+function buildSubjectProgramPayload(
+    source: Record<string, unknown> | null | undefined,
+    programIdInput?: string | null
+) {
+    const nextValue = str(programIdInput) || null
+    const existingKeys = SUBJECT_PROGRAM_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["programId"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectYearLevelPayload(
+    source: Record<string, unknown> | null | undefined,
+    yearLevelInput?: string | number | null,
+    programIdInput?: string | null,
+    programs: ProgramDoc[] = []
+) {
+    const normalizedYearLevel = buildStoredSectionYearLevel(
+        yearLevelInput,
+        programIdInput,
+        programs
+    )
+    const nextValue = normalizedYearLevel || null
+    const existingKeys = SUBJECT_SCOPE_YEAR_LEVEL_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["yearLevel"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function resolveSubjectProgramId(source: Record<string, unknown> | null | undefined) {
+    return readFirstStringValue(source, SUBJECT_PROGRAM_KEYS)
+}
+
+function resolveSubjectYearLevel(
+    source: Record<string, unknown> | null | undefined,
+    programs: ProgramDoc[]
+) {
+    const rawYearLevel = readFirstStringValue(source, SUBJECT_SCOPE_YEAR_LEVEL_KEYS)
+    const programId = resolveSubjectProgramId(source)
+
+    return (
+        buildStoredSectionYearLevel(rawYearLevel, programId, programs) ||
+        normalizeSectionYearLevelValue(rawYearLevel)
+    )
 }
 
 function normalizeSectionYearLevelValue(value?: string | number | null) {
@@ -239,6 +294,8 @@ export function useMasterDataManagement() {
                     $id: s.$id,
                     termId: readFirstStringValue(s, SUBJECT_TERM_KEYS) || null,
                     departmentId: s.departmentId ? str(s.departmentId) : null,
+                    programId: resolveSubjectProgramId(s) || null,
+                    yearLevel: resolveSubjectYearLevel(s, mappedPrograms) || null,
                     code: str(s.code),
                     title: str(s.title),
                     units: num(s.units, 0),
@@ -380,6 +437,12 @@ export function useMasterDataManagement() {
         return m
     }, [subjects])
 
+    const sectionMap = React.useMemo(() => {
+        const m = new Map<string, SectionDoc>()
+        for (const section of sections) m.set(section.$id, section)
+        return m
+    }, [sections])
+
     const classMap = React.useMemo(() => {
         const m = new Map<string, ClassDoc>()
         for (const c of classes) m.set(c.$id, c)
@@ -510,6 +573,8 @@ export function useMasterDataManagement() {
     const [subjectEditing, setSubjectEditing] = React.useState<SubjectDoc | null>(null)
 
     const [subjectCollegeId, setSubjectCollegeId] = React.useState("")
+    const [subjectProgramId, setSubjectProgramId] = React.useState("__none__")
+    const [subjectYearLevel, setSubjectYearLevel] = React.useState("1")
     const [subjectTermId, setSubjectTermId] = React.useState("")
     const [subjectCode, setSubjectCode] = React.useState("")
     const [subjectTitle, setSubjectTitle] = React.useState("")
@@ -522,6 +587,8 @@ export function useMasterDataManagement() {
         if (!subjectOpen) return
         if (!subjectEditing) {
             setSubjectCollegeId(defaultCollegeId)
+            setSubjectProgramId("__none__")
+            setSubjectYearLevel("1")
             setSubjectTermId(str(selectedTermId))
             setSubjectCode("")
             setSubjectTitle("")
@@ -533,6 +600,8 @@ export function useMasterDataManagement() {
         }
 
         setSubjectCollegeId(String(subjectEditing.departmentId ?? ""))
+        setSubjectProgramId(resolveSubjectProgramId(subjectEditing as any) || "__none__")
+        setSubjectYearLevel(resolveSubjectYearLevel(subjectEditing as any, programs) || "1")
         setSubjectTermId(readFirstStringValue(subjectEditing as any, SUBJECT_TERM_KEYS))
         setSubjectCode(subjectEditing.code)
         setSubjectTitle(subjectEditing.title)
@@ -540,7 +609,28 @@ export function useMasterDataManagement() {
         setSubjectLec(String(subjectEditing.lectureHours ?? 0))
         setSubjectLab(String(subjectEditing.labHours ?? 0))
         setSubjectActive(Boolean(subjectEditing.isActive))
-    }, [subjectOpen, subjectEditing, defaultCollegeId, selectedTermId])
+    }, [subjectOpen, subjectEditing, defaultCollegeId, programs, selectedTermId])
+
+
+
+    const subjectProgramsForSelectedCollege = React.useMemo(() => {
+        const collegeId = str(subjectCollegeId)
+        if (!collegeId) return []
+
+        return programs
+            .filter((program) => str(program.departmentId) === collegeId)
+            .sort((a, b) => `${a.code} ${a.name}`.localeCompare(`${b.code} ${b.name}`))
+    }, [programs, subjectCollegeId])
+
+    React.useEffect(() => {
+        if (!subjectOpen) return
+        if (str(subjectProgramId) === "__none__") return
+
+        const subjectProgram = programs.find((program) => str(program.$id) === str(subjectProgramId))
+        if (!subjectProgram || str(subjectProgram.departmentId) !== str(subjectCollegeId)) {
+            setSubjectProgramId("__none__")
+        }
+    }, [programs, subjectCollegeId, subjectOpen, subjectProgramId])
 
     async function saveSubject() {
         const units = num(subjectUnits, 0)
@@ -548,6 +638,10 @@ export function useMasterDataManagement() {
         const lab = num(subjectLab, 0)
         const total = lec + lab
         const termId = str(subjectTermId)
+        const collegeId = str(subjectCollegeId)
+        const programId = str(subjectProgramId) === "__none__" ? null : str(subjectProgramId)
+        const yearLevel = buildStoredSectionYearLevel(subjectYearLevel, programId, programs)
+        const yearNumber = extractSectionYearNumber(yearLevel)
 
         const payload: any = {
             code: str(subjectCode),
@@ -560,13 +654,33 @@ export function useMasterDataManagement() {
             ...(subjectEditing
                 ? buildSubjectTermPayload(subjectEditing as any, termId)
                 : { termId: termId || null }),
+            ...(subjectEditing
+                ? buildSubjectProgramPayload(subjectEditing as any, programId)
+                : { programId }),
+            ...(subjectEditing
+                ? buildSubjectYearLevelPayload(subjectEditing as any, yearLevel, programId, programs)
+                : { yearLevel: yearLevel || null }),
         }
 
-        const collegeId = str(subjectCollegeId)
         payload.departmentId = collegeId ? collegeId : null
 
         if (!payload.code || !payload.title) {
             toast.error("Subject code and title are required.")
+            return
+        }
+
+        if (!collegeId) {
+            toast.error("College is required for Subjects.")
+            return
+        }
+
+        if (!programId) {
+            toast.error("Program is required for Subjects.")
+            return
+        }
+
+        if (!yearLevel || !yearNumber || !YEAR_LEVEL_OPTIONS.map(String).includes(yearNumber)) {
+            toast.error("Year level must be valid for Subjects.")
             return
         }
 
@@ -1037,9 +1151,11 @@ export function useMasterDataManagement() {
         if (!q) return subjects
         return subjects.filter((s: any) => {
             const linkedTermText = readFirstStringValue(s, SUBJECT_TERM_KEYS)
-            return `${s.code} ${s.title} ${linkedTermText}`.toLowerCase().includes(q)
+            const subjectProgramText = programLabel(programs, resolveSubjectProgramId(s) || null)
+            const subjectYearLevelText = resolveSubjectYearLevel(s, programs)
+            return `${s.code} ${s.title} ${linkedTermText} ${subjectProgramText} ${subjectYearLevelText}`.toLowerCase().includes(q)
         })
-    }, [subjects, q])
+    }, [subjects, q, programs])
 
     const filteredFaculty = React.useMemo(() => {
         if (!q) return facultyProfiles
@@ -1093,6 +1209,9 @@ export function useMasterDataManagement() {
             const room = meeting.roomId ? roomMap.get(str(meeting.roomId)) : undefined
             const subject = cls?.subjectId ? subjectMap.get(str(cls.subjectId)) : undefined
             const faculty = cls?.facultyUserId ? facultyUserMap.get(str(cls.facultyUserId)) : undefined
+            const section = cls?.sectionId ? sectionMap.get(str(cls.sectionId)) : undefined
+            const sectionProgramId = section?.programId ? str(section.programId) : cls?.programId ? str(cls.programId) : null
+            const sectionYearLevel = section?.yearLevel ? normalizeSectionYearLevelValue(section.yearLevel) : null
 
             return {
                 id: meeting.$id,
@@ -1110,12 +1229,17 @@ export function useMasterDataManagement() {
                 subjectTitle: str(subject?.title) || "Unknown Subject",
                 units: subject?.units ?? null,
                 classCode: str(cls?.classCode) || "—",
-                collegeLabel: collegeLabel(colleges, cls?.departmentId ?? null),
-                programLabel: programLabel(programs, cls?.programId ?? null),
-                sectionLabel: str(cls?.sectionId) || "—",
+                collegeLabel: collegeLabel(colleges, cls?.departmentId ?? section?.departmentId ?? null),
+                programLabel: programLabel(programs, sectionProgramId),
+                sectionId: cls?.sectionId ? str(cls.sectionId) : null,
+                sectionProgramId,
+                sectionYearLevel,
+                sectionLabel: section
+                    ? buildSectionDisplayLabel(section.yearLevel, section.name)
+                    : str(cls?.sectionId) || "—",
             }
         })
-    }, [classMeetings, classMap, roomMap, subjectMap, facultyUserMap, terms, colleges, programs])
+    }, [classMeetings, classMap, roomMap, subjectMap, facultyUserMap, terms, colleges, programs, sectionMap])
 
     const conflictRecordIds = React.useMemo(() => {
         const marked = new Set<string>()
@@ -1156,7 +1280,9 @@ export function useMasterDataManagement() {
     }, [recordRows])
 
     const recordUnitOptions = React.useMemo(() => {
-        const unique = Array.from(new Set(subjects.map((s) => num(s.units, 0)).filter((u) => u > 0)))
+        const unique = Array.from(
+            new Set(subjects.map((s) => num(s.units, 0)).filter((u) => u > 0))
+        ) as number[]
         return unique.sort((a, b) => a - b)
     }, [subjects])
 
@@ -1275,6 +1401,11 @@ export function useMasterDataManagement() {
         setSubjectEditing,
         subjectCollegeId,
         setSubjectCollegeId,
+        subjectProgramId,
+        setSubjectProgramId,
+        subjectYearLevel,
+        setSubjectYearLevel,
+        subjectProgramsForSelectedCollege,
         subjectTermId,
         setSubjectTermId,
         subjectCode,

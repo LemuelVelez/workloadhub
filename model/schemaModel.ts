@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "007_add_subject_term_linking" as const;
+export const SCHEMA_MIGRATION_ID = "008_add_subject_scope_linking" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -118,6 +118,8 @@ export const ATTR = {
     SUBJECTS: {
         termId: "termId",
         departmentId: "departmentId",
+        programId: "programId",
+        yearLevel: "yearLevel",
         code: "code",
         title: "title",
         units: "units",
@@ -306,7 +308,10 @@ export const INDEX = {
     SUBJECTS: {
         codeUnique: "idx_subjects_code_unique",
         departmentId: "idx_subjects_departmentId",
+        programId: "idx_subjects_programId",
+        yearLevel: "idx_subjects_yearLevel",
         termId: "idx_subjects_termId",
+        termProgramYear: "idx_subjects_term_program_year",
         titleFulltext: "idx_subjects_title_fulltext",
     },
     ROOMS: {
@@ -436,6 +441,8 @@ export type Program = {
 export type Subject = {
     termId?: string | null;
     departmentId?: string | null;
+    programId?: string | null;
+    yearLevel?: SectionYearLevelValue | null;
     code: string;
     title: string;
     units: number;

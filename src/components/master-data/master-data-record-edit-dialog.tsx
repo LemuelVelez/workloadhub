@@ -40,6 +40,8 @@ type LooseSubjectDoc = SubjectDoc & Record<string, unknown>
 type LooseAcademicTermDoc = AcademicTermDoc & Record<string, unknown>
 
 const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
+const SUBJECT_PROGRAM_KEYS = ["programId", "program", "program_id", "programID"] as const
+const SUBJECT_SCOPE_YEAR_LEVEL_KEYS = ["yearLevel", "sectionYearLevel", "sectionYear", "year_level"] as const
 const SUBJECT_SEMESTER_KEYS = [
     "semester",
     "semesterLabel",
@@ -97,6 +99,41 @@ function resolveSubjectSemester(
     if (linkedSemester) return linkedSemester
 
     return normalizeSemesterLabel(readFirstStringValue(subject, SUBJECT_SEMESTER_KEYS))
+}
+
+
+function normalizeSectionYearLevelValue(value?: string | number | null) {
+    return String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+}
+
+function resolveSubjectProgramId(subject: LooseSubjectDoc) {
+    return readFirstStringValue(subject, SUBJECT_PROGRAM_KEYS)
+}
+
+function resolveSubjectYearLevel(subject: LooseSubjectDoc) {
+    return normalizeSectionYearLevelValue(
+        readFirstStringValue(subject, SUBJECT_SCOPE_YEAR_LEVEL_KEYS)
+    )
+}
+
+function getSubjectScopeSortRank(
+    subject: LooseSubjectDoc,
+    selectedProgramId: string,
+    selectedYearLevel: string
+) {
+    const subjectProgramId = resolveSubjectProgramId(subject)
+    const subjectYearLevel = resolveSubjectYearLevel(subject)
+
+    const programMatches = !selectedProgramId || subjectProgramId === selectedProgramId
+    const yearMatches = !selectedYearLevel || subjectYearLevel === selectedYearLevel
+
+    if (programMatches && yearMatches && subjectProgramId && subjectYearLevel) return 0
+    if (programMatches && yearMatches) return 1
+    if (programMatches || yearMatches) return 2
+    return 3
 }
 
 function getSubjectSortRank(
@@ -158,30 +195,81 @@ export function MasterDataRecordEditDialog({
         return resolveTermSemester(termMap, recordTermId.trim())
     }, [recordTermId, termMap])
 
+    const selectedSectionContext = React.useMemo(() => {
+        const sectionId = String(editingRow?.sectionId ?? editingRow?.section ?? "").trim()
+        const matchedSection = sectionId
+            ? vm.sections.find((section) => String(section.$id) === sectionId) ?? null
+            : null
+
+        const programId = String(
+            editingRow?.sectionProgramId ?? matchedSection?.programId ?? editingRow?.programId ?? ""
+        ).trim()
+
+        const yearLevel = normalizeSectionYearLevelValue(
+            editingRow?.sectionYearLevel ?? matchedSection?.yearLevel ?? ""
+        )
+
+        const sectionLabel = String(
+            editingRow?.sectionLabel ??
+                (matchedSection
+                    ? `${matchedSection.yearLevel ?? ""}${matchedSection.name ? ` - ${matchedSection.name}` : ""}`
+                    : "")
+        ).trim()
+
+        return {
+            sectionId,
+            programId,
+            yearLevel,
+            label: sectionLabel || "Current section",
+        }
+    }, [editingRow, vm.sections])
+
     const availableSubjectsForSelectedTerm = React.useMemo(() => {
         const selectedTermId = recordTermId.trim()
+        const selectedProgramId = selectedSectionContext.programId
+        const selectedYearLevel = selectedSectionContext.yearLevel
 
         return [...(vm.subjects as LooseSubjectDoc[])]
             .filter((subject) => {
-                if (!selectedTermSemester) return true
+                if (selectedTermSemester) {
+                    const subjectTermId = resolveSubjectTermId(subject)
+                    if (selectedTermId && subjectTermId === selectedTermId) {
+                        // exact term match is always allowed; continue to scope checks below
+                    } else {
+                        const subjectSemester = resolveSubjectSemester(subject, termMap)
 
-                const subjectTermId = resolveSubjectTermId(subject)
-                if (selectedTermId && subjectTermId === selectedTermId) return true
+                        // No explicit subject semester yet:
+                        // allow it, then connect it to the selected term on save.
+                        if (subjectSemester && subjectSemester !== selectedTermSemester) {
+                            return false
+                        }
+                    }
+                }
 
-                const subjectSemester = resolveSubjectSemester(subject, termMap)
+                const subjectProgramId = resolveSubjectProgramId(subject)
+                if (selectedProgramId && subjectProgramId && subjectProgramId !== selectedProgramId) {
+                    return false
+                }
 
-                // No explicit subject semester yet:
-                // allow it, then connect it to the selected term on save.
-                if (!subjectSemester) return true
+                const subjectYearLevel = resolveSubjectYearLevel(subject)
+                if (selectedYearLevel && subjectYearLevel && subjectYearLevel !== selectedYearLevel) {
+                    return false
+                }
 
-                return subjectSemester === selectedTermSemester
+                return true
             })
             .sort((a, b) => {
-                const rankDelta =
+                const termRankDelta =
                     getSubjectSortRank(a, selectedTermId, selectedTermSemester, termMap) -
                     getSubjectSortRank(b, selectedTermId, selectedTermSemester, termMap)
 
-                if (rankDelta !== 0) return rankDelta
+                if (termRankDelta !== 0) return termRankDelta
+
+                const scopeRankDelta =
+                    getSubjectScopeSortRank(a, selectedProgramId, selectedYearLevel) -
+                    getSubjectScopeSortRank(b, selectedProgramId, selectedYearLevel)
+
+                if (scopeRankDelta !== 0) return scopeRankDelta
 
                 const aCode = String(a.code ?? "").toLowerCase()
                 const bCode = String(b.code ?? "").toLowerCase()
@@ -189,7 +277,7 @@ export function MasterDataRecordEditDialog({
 
                 return String(a.title ?? "").localeCompare(String(b.title ?? ""))
             })
-    }, [recordTermId, selectedTermSemester, termMap, vm.subjects])
+    }, [recordTermId, selectedSectionContext, selectedTermSemester, termMap, vm.subjects])
 
     React.useEffect(() => {
         if (!open || !editingRow) return
@@ -351,6 +439,27 @@ export function MasterDataRecordEditDialog({
             return
         }
 
+        const selectedSubjectProgramId = resolveSubjectProgramId(selectedSubject)
+        const selectedSubjectYearLevel = resolveSubjectYearLevel(selectedSubject)
+
+        if (
+            selectedSectionContext.programId &&
+            selectedSubjectProgramId &&
+            selectedSubjectProgramId !== selectedSectionContext.programId
+        ) {
+            toast.error("Selected subject belongs to a different program than the current section.")
+            return
+        }
+
+        if (
+            selectedSectionContext.yearLevel &&
+            selectedSubjectYearLevel &&
+            selectedSubjectYearLevel !== selectedSectionContext.yearLevel
+        ) {
+            toast.error("Selected subject belongs to a different year level than the current section.")
+            return
+        }
+
         const payload: any = {}
 
         if (hasOwn(editingRow, "termId")) payload.termId = termId
@@ -404,25 +513,40 @@ export function MasterDataRecordEditDialog({
         }
 
         setSavingRecord(true)
-        let subjectLinkedToSelectedTerm = false
+        let subjectScopePatched = false
 
         try {
             const selectedSubjectTermId = resolveSubjectTermId(selectedSubject)
+            const selectedSubjectProgramId = resolveSubjectProgramId(selectedSubject)
+            const selectedSubjectYearLevel = resolveSubjectYearLevel(selectedSubject)
+            const subjectScopePatch: Record<string, string | null> = {}
 
             if (!selectedSubjectTermId) {
+                subjectScopePatch.termId = termId
+            }
+
+            if (selectedSectionContext.programId && !selectedSubjectProgramId) {
+                subjectScopePatch.programId = selectedSectionContext.programId
+            }
+
+            if (selectedSectionContext.yearLevel && !selectedSubjectYearLevel) {
+                subjectScopePatch.yearLevel = selectedSectionContext.yearLevel
+            }
+
+            if (Object.keys(subjectScopePatch).length > 0) {
                 try {
                     await databases.updateDocument(
                         DATABASE_ID,
                         COLLECTIONS.SUBJECTS,
                         String(selectedSubject.$id),
-                        { termId }
+                        subjectScopePatch
                     )
-                    subjectLinkedToSelectedTerm = true
+                    subjectScopePatched = true
                 } catch (subjectLinkError: any) {
                     toast.warning(
                         subjectLinkError?.message
-                            ? `Record will still be saved, but the subject-term link was not persisted yet: ${subjectLinkError.message}`
-                            : "Record will still be saved, but the subject-term link was not persisted yet."
+                            ? `Record will still be saved, but the subject scope was not fully persisted yet: ${subjectLinkError.message}`
+                            : "Record will still be saved, but the subject scope was not fully persisted yet."
                     )
                 }
             }
@@ -435,8 +559,8 @@ export function MasterDataRecordEditDialog({
             )
 
             toast.success(
-                subjectLinkedToSelectedTerm
-                    ? "Record updated and subject linked to the selected term."
+                subjectScopePatched
+                    ? "Record updated and subject scope linked to the selected section and term."
                     : "Record updated."
             )
             closeDialog()
@@ -460,6 +584,7 @@ export function MasterDataRecordEditDialog({
         recordFacultyValue,
         recordSubjectId,
         selectedTermSemester,
+        selectedSectionContext,
         termMap,
         vm,
         closeDialog,
@@ -472,9 +597,10 @@ export function MasterDataRecordEditDialog({
                     <DialogTitle>Edit Record</DialogTitle>
                     <ShadDialogDescription>
                         Update term/day/time/room/faculty/subject for this record.
-                        Subject choices are now limited by the selected term semester,
-                        and unlinked subjects can automatically inherit the selected
-                        term when saved.
+                        Subject choices are now limited by the selected term semester
+                        plus the current section's program and year level, and missing
+                        subject scope values can automatically inherit the current
+                        section and term when saved.
                     </ShadDialogDescription>
                 </DialogHeader>
 
@@ -502,7 +628,7 @@ export function MasterDataRecordEditDialog({
                         </Select>
                         <div className="text-xs text-muted-foreground">
                             {selectedTermSemester
-                                ? `Showing ${selectedTermSemester} subjects only for this record.`
+                                ? `Showing ${selectedTermSemester} subjects for ${selectedSectionContext.label || "the current section"}.`
                                 : "Select a term to automatically segregate subjects by semester."}
                         </div>
                     </div>
@@ -627,9 +753,23 @@ export function MasterDataRecordEditDialog({
                                                 resolveSubjectSemester(subject, termMap) ||
                                                 selectedTermSemester ||
                                                 "No Semester"
-                                            const labelSuffix = linkedTermId
-                                                ? subjectSemester
-                                                : `${subjectSemester} • Inherit selected term`
+                                            const subjectProgramId = resolveSubjectProgramId(subject)
+                                            const subjectYearLevel = resolveSubjectYearLevel(subject)
+                                            const scopeSuffixParts = [subjectSemester]
+
+                                            if (subjectProgramId) {
+                                                scopeSuffixParts.push(vm.programLabel(vm.programs, subjectProgramId))
+                                            }
+
+                                            if (subjectYearLevel) {
+                                                scopeSuffixParts.push(subjectYearLevel)
+                                            }
+
+                                            if (!linkedTermId) {
+                                                scopeSuffixParts.push("Inherit selected term")
+                                            }
+
+                                            const labelSuffix = scopeSuffixParts.filter(Boolean).join(" • ")
 
                                             return (
                                                 <SelectItem
@@ -645,8 +785,9 @@ export function MasterDataRecordEditDialog({
                             </Select>
                             <div className="text-xs text-muted-foreground">
                                 Units are taken automatically from the selected subject.
-                                Subjects without a direct term link will inherit the
-                                selected term when possible.
+                                Subjects are filtered by the current section scope when available.
+                                Subjects without a direct term/program/year scope will inherit the
+                                selected section and term when possible.
                             </div>
                         </div>
                     </div>
