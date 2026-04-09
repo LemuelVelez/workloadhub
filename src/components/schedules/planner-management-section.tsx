@@ -199,6 +199,7 @@ type PdfPreviewState = {
 const ROOMS_AND_FACILITIES_ROUTE = "/dashboard/admin/rooms-and-facilities"
 const ENTRY_DIALOG_SELECT_CONTENT_CLASS = "z-[200]"
 const EMPTY_SUBJECT_SELECT_VALUE = "__no_subject__"
+const SUBJECT_FILTER_ALL_VALUE = "__all__"
 
 const PLANNER_SORT_OPTIONS: Array<{ value: PlannerSortKey; label: string }> = [
     { value: "day", label: "Day" },
@@ -446,6 +447,237 @@ const pdfStyles = StyleSheet.create({
         marginTop: 2,
     },
 })
+
+function normalizeSubjectFilterText(value?: unknown) {
+    return String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+}
+
+function splitSubjectFilterValues(value: unknown) {
+    if (Array.isArray(value)) {
+        return value.flatMap((item) => splitSubjectFilterValues(item))
+    }
+
+    const normalized = String(value ?? "").trim()
+    if (!normalized) return []
+
+    return normalized
+        .split(/[|,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+}
+
+function getYearLevelToken(value?: unknown) {
+    const normalized = normalizeSubjectFilterText(value)
+    if (!normalized) return ""
+
+    const directMatch = normalized.match(/^(?:cs|is)?\s*([1-9]\d*)$/i)
+    if (directMatch?.[1]) return directMatch[1]
+
+    const ordinalMatch = normalized.match(/([1-9]\d*)(?:st|nd|rd|th)?(?:\s+year)?$/i)
+    if (ordinalMatch?.[1]) return ordinalMatch[1]
+
+    return ""
+}
+
+function getOrdinalSuffix(value: number) {
+    const mod100 = value % 100
+    if (mod100 >= 11 && mod100 <= 13) return "th"
+
+    switch (value % 10) {
+        case 1:
+            return "st"
+        case 2:
+            return "nd"
+        case 3:
+            return "rd"
+        default:
+            return "th"
+    }
+}
+
+function formatYearLevelFilterLabel(value?: unknown) {
+    const rawText = String(value ?? "").trim()
+    const yearToken = getYearLevelToken(value)
+    if (!yearToken) return rawText
+
+    const parsedYear = Number.parseInt(yearToken, 10)
+    if (!Number.isFinite(parsedYear)) return rawText || yearToken
+
+    return `${parsedYear}${getOrdinalSuffix(parsedYear)} Year`
+}
+
+function buildComparableSubjectFilterTokens(value?: unknown) {
+    const normalized = normalizeSubjectFilterText(value)
+    const tokens = new Set<string>()
+    if (!normalized) return tokens
+
+    tokens.add(normalized)
+
+    const yearToken = getYearLevelToken(value)
+    if (yearToken) {
+        tokens.add(yearToken)
+        tokens.add(normalizeSubjectFilterText(formatYearLevelFilterLabel(yearToken)))
+    }
+
+    if (normalized.includes("computer science") || normalized === "cs" || normalized === "bscs") {
+        tokens.add("computer science")
+        tokens.add("cs")
+        tokens.add("bscs")
+    }
+
+    if (normalized.includes("information system") || normalized.includes("information systems") || normalized === "is" || normalized === "bsis") {
+        tokens.add("information systems")
+        tokens.add("information system")
+        tokens.add("is")
+        tokens.add("bsis")
+    }
+
+    if (normalized.includes("first")) tokens.add("1")
+    if (normalized.includes("second")) tokens.add("2")
+    if (normalized.includes("third")) tokens.add("3")
+    if (normalized.includes("fourth")) tokens.add("4")
+
+    if (normalized.includes("1st") || normalized.includes("1st semester")) tokens.add("1")
+    if (normalized.includes("2nd") || normalized.includes("2nd semester")) tokens.add("2")
+    if (normalized.includes("3rd") || normalized.includes("3rd semester")) tokens.add("3")
+    if (normalized.includes("4th") || normalized.includes("4th semester")) tokens.add("4")
+
+    return tokens
+}
+
+function subjectFilterValuesMatch(leftValue: string, rightValue: string) {
+    const leftTokens = buildComparableSubjectFilterTokens(leftValue)
+    const rightTokens = buildComparableSubjectFilterTokens(rightValue)
+
+    for (const token of leftTokens) {
+        if (rightTokens.has(token)) return true
+    }
+
+    const leftNormalized = normalizeSubjectFilterText(leftValue)
+    const rightNormalized = normalizeSubjectFilterText(rightValue)
+    if (!leftNormalized || !rightNormalized) return false
+
+    return leftNormalized.includes(rightNormalized) || rightNormalized.includes(leftNormalized)
+}
+
+function matchesSelectedSubjectFilter(selectedValue: string, subjectValues: string[]) {
+    if (!selectedValue || selectedValue === SUBJECT_FILTER_ALL_VALUE) return true
+    if (subjectValues.length === 0) return true
+
+    return subjectValues.some((value) => subjectFilterValuesMatch(value, selectedValue))
+}
+
+function buildSubjectFilterOptions(values: Array<unknown>, formatter?: (value: unknown) => string) {
+    const seen = new Set<string>()
+    const options: string[] = []
+
+    for (const rawValue of values) {
+        for (const value of splitSubjectFilterValues(rawValue)) {
+            const displayValue = String(formatter ? formatter(value) : value).trim()
+            if (!displayValue) continue
+
+            const normalized = normalizeSubjectFilterText(displayValue)
+            if (!normalized || seen.has(normalized)) continue
+
+            seen.add(normalized)
+            options.push(displayValue)
+        }
+    }
+
+    return options.sort(comparePlannerText)
+}
+
+function getSubjectCollegeFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions([
+        anySubject.college,
+        anySubject.collegeName,
+        anySubject.collegeCode,
+        anySubject.departmentLabel,
+        anySubject.departmentName,
+        anySubject.departmentCode,
+        subject.departmentId,
+    ])
+}
+
+function getSubjectProgramFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions([
+        subject.programName,
+        subject.programCode,
+        subject.programId,
+        subject.programIds,
+        subject.programCodes,
+        anySubject.program,
+        anySubject.programs,
+        anySubject.programLabel,
+    ])
+}
+
+function getSubjectYearLevelFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions(
+        [subject.yearLevel, subject.yearLevels, anySubject.level, anySubject.levels],
+        formatYearLevelFilterLabel
+    )
+}
+
+function getSubjectSemesterFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions([
+        anySubject.semester,
+        anySubject.semesters,
+        anySubject.curriculumSemester,
+        anySubject.offeredSemester,
+        anySubject.termSemester,
+    ])
+}
+
+function getSubjectAcademicTermFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+    const schoolYear = String(anySubject.schoolYear ?? "").trim()
+    const semester = String(anySubject.semester ?? "").trim()
+    const combinedSchoolYearSemester = schoolYear && semester ? `${schoolYear} • ${semester}` : ""
+
+    return buildSubjectFilterOptions([
+        subject.termId,
+        anySubject.academicTerm,
+        anySubject.term,
+        anySubject.termName,
+        anySubject.termLabel,
+        anySubject.schoolYear,
+        combinedSchoolYearSemester,
+    ])
+}
+
+function pickMatchingSubjectFilterOption(options: string[], candidates: Array<unknown>) {
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeSubjectFilterText(candidate)
+        if (!normalizedCandidate) continue
+
+        const exactMatch = options.find((option) => subjectFilterValuesMatch(option, normalizedCandidate))
+        if (exactMatch) return exactMatch
+    }
+
+    return SUBJECT_FILTER_ALL_VALUE
+}
 
 function comparePlannerText(a?: string | number | null, b?: string | number | null) {
     return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
@@ -932,6 +1164,12 @@ export function PlannerManagementSection({
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
+    const [subjectCollegeFilter, setSubjectCollegeFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectProgramFilter, setSubjectProgramFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectYearLevelFilter, setSubjectYearLevelFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectSemesterFilter, setSubjectSemesterFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectAcademicTermFilter, setSubjectAcademicTermFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+
     const selectedSection = React.useMemo(
         () => sections.find((section) => section.$id === formSectionId) ?? null,
         [sections, formSectionId]
@@ -952,12 +1190,145 @@ export function PlannerManagementSection({
         return sectionDisplayLookup[selectedSection.$id] || "—"
     }, [selectedSection, sectionDisplayLookup])
 
+    const sectionScopedSubjectOptions = React.useMemo(
+        () => filterSubjectsForSection(subjects, selectedSection),
+        [subjects, selectedSection]
+    )
+
+    const subjectCollegeOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedDeptLabel,
+                ...sectionScopedSubjectOptions.flatMap((subject) => getSubjectCollegeFilterValues(subject)),
+            ]),
+        [sectionScopedSubjectOptions, selectedDeptLabel]
+    )
+
+    const subjectProgramOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedSection?.programCode,
+                selectedSection?.programName,
+                selectedSection?.programId,
+                ...sectionScopedSubjectOptions.flatMap((subject) => getSubjectProgramFilterValues(subject)),
+            ]),
+        [sectionScopedSubjectOptions, selectedSection]
+    )
+
+    const subjectYearLevelOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions(
+                [selectedSection?.yearLevel, ...sectionScopedSubjectOptions.flatMap((subject) => getSubjectYearLevelFilterValues(subject))],
+                formatYearLevelFilterLabel
+            ),
+        [sectionScopedSubjectOptions, selectedSection]
+    )
+
+    const subjectSemesterOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                ...sectionScopedSubjectOptions.flatMap((subject) => getSubjectSemesterFilterValues(subject)),
+            ]),
+        [sectionScopedSubjectOptions]
+    )
+
+    const subjectAcademicTermOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedTermLabel,
+                ...sectionScopedSubjectOptions.flatMap((subject) => getSubjectAcademicTermFilterValues(subject)),
+            ]),
+        [sectionScopedSubjectOptions, selectedTermLabel]
+    )
+
+    const clearSubjectFilters = React.useCallback(() => {
+        setSubjectCollegeFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectProgramFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectYearLevelFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectSemesterFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
+    }, [])
+
+    const applyScheduleContextSubjectFilters = React.useCallback(() => {
+        setSubjectCollegeFilter(
+            pickMatchingSubjectFilterOption(subjectCollegeOptions, [selectedDeptLabel, selectedVersion?.departmentId])
+        )
+        setSubjectProgramFilter(
+            pickMatchingSubjectFilterOption(subjectProgramOptions, [selectedSection?.programCode, selectedSection?.programName, selectedSection?.programId])
+        )
+        setSubjectYearLevelFilter(
+            pickMatchingSubjectFilterOption(subjectYearLevelOptions, [selectedSection?.yearLevel])
+        )
+        setSubjectSemesterFilter(pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedTermLabel]))
+        setSubjectAcademicTermFilter(
+            pickMatchingSubjectFilterOption(subjectAcademicTermOptions, [selectedTermLabel, selectedVersion?.termId])
+        )
+    }, [
+        selectedDeptLabel,
+        selectedSection,
+        selectedTermLabel,
+        selectedVersion?.departmentId,
+        selectedVersion?.termId,
+        subjectAcademicTermOptions,
+        subjectCollegeOptions,
+        subjectProgramOptions,
+        subjectSemesterOptions,
+        subjectYearLevelOptions,
+    ])
+
+    React.useEffect(() => {
+        if (!entryDialogOpen) return
+        applyScheduleContextSubjectFilters()
+    }, [entryDialogOpen, formSectionId, selectedVersion?.$id, applyScheduleContextSubjectFilters])
+
     const filteredSubjectOptions = React.useMemo(
         () =>
-            filterSubjectsForSection(subjects, selectedSection).slice().sort((a, b) =>
-                comparePlannerText(`${String(a.code || "")} ${String(a.title || "")}`, `${String(b.code || "")} ${String(b.title || "")}`)
-            ),
-        [subjects, selectedSection]
+            sectionScopedSubjectOptions
+                .filter((subject) => {
+                    const subjectCollegeValues = getSubjectCollegeFilterValues(subject)
+                    const subjectProgramValues = getSubjectProgramFilterValues(subject)
+                    const subjectYearValues = getSubjectYearLevelFilterValues(subject)
+                    const subjectSemesterValues = getSubjectSemesterFilterValues(subject)
+                    const subjectAcademicTermValues = getSubjectAcademicTermFilterValues(subject)
+
+                    return (
+                        matchesSelectedSubjectFilter(subjectCollegeFilter, subjectCollegeValues) &&
+                        matchesSelectedSubjectFilter(subjectProgramFilter, subjectProgramValues) &&
+                        matchesSelectedSubjectFilter(subjectYearLevelFilter, subjectYearValues) &&
+                        matchesSelectedSubjectFilter(subjectSemesterFilter, subjectSemesterValues) &&
+                        matchesSelectedSubjectFilter(subjectAcademicTermFilter, subjectAcademicTermValues)
+                    )
+                })
+                .slice()
+                .sort((a, b) =>
+                    comparePlannerText(`${String(a.code || "")} ${String(a.title || "")}`, `${String(b.code || "")} ${String(b.title || "")}`)
+                ),
+        [
+            sectionScopedSubjectOptions,
+            subjectAcademicTermFilter,
+            subjectCollegeFilter,
+            subjectProgramFilter,
+            subjectSemesterFilter,
+            subjectYearLevelFilter,
+        ]
+    )
+
+    const activeSubjectFilterBadges = React.useMemo(
+        () =>
+            [
+                subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE ? `College: ${subjectCollegeFilter}` : null,
+                subjectProgramFilter !== SUBJECT_FILTER_ALL_VALUE ? `Program: ${subjectProgramFilter}` : null,
+                subjectYearLevelFilter !== SUBJECT_FILTER_ALL_VALUE ? `Year Level: ${subjectYearLevelFilter}` : null,
+                subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectSemesterFilter}` : null,
+                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Academic Term: ${subjectAcademicTermFilter}` : null,
+            ].filter(Boolean) as string[],
+        [
+            subjectAcademicTermFilter,
+            subjectCollegeFilter,
+            subjectProgramFilter,
+            subjectSemesterFilter,
+            subjectYearLevelFilter,
+        ]
     )
 
     const selectedSubjectIds = React.useMemo(
@@ -1406,7 +1777,7 @@ export function PlannerManagementSection({
                 <CardHeader className="pb-4">
                     <CardTitle>Schedule Planner & Conflict Manager</CardTitle>
                     <CardDescription>
-                        Assign one subject per entry, faculty, and room. Subjects are filtered by the selected semester and by the selected section so only matching subjects appear.
+                        Assign one subject per entry, faculty, and room. Use section-aware subject filters for college, program, year level, semester, and academic term so only relevant subjects appear.
                     </CardDescription>
                 </CardHeader>
 
@@ -2151,7 +2522,7 @@ export function PlannerManagementSection({
                             </div>
                         ) : null}
 
-                        <div className="grid gap-3 md:grid-cols-2">
+                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
                             <div className="space-y-3">
                                 <div className="space-y-1">
                                     <Label>Section</Label>
@@ -2169,13 +2540,159 @@ export function PlannerManagementSection({
                                     </Select>
                                 </div>
 
-                                <div className="rounded-xl border border-dashed p-3">
-                                    <div className="text-xs text-muted-foreground">Section Reference Preview</div>
-                                    <div className="mt-1 font-medium">{selectedSectionPreviewLabel}</div>
+                                <div className="rounded-2xl border border-dashed p-4">
+                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Section Reference Preview
+                                    </div>
+                                    <div className="mt-2 font-medium">{selectedSectionPreviewLabel}</div>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        <Badge variant="secondary" className="rounded-full">
+                                            {selectedDeptLabel || "Department not set"}
+                                        </Badge>
+                                        {selectedSection?.programCode || selectedSection?.programName ? (
+                                            <Badge variant="outline" className="rounded-full">
+                                                {String(selectedSection?.programCode || selectedSection?.programName || "")}
+                                            </Badge>
+                                        ) : null}
+                                        {selectedSection?.yearLevel != null && String(selectedSection.yearLevel).trim() ? (
+                                            <Badge variant="outline" className="rounded-full">
+                                                {formatYearLevelFilterLabel(selectedSection.yearLevel)}
+                                            </Badge>
+                                        ) : null}
+                                        {selectedTermLabel ? (
+                                            <Badge variant="outline" className="rounded-full">
+                                                {selectedTermLabel}
+                                            </Badge>
+                                        ) : null}
+                                    </div>
                                 </div>
                             </div>
 
                             <div className="space-y-3">
+                                <div className="rounded-2xl border bg-muted/20 p-4">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="space-y-1">
+                                            <div className="text-sm font-semibold">Subject Matching Filters</div>
+                                            <div className="text-xs text-muted-foreground">
+                                                Narrow the subject list by college, program, year level, semester, and academic term before assigning the subject to a faculty member.
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Badge variant="secondary" className="rounded-lg">
+                                                {filteredSubjectOptions.length} match{filteredSubjectOptions.length === 1 ? "" : "es"}
+                                            </Badge>
+                                            <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={applyScheduleContextSubjectFilters}>
+                                                Use schedule context
+                                            </Button>
+                                            <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={clearSubjectFilters}>
+                                                Clear filters
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                                        <div className="space-y-1">
+                                            <Label>College</Label>
+                                            <Select value={subjectCollegeFilter} onValueChange={setSubjectCollegeFilter}>
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue placeholder="All colleges" />
+                                                </SelectTrigger>
+                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All colleges</SelectItem>
+                                                    {subjectCollegeOptions.map((option) => (
+                                                        <SelectItem key={option} value={option}>
+                                                            {option}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label>Program</Label>
+                                            <Select value={subjectProgramFilter} onValueChange={setSubjectProgramFilter}>
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue placeholder="All programs" />
+                                                </SelectTrigger>
+                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All programs</SelectItem>
+                                                    {subjectProgramOptions.map((option) => (
+                                                        <SelectItem key={option} value={option}>
+                                                            {option}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label>Year Level</Label>
+                                            <Select value={subjectYearLevelFilter} onValueChange={setSubjectYearLevelFilter}>
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue placeholder="All year levels" />
+                                                </SelectTrigger>
+                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All year levels</SelectItem>
+                                                    {subjectYearLevelOptions.map((option) => (
+                                                        <SelectItem key={option} value={option}>
+                                                            {option}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label>Semester</Label>
+                                            <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue placeholder="All semesters" />
+                                                </SelectTrigger>
+                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
+                                                    {subjectSemesterOptions.map((option) => (
+                                                        <SelectItem key={option} value={option}>
+                                                            {option}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label>Academic Term</Label>
+                                            <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue placeholder="All academic terms" />
+                                                </SelectTrigger>
+                                                <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
+                                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
+                                                    {subjectAcademicTermOptions.map((option) => (
+                                                        <SelectItem key={option} value={option}>
+                                                            {option}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {activeSubjectFilterBadges.length > 0 ? (
+                                            activeSubjectFilterBadges.map((badgeLabel) => (
+                                                <Badge key={badgeLabel} variant="outline" className="rounded-full">
+                                                    {badgeLabel}
+                                                </Badge>
+                                            ))
+                                        ) : (
+                                            <div className="text-xs text-muted-foreground">
+                                                No additional subject filters are applied.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
                                 <div className="space-y-1">
                                     <Label>Subject</Label>
                                     <Select
@@ -2199,9 +2716,9 @@ export function PlannerManagementSection({
                                     </Select>
                                 </div>
 
-                                <div className="rounded-xl border p-3">
+                                <div className="rounded-2xl border p-4">
                                     <div className="text-xs text-muted-foreground">
-                                        Only subjects matched to the selected section and active semester are shown.
+                                        Subjects shown here are scoped by the selected section and your chosen college, program, year level, semester, and academic term filters.
                                     </div>
 
                                     {selectedSubjectDoc ? (
@@ -2215,7 +2732,7 @@ export function PlannerManagementSection({
                                         </div>
                                     ) : filteredSubjectOptions.length === 0 ? (
                                         <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                                            No subjects are available for the selected section.
+                                            No subjects match the current section and subject filters. Clear filters or adjust the schedule context to see more subjects.
                                         </div>
                                     ) : (
                                         <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
