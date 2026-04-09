@@ -455,7 +455,7 @@ function normalizeSubjectFilterText(value?: unknown) {
         .replace(/\s+/g, " ")
 }
 
-function splitSubjectFilterValues(value: unknown) {
+function splitSubjectFilterValues(value: unknown): string[] {
     if (Array.isArray(value)) {
         return value.flatMap((item) => splitSubjectFilterValues(item))
     }
