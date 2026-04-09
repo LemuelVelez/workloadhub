@@ -165,6 +165,7 @@ const DIALOG_CONTENT_CLASS = "sm:max-w-2xl max-h-[75vh] overflow-y-auto"
 const PRINT_FILTER_TRIGGER_CLASS = "w-full max-w-none"
 const WRAP_TEXT_CLASS = "break-words whitespace-normal leading-tight"
 const CONFLICT_TABLE_CLASS = "min-w-[1240px] table-fixed"
+const ACTIVE_ROOM_TYPE_TAB_CLASS = "data-[state=active]:!bg-primary data-[state=active]:!text-primary-foreground"
 
 const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
 const DEFAULT_PRINT_TIME_SLOTS = [
@@ -2030,10 +2031,18 @@ export default function AdminRoomsAndFacilitiesPage() {
 
                         <Tabs value={typeFilter} onValueChange={(v: any) => setTypeFilter(v)}>
                             <TabsList className="grid w-full grid-cols-4">
-                                <TabsTrigger value="ALL">All</TabsTrigger>
-                                <TabsTrigger value="LECTURE">Lecture</TabsTrigger>
-                                <TabsTrigger value="LAB">Lab</TabsTrigger>
-                                <TabsTrigger value="OTHER">Other</TabsTrigger>
+                                <TabsTrigger className={ACTIVE_ROOM_TYPE_TAB_CLASS} value="ALL">
+                                    All
+                                </TabsTrigger>
+                                <TabsTrigger className={ACTIVE_ROOM_TYPE_TAB_CLASS} value="LECTURE">
+                                    Lecture
+                                </TabsTrigger>
+                                <TabsTrigger className={ACTIVE_ROOM_TYPE_TAB_CLASS} value="LAB">
+                                    Lab
+                                </TabsTrigger>
+                                <TabsTrigger className={ACTIVE_ROOM_TYPE_TAB_CLASS} value="OTHER">
+                                    Other
+                                </TabsTrigger>
                             </TabsList>
 
                             <TabsContent value={typeFilter}>

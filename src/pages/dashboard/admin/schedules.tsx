@@ -1,27 +1,36 @@
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
 import * as React from "react"
 import { toast } from "sonner"
-import { BookPlus, RefreshCcw } from "lucide-react"
+import { BookPlus, PlusCircle, RefreshCcw } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
 import { useSession } from "@/hooks/use-session"
 
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
     Card,
     CardContent,
     CardDescription,
-    CardHeader,
     CardTitle,
 } from "@/components/ui/card"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 import { VersionManagementSection } from "@/components/schedules/version-management-section"
 import { PlannerManagementSection } from "@/components/schedules/planner-management-section"
@@ -75,6 +84,8 @@ const CREATE_TERM_MODES = {
 type CreateTermMode = (typeof CREATE_TERM_MODES)[keyof typeof CREATE_TERM_MODES]
 
 const CREATE_TERM_SEMESTER_OPTIONS = ["1st Semester", "2nd Semester", "Summer"] as const
+const YEAR_LEVEL_OPTIONS = ["1", "2", "3", "4", "5", "6"] as const
+const CUSTOM_SCHOOL_YEAR_VALUE = "__custom_school_year__"
 
 type CourseYearScopeOption = {
     key: string
@@ -84,6 +95,16 @@ type CourseYearScopeOption = {
     programName?: string | null
     yearLevel?: string | number | null
 }
+
+type ProgramDoc = {
+    $id: string
+    departmentId?: string | null
+    code?: string | null
+    name?: string | null
+    isActive?: boolean
+}
+
+type SubjectManagementDialogMode = "new" | "existing" | null
 
 function formatSchoolYear(startYear: number) {
     return `${startYear}-${startYear + 1}`
@@ -268,6 +289,41 @@ function buildCourseYearScopeOptions(sections: SectionDoc[]) {
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
 }
 
+function buildProgramYearScopeOptions(programs: ProgramDoc[], yearLevelOptions: readonly string[]) {
+    const map = new Map<string, CourseYearScopeOption>()
+
+    for (const program of programs) {
+        const programId = String(program.$id || "").trim() || null
+        const programCode = String(program.code || "").trim() || null
+        const programName = String(program.name || "").trim() || null
+
+        for (const yearLevel of yearLevelOptions) {
+            const normalizedYearLevel = String(yearLevel || "").trim() || null
+            const key = [
+                normalizeText(programId || ""),
+                normalizeText(programCode || ""),
+                normalizeText(programName || ""),
+                normalizeText(normalizedYearLevel || ""),
+            ].join("::")
+
+            if (!key.replace(/[:]/g, "")) continue
+
+            if (!map.has(key)) {
+                map.set(key, {
+                    key,
+                    label: formatCourseYearScopeLabel(programCode, programName, normalizedYearLevel),
+                    programId,
+                    programCode,
+                    programName,
+                    yearLevel: normalizedYearLevel,
+                })
+            }
+        }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
+}
+
 function getSubjectScopeSummary(subject?: SubjectDoc | null) {
     if (!subject) return "Unscoped"
 
@@ -304,6 +360,20 @@ function getSubjectScopeSummary(subject?: SubjectDoc | null) {
     return programCodes
         .map((programCode, index) => `${programCode} ${yearLevels[index] || yearLevels[0] || ""}`.trim())
         .join(", ")
+}
+
+function buildSectionDisplayLabel(
+    programCode?: string | null,
+    programName?: string | null,
+    yearLevel?: string | number | null,
+    sectionName?: string | null
+) {
+    const courseYearLabel = formatCourseYearScopeLabel(programCode, programName, yearLevel)
+    const normalizedSectionName = String(sectionName || "").trim()
+
+    if (!normalizedSectionName) return courseYearLabel
+
+    return `${courseYearLabel} - ${normalizedSectionName}`
 }
 
 export default function AdminSchedulesPage() {
@@ -344,6 +414,7 @@ export default function AdminSchedulesPage() {
     const [subjectDirectory, setSubjectDirectory] = React.useState<SubjectDoc[]>([])
     const [rooms, setRooms] = React.useState<RoomDoc[]>([])
     const [sections, setSections] = React.useState<SectionDoc[]>([])
+    const [programs, setPrograms] = React.useState<ProgramDoc[]>([])
     const [facultyProfiles, setFacultyProfiles] = React.useState<UserProfileDoc[]>([])
     const [classes, setClasses] = React.useState<ClassDoc[]>([])
     const [meetings, setMeetings] = React.useState<ClassMeetingDoc[]>([])
@@ -367,6 +438,7 @@ export default function AdminSchedulesPage() {
     const [formAllowConflictSave, setFormAllowConflictSave] = React.useState(false)
     const [editingEntry, setEditingEntry] = React.useState<ScheduleRow | null>(null)
 
+    const [subjectManagementDialogMode, setSubjectManagementDialogMode] = React.useState<SubjectManagementDialogMode>(null)
     const [subjectCode, setSubjectCode] = React.useState("")
     const [subjectTitle, setSubjectTitle] = React.useState("")
     const [subjectUnits, setSubjectUnits] = React.useState("")
@@ -375,6 +447,25 @@ export default function AdminSchedulesPage() {
     const [bulkLinkSubjectIds, setBulkLinkSubjectIds] = React.useState<string[]>([])
     const [bulkLinkScopeKeys, setBulkLinkScopeKeys] = React.useState<string[]>([])
     const [subjectSaving, setSubjectSaving] = React.useState(false)
+
+    const [sectionDialogOpen, setSectionDialogOpen] = React.useState(false)
+    const [sectionTermMode, setSectionTermMode] = React.useState<CreateTermMode>(CREATE_TERM_MODES.existing)
+    const [sectionTermId, setSectionTermId] = React.useState("")
+    const [sectionSchoolYear, setSectionSchoolYear] = React.useState<string>(() => getCurrentSchoolYear())
+    const [sectionSemester, setSectionSemester] = React.useState<string>(() => getCurrentSemester())
+    const [sectionProgramId, setSectionProgramId] = React.useState("")
+    const [sectionYearLevel, setSectionYearLevel] = React.useState<string>(YEAR_LEVEL_OPTIONS[0])
+    const [sectionName, setSectionName] = React.useState("")
+    const [sectionSaving, setSectionSaving] = React.useState(false)
+    const [subjectDetailsDialogOpen, setSubjectDetailsDialogOpen] = React.useState(false)
+    const [subjectTransferSearch, setSubjectTransferSearch] = React.useState("")
+    const [subjectTransferIds, setSubjectTransferIds] = React.useState<string[]>([])
+    const [subjectTransferTermMode, setSubjectTransferTermMode] = React.useState<CreateTermMode>(CREATE_TERM_MODES.existing)
+    const [subjectTransferTermId, setSubjectTransferTermId] = React.useState("")
+    const [subjectTransferSchoolYear, setSubjectTransferSchoolYear] = React.useState<string>(() => getCurrentSchoolYear())
+    const [subjectTransferSemester, setSubjectTransferSemester] = React.useState<string>(() => getCurrentSemester())
+    const [subjectTransferScopeKeys, setSubjectTransferScopeKeys] = React.useState<string[]>([])
+    const [subjectTransferSaving, setSubjectTransferSaving] = React.useState(false)
 
     const termMap = React.useMemo(() => {
         const m = new Map<string, AcademicTermDoc>()
@@ -387,6 +478,12 @@ export default function AdminSchedulesPage() {
         departments.forEach((d) => m.set(d.$id, d))
         return m
     }, [departments])
+
+    const programMap = React.useMemo(() => {
+        const m = new Map<string, ProgramDoc>()
+        programs.forEach((program) => m.set(program.$id, program))
+        return m
+    }, [programs])
 
     const subjectMap = React.useMemo(() => {
         const m = new Map<string, SubjectDoc>()
@@ -538,6 +635,16 @@ export default function AdminSchedulesPage() {
         [createSchoolYear]
     )
 
+    const sectionSchoolYearOptions = React.useMemo(
+        () => buildSchoolYearOptions(sectionSchoolYear || getCurrentSchoolYear()),
+        [sectionSchoolYear]
+    )
+
+    const subjectTransferSchoolYearOptions = React.useMemo(
+        () => buildSchoolYearOptions(subjectTransferSchoolYear || getCurrentSchoolYear()),
+        [subjectTransferSchoolYear]
+    )
+
     const matchedCreateTerm = React.useMemo(() => {
         if (createTermMode !== CREATE_TERM_MODES.new) return null
 
@@ -554,6 +661,22 @@ export default function AdminSchedulesPage() {
         )
     }, [createTermMode, createSchoolYear, createSemester, terms])
 
+    const matchedSectionTerm = React.useMemo(() => {
+        if (sectionTermMode !== CREATE_TERM_MODES.new) return null
+
+        const schoolYear = String(sectionSchoolYear || "").trim()
+        const semester = String(sectionSemester || "").trim()
+        if (!schoolYear || !semester) return null
+
+        return (
+            terms.find(
+                (term) =>
+                    normalizeText(term.schoolYear) === normalizeText(schoolYear) &&
+                    normalizeText(term.semester) === normalizeText(semester)
+            ) || null
+        )
+    }, [sectionTermMode, sectionSchoolYear, sectionSemester, terms])
+
     const versionTermId = React.useMemo(() => {
         if (createTermMode === CREATE_TERM_MODES.new) {
             return String(matchedCreateTerm?.$id || "")
@@ -561,6 +684,38 @@ export default function AdminSchedulesPage() {
 
         return createTermId
     }, [createTermMode, matchedCreateTerm, createTermId])
+
+    const resolvedSectionTermId = React.useMemo(() => {
+        if (sectionTermMode === CREATE_TERM_MODES.new) {
+            return String(matchedSectionTerm?.$id || "")
+        }
+
+        return sectionTermId
+    }, [sectionTermMode, matchedSectionTerm, sectionTermId])
+
+    const matchedSubjectTransferTerm = React.useMemo(() => {
+        if (subjectTransferTermMode !== CREATE_TERM_MODES.new) return null
+
+        const schoolYear = String(subjectTransferSchoolYear || "").trim()
+        const semester = String(subjectTransferSemester || "").trim()
+        if (!schoolYear || !semester) return null
+
+        return (
+            terms.find(
+                (term) =>
+                    normalizeText(term.schoolYear) === normalizeText(schoolYear) &&
+                    normalizeText(term.semester) === normalizeText(semester)
+            ) || null
+        )
+    }, [subjectTransferTermMode, subjectTransferSchoolYear, subjectTransferSemester, terms])
+
+    const resolvedSubjectTransferTermId = React.useMemo(() => {
+        if (subjectTransferTermMode === CREATE_TERM_MODES.new) {
+            return String(matchedSubjectTransferTerm?.$id || "")
+        }
+
+        return subjectTransferTermId
+    }, [subjectTransferTermMode, matchedSubjectTransferTerm, subjectTransferTermId])
 
     const nextVersionNumber = React.useMemo(() => {
         if (!versionTermId || !createDeptId) return 1
@@ -596,6 +751,11 @@ export default function AdminSchedulesPage() {
         )
     }, [versions, versionTermId, createDeptId, editingVersion])
 
+    const selectedVersion = React.useMemo(
+        () => versions.find((v) => v.$id === selectedVersionId) || null,
+        [versions, selectedVersionId]
+    )
+
     const resetCreateForm = React.useCallback(() => {
         setEditingVersion(null)
         setCreateTermMode(CREATE_TERM_MODES.existing)
@@ -614,6 +774,79 @@ export default function AdminSchedulesPage() {
         setSubjectUnits("")
         setSubjectScopeKeys([])
     }, [])
+
+    const resetBulkLinkForm = React.useCallback(() => {
+        setSubjectSearch("")
+        setBulkLinkSubjectIds([])
+        setBulkLinkScopeKeys([])
+    }, [])
+
+    const resetSubjectTransferForm = React.useCallback(() => {
+        const fallbackTermId =
+            terms.find((term) => String(term.$id || "") !== String(selectedVersion?.termId || ""))?.$id || ""
+
+        setSubjectTransferSearch("")
+        setSubjectTransferIds([])
+        setSubjectTransferTermMode(CREATE_TERM_MODES.existing)
+        setSubjectTransferTermId(String(fallbackTermId || ""))
+        setSubjectTransferSchoolYear(getCurrentSchoolYear())
+        setSubjectTransferSemester(getCurrentSemester())
+        setSubjectTransferScopeKeys([])
+    }, [terms, selectedVersion])
+
+    const resetSectionForm = React.useCallback(() => {
+        const defaultTerm = selectedVersion ? termMap.get(String(selectedVersion.termId)) ?? null : null
+
+        setSectionTermMode(CREATE_TERM_MODES.existing)
+        setSectionTermId(String(selectedVersion?.termId || terms[0]?.$id || ""))
+        setSectionSchoolYear(String(defaultTerm?.schoolYear || getCurrentSchoolYear()))
+        setSectionSemester(String(defaultTerm?.semester || getCurrentSemester()))
+        setSectionProgramId((current) => {
+            if (current && programs.some((program) => program.$id === current)) return current
+            return programs[0]?.$id || ""
+        })
+        setSectionYearLevel(YEAR_LEVEL_OPTIONS[0])
+        setSectionName("")
+    }, [programs, selectedVersion, termMap, terms])
+
+    const openSubjectManagementDialog = React.useCallback(
+        (mode: Exclude<SubjectManagementDialogMode, null>) => {
+            if (mode === "new") {
+                resetSubjectForm()
+            } else {
+                resetBulkLinkForm()
+            }
+
+            setSubjectManagementDialogMode(mode)
+        },
+        [resetBulkLinkForm, resetSubjectForm]
+    )
+
+    const handleSubjectManagementDialogChange = React.useCallback((nextOpen: boolean) => {
+        if (!nextOpen) {
+            setSubjectManagementDialogMode(null)
+        }
+    }, [])
+
+    const handleSubjectDetailsDialogOpenChange = React.useCallback(
+        (nextOpen: boolean) => {
+            setSubjectDetailsDialogOpen(nextOpen)
+            if (!nextOpen) {
+                resetSubjectTransferForm()
+            }
+        },
+        [resetSubjectTransferForm]
+    )
+
+    const openSubjectDetailsDialog = React.useCallback(() => {
+        resetSubjectTransferForm()
+        setSubjectDetailsDialogOpen(true)
+    }, [resetSubjectTransferForm])
+
+    const openSectionDialog = React.useCallback(() => {
+        resetSectionForm()
+        setSectionDialogOpen(true)
+    }, [resetSectionForm])
 
     const openCreateVersion = React.useCallback(() => {
         resetCreateForm()
@@ -913,12 +1146,11 @@ export default function AdminSchedulesPage() {
         }
     }
 
-    const selectedVersion = React.useMemo(
-        () => versions.find((v) => v.$id === selectedVersionId) || null,
-        [versions, selectedVersionId]
-    )
-
     const courseYearOptions = React.useMemo(() => buildCourseYearScopeOptions(sections), [sections])
+    const transferCourseYearOptions = React.useMemo(
+        () => buildProgramYearScopeOptions(programs, YEAR_LEVEL_OPTIONS),
+        [programs]
+    )
 
     const selectedSubjectScopeOptions = React.useMemo(
         () => courseYearOptions.filter((option) => subjectScopeKeys.includes(option.key)),
@@ -930,16 +1162,53 @@ export default function AdminSchedulesPage() {
         [courseYearOptions, bulkLinkScopeKeys]
     )
 
+    const selectedTransferScopeOptions = React.useMemo(
+        () => transferCourseYearOptions.filter((option) => subjectTransferScopeKeys.includes(option.key)),
+        [transferCourseYearOptions, subjectTransferScopeKeys]
+    )
+
+    const subjectScopeKeySet = React.useMemo(() => new Set(subjectScopeKeys), [subjectScopeKeys])
+    const bulkLinkScopeKeySet = React.useMemo(() => new Set(bulkLinkScopeKeys), [bulkLinkScopeKeys])
+    const bulkLinkSubjectIdSet = React.useMemo(() => new Set(bulkLinkSubjectIds), [bulkLinkSubjectIds])
+    const subjectTransferScopeKeySet = React.useMemo(() => new Set(subjectTransferScopeKeys), [subjectTransferScopeKeys])
+    const subjectTransferIdSet = React.useMemo(() => new Set(subjectTransferIds), [subjectTransferIds])
+
+    const allSubjectScopesSelected =
+        courseYearOptions.length > 0 && courseYearOptions.every((option) => subjectScopeKeySet.has(option.key))
+    const someSubjectScopesSelected =
+        !allSubjectScopesSelected && courseYearOptions.some((option) => subjectScopeKeySet.has(option.key))
+
+    const allBulkLinkScopesSelected =
+        courseYearOptions.length > 0 && courseYearOptions.every((option) => bulkLinkScopeKeySet.has(option.key))
+    const someBulkLinkScopesSelected =
+        !allBulkLinkScopesSelected && courseYearOptions.some((option) => bulkLinkScopeKeySet.has(option.key))
+
+    const allTransferScopesSelected =
+        transferCourseYearOptions.length > 0 && transferCourseYearOptions.every((option) => subjectTransferScopeKeySet.has(option.key))
+    const someTransferScopesSelected =
+        !allTransferScopesSelected && transferCourseYearOptions.some((option) => subjectTransferScopeKeySet.has(option.key))
+
+    const selectedSectionProgram = React.useMemo(
+        () => programs.find((program) => program.$id === sectionProgramId) || null,
+        [programs, sectionProgramId]
+    )
+
     const buildSubjectScopePayload = React.useCallback(
-        (selectedOptions: CourseYearScopeOption[]) => {
+        (
+            selectedOptions: CourseYearScopeOption[],
+            overrides?: {
+                termId?: string | null
+                departmentId?: string | null
+            }
+        ) => {
             const programIds = uniqStrings(selectedOptions.map((option) => option.programId || ""))
             const programCodes = uniqStrings(selectedOptions.map((option) => option.programCode || ""))
             const programNames = uniqStrings(selectedOptions.map((option) => option.programName || ""))
             const yearLevels = uniqYearValues(selectedOptions.map((option) => option.yearLevel))
 
             return {
-                termId: selectedVersion?.termId || null,
-                departmentId: selectedVersion?.departmentId || null,
+                termId: overrides?.termId ?? selectedVersion?.termId ?? null,
+                departmentId: overrides?.departmentId ?? selectedVersion?.departmentId ?? null,
                 programId: programIds[0] || null,
                 programIds: programIds.length > 0 ? programIds : null,
                 programCode: programCodes[0] || null,
@@ -956,12 +1225,36 @@ export default function AdminSchedulesPage() {
         [selectedVersion]
     )
 
+    const sanitizeSubjectWritePayload = React.useCallback((payload: Record<string, any>) => {
+        const nextPayload: Record<string, any> = {}
+        const allowedKeys = [
+            "termId",
+            "departmentId",
+            "code",
+            "title",
+            "units",
+            "lectureHours",
+            "labHours",
+            "totalHours",
+            "isActive",
+        ] as const
+
+        for (const key of allowedKeys) {
+            if (Object.prototype.hasOwnProperty.call(payload, key) && payload[key] !== undefined) {
+                nextPayload[key] = payload[key]
+            }
+        }
+
+        return nextPayload
+    }, [])
+
     const fetchScheduleContext = React.useCallback(async () => {
         if (!selectedVersion) {
             setSubjects([])
             setSubjectDirectory([])
             setRooms([])
             setSections([])
+            setPrograms([])
             setFacultyProfiles([])
             setClasses([])
             setMeetings([])
@@ -992,6 +1285,7 @@ export default function AdminSchedulesPage() {
             ])
 
             let facultyDocs: UserProfileDoc[] = []
+            let programDocs: ProgramDoc[] = []
 
             try {
                 const fRes = await databases.listDocuments(DATABASE_ID, COLLECTIONS.USER_PROFILES, [
@@ -1006,6 +1300,25 @@ export default function AdminSchedulesPage() {
                 facultyDocs = ((fResFallback?.documents ?? []) as UserProfileDoc[]).filter((x) =>
                     roleLooksLikeFaculty(x.role)
                 )
+            }
+
+            try {
+                const programsCollectionId = String((COLLECTIONS as any).PROGRAMS || "").trim()
+
+                if (programsCollectionId) {
+                    const programRes = await databases.listDocuments(DATABASE_ID, programsCollectionId, [
+                        Query.equal("departmentId", selectedVersion.departmentId),
+                        Query.limit(2000),
+                    ])
+
+                    programDocs = ((programRes?.documents ?? []) as ProgramDoc[])
+                        .filter((program) => program.isActive !== false)
+                        .sort((left, right) =>
+                            String(left.code || left.name || "").localeCompare(String(right.code || right.name || ""))
+                        )
+                }
+            } catch {
+                programDocs = []
             }
 
             const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
@@ -1057,6 +1370,7 @@ export default function AdminSchedulesPage() {
             setSubjectDirectory(departmentSubjects)
             setRooms(scopedRooms)
             setSections(scopedSections)
+            setPrograms(programDocs)
             setFacultyProfiles(scopedFaculty)
         } catch (e: any) {
             setEntriesError(e?.message || "Failed to load schedule entries.")
@@ -1068,6 +1382,16 @@ export default function AdminSchedulesPage() {
     React.useEffect(() => {
         void fetchScheduleContext()
     }, [fetchScheduleContext])
+
+    React.useEffect(() => {
+        setSectionProgramId((current) => {
+            if (current && programs.some((program) => program.$id === current)) {
+                return current
+            }
+
+            return programs[0]?.$id || ""
+        })
+    }, [programs])
 
     React.useEffect(() => {
         setFormSubjectIds((prev) => {
@@ -1088,6 +1412,16 @@ export default function AdminSchedulesPage() {
     React.useEffect(() => {
         setBulkLinkSubjectIds((prev) => prev.filter((subjectId) => subjectDirectory.some((subject) => subject.$id === subjectId)))
     }, [subjectDirectory])
+
+    React.useEffect(() => {
+        setSubjectTransferIds((prev) => prev.filter((subjectId) => subjects.some((subject) => subject.$id === subjectId)))
+    }, [subjects])
+
+    React.useEffect(() => {
+        if (!selectedVersion) {
+            setSubjectDetailsDialogOpen(false)
+        }
+    }, [selectedVersion])
 
     const scheduleRows = React.useMemo<ScheduleRow[]>(() => {
         const classMap = new Map<string, ClassDoc>()
@@ -1576,13 +1910,13 @@ export default function AdminSchedulesPage() {
 
         setSubjectSaving(true)
         try {
-            const payload: any = {
+            const payload = sanitizeSubjectWritePayload({
                 code: subjectCode.trim(),
                 title: subjectTitle.trim(),
                 units: parsedUnits,
                 isActive: true,
                 ...buildSubjectScopePayload(selectedSubjectScopeOptions),
-            }
+            })
 
             await databases.createDocument(
                 DATABASE_ID,
@@ -1593,6 +1927,7 @@ export default function AdminSchedulesPage() {
 
             toast.success("Subject created and linked to the selected semester.")
             resetSubjectForm()
+            setSubjectManagementDialogMode(null)
             await fetchScheduleContext()
         } catch (e: any) {
             toast.error(e?.message || "Failed to create subject.")
@@ -1612,32 +1947,288 @@ export default function AdminSchedulesPage() {
             return
         }
 
-        if (bulkLinkScopeKeys.length === 0) {
+        if (selectedBulkLinkScopeOptions.length === 0) {
             toast.error("Please choose at least one course/year scope.")
             return
         }
 
         setSubjectSaving(true)
         try {
-            const payload = buildSubjectScopePayload(selectedBulkLinkScopeOptions)
-
             for (const subjectId of bulkLinkSubjectIds) {
-                await databases.updateDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.SUBJECTS,
-                    subjectId,
-                    payload
-                )
+                const existingSubject = subjectDirectory.find((subject) => subject.$id === subjectId)
+                const nextPayload = sanitizeSubjectWritePayload({
+                    termId: selectedVersion.termId || existingSubject?.termId || null,
+                    departmentId: selectedVersion.departmentId || existingSubject?.departmentId || null,
+                })
+
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.SUBJECTS, subjectId, nextPayload)
             }
 
-            toast.success("Selected subjects linked to the selected semester and course/year scope.")
-            setBulkLinkSubjectIds([])
-            setBulkLinkScopeKeys([])
+            toast.success("Selected subjects linked to the selected semester.")
+            resetBulkLinkForm()
+            setSubjectManagementDialogMode(null)
             await fetchScheduleContext()
         } catch (e: any) {
             toast.error(e?.message || "Failed to link selected subjects.")
         } finally {
             setSubjectSaving(false)
+        }
+    }
+
+    const transferSubjects = async () => {
+        if (!selectedVersion) {
+            toast.error("Please select a schedule semester first.")
+            return
+        }
+
+        if (subjectTransferIds.length === 0) {
+            toast.error("Please select at least one subject to transfer.")
+            return
+        }
+
+        let targetTermIdToUse = subjectTransferTermId
+
+        if (subjectTransferTermMode === CREATE_TERM_MODES.new) {
+            const schoolYear = String(subjectTransferSchoolYear || "").trim()
+            const semester = String(subjectTransferSemester || "").trim()
+
+            if (!schoolYear) {
+                toast.error("Please select or enter a target school year.")
+                return
+            }
+
+            if (!parseSchoolYear(schoolYear)) {
+                toast.error("Target school year must use the YYYY-YYYY format.")
+                return
+            }
+
+            if (!semester) {
+                toast.error("Please select a target semester.")
+                return
+            }
+
+            const existingTerm = terms.find(
+                (term) =>
+                    normalizeText(term.schoolYear) === normalizeText(schoolYear) &&
+                    normalizeText(term.semester) === normalizeText(semester)
+            )
+
+            if (existingTerm?.$id) {
+                targetTermIdToUse = String(existingTerm.$id)
+            }
+        }
+
+        if (!targetTermIdToUse && subjectTransferTermMode !== CREATE_TERM_MODES.new) {
+            toast.error("Please select a target academic term.")
+            return
+        }
+
+        if (selectedTransferScopeOptions.length === 0) {
+            toast.error("Please choose at least one target course/year level.")
+            return
+        }
+
+        setSubjectTransferSaving(true)
+        try {
+            if (subjectTransferTermMode === CREATE_TERM_MODES.new && !targetTermIdToUse) {
+                const schoolYear = String(subjectTransferSchoolYear || "").trim()
+                const semester = String(subjectTransferSemester || "").trim()
+                const { startDate, endDate } = getAcademicTermDateRange(schoolYear, semester)
+
+                const createdTerm = (await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.ACADEMIC_TERMS,
+                    ID.unique(),
+                    {
+                        schoolYear,
+                        semester,
+                        startDate,
+                        endDate,
+                        isActive: false,
+                        isLocked: false,
+                    }
+                )) as AcademicTermDoc
+
+                targetTermIdToUse = String(createdTerm?.$id || "")
+            }
+
+            if (!targetTermIdToUse) {
+                toast.error("Please select or create a target academic term.")
+                return
+            }
+
+            if (String(targetTermIdToUse) === String(selectedVersion.termId || "")) {
+                toast.error("Please choose another semester before transferring subjects.")
+                return
+            }
+
+            const payload = sanitizeSubjectWritePayload(
+                buildSubjectScopePayload(selectedTransferScopeOptions, {
+                    termId: targetTermIdToUse,
+                    departmentId: String(selectedVersion.departmentId || "") || null,
+                })
+            )
+
+            for (const subjectId of subjectTransferIds) {
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.SUBJECTS, subjectId, payload)
+            }
+
+            const targetTermLabel =
+                termLabel(termMap.get(String(targetTermIdToUse)) ?? null) ||
+                [subjectTransferSchoolYear, subjectTransferSemester].filter(Boolean).join(" • ") ||
+                "the selected semester"
+
+            toast.success(
+                `${subjectTransferIds.length} subject${subjectTransferIds.length === 1 ? "" : "s"} transferred to ${targetTermLabel}.`
+            )
+            resetSubjectTransferForm()
+            await fetchAll()
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to transfer subjects.")
+        } finally {
+            setSubjectTransferSaving(false)
+        }
+    }
+
+    const saveSection = async () => {
+        if (!selectedVersion) {
+            toast.error("Please select a schedule semester first.")
+            return
+        }
+
+        let sectionTermIdToUse = sectionTermId
+
+        if (sectionTermMode === CREATE_TERM_MODES.new) {
+            const schoolYear = String(sectionSchoolYear || "").trim()
+            const semester = String(sectionSemester || "").trim()
+
+            if (!schoolYear) {
+                toast.error("Please select or enter a school year.")
+                return
+            }
+
+            if (!parseSchoolYear(schoolYear)) {
+                toast.error("School year must use the YYYY-YYYY format.")
+                return
+            }
+
+            if (!semester) {
+                toast.error("Please select a semester.")
+                return
+            }
+
+            const existingTerm = terms.find(
+                (term) =>
+                    normalizeText(term.schoolYear) === normalizeText(schoolYear) &&
+                    normalizeText(term.semester) === normalizeText(semester)
+            )
+
+            if (existingTerm?.$id) {
+                sectionTermIdToUse = String(existingTerm.$id)
+            }
+        }
+
+        if (!sectionTermIdToUse && sectionTermMode !== CREATE_TERM_MODES.new) {
+            toast.error("Please select an academic term.")
+            return
+        }
+
+        if (!sectionProgramId) {
+            toast.error("Please select a course.")
+            return
+        }
+
+        if (!sectionYearLevel.trim()) {
+            toast.error("Please select a year level.")
+            return
+        }
+
+        if (!sectionName.trim()) {
+            toast.error("Please enter a section name.")
+            return
+        }
+
+        const selectedProgram = programMap.get(sectionProgramId) || null
+        if (!selectedProgram) {
+            toast.error("Selected course could not be found.")
+            return
+        }
+
+        setSectionSaving(true)
+        try {
+            if (sectionTermMode === CREATE_TERM_MODES.new && !sectionTermIdToUse) {
+                const schoolYear = String(sectionSchoolYear || "").trim()
+                const semester = String(sectionSemester || "").trim()
+                const { startDate, endDate } = getAcademicTermDateRange(schoolYear, semester)
+
+                const createdTerm = (await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.ACADEMIC_TERMS,
+                    ID.unique(),
+                    {
+                        schoolYear,
+                        semester,
+                        startDate,
+                        endDate,
+                        isActive: false,
+                        isLocked: false,
+                    }
+                )) as AcademicTermDoc
+
+                sectionTermIdToUse = String(createdTerm?.$id || "")
+            }
+
+            if (!sectionTermIdToUse) {
+                toast.error("Please select or create an academic term.")
+                return
+            }
+
+            const normalizedSectionName = sectionName.trim()
+            const normalizedYearLevel = normalizeYearLevelForDisplay(sectionYearLevel)
+
+            const existingSectionRes = await databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [
+                Query.equal("termId", sectionTermIdToUse),
+                Query.equal("departmentId", selectedVersion.departmentId),
+                Query.limit(2000),
+            ])
+
+            const duplicateSection = ((existingSectionRes?.documents ?? []) as SectionDoc[]).some((section) =>
+                String(section.programId || "") === sectionProgramId &&
+                normalizeText(String(section.yearLevel || "")) === normalizeText(normalizedYearLevel) &&
+                normalizeText(String(section.name || section.label || "")) === normalizeText(normalizedSectionName)
+            )
+
+            if (duplicateSection) {
+                toast.error("That course/year section already exists for the selected term.")
+                return
+            }
+
+            await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), {
+                termId: sectionTermIdToUse,
+                departmentId: selectedVersion.departmentId,
+                programId: selectedProgram.$id,
+                yearLevel: normalizedYearLevel,
+                name: normalizedSectionName,
+                label: buildSectionDisplayLabel(selectedProgram.code, selectedProgram.name, normalizedYearLevel, normalizedSectionName),
+                programCode: selectedProgram.code || null,
+                programName: selectedProgram.name || null,
+                isActive: true,
+            })
+
+            toast.success(
+                String(sectionTermIdToUse) === String(selectedVersion.termId)
+                    ? "Course/year section created."
+                    : `Course/year section created for ${selectedSectionTermLabel}.`
+            )
+            setSectionDialogOpen(false)
+            resetSectionForm()
+            await fetchAll()
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to create course/year section.")
+        } finally {
+            setSectionSaving(false)
         }
     }
 
@@ -1686,6 +2277,49 @@ export default function AdminSchedulesPage() {
         return deptLabel(deptMap.get(String(selectedVersion.departmentId)) ?? null)
     }, [selectedVersion, deptMap])
 
+    const selectedSectionTermLabel = React.useMemo(() => {
+        if (sectionTermMode === CREATE_TERM_MODES.new) {
+            const schoolYear = String(sectionSchoolYear || "").trim()
+            const semester = String(sectionSemester || "").trim()
+            if (!schoolYear && !semester) return "—"
+            return [schoolYear, semester].filter(Boolean).join(" • ")
+        }
+
+        if (!resolvedSectionTermId) return "—"
+        return termLabel(termMap.get(String(resolvedSectionTermId)) ?? null)
+    }, [sectionTermMode, sectionSchoolYear, sectionSemester, resolvedSectionTermId, termMap])
+
+    const sectionSchoolYearSelectValue = sectionSchoolYearOptions.includes(sectionSchoolYear)
+        ? sectionSchoolYear
+        : CUSTOM_SCHOOL_YEAR_VALUE
+    const showCustomSectionSchoolYearInput =
+        sectionTermMode === CREATE_TERM_MODES.new && sectionSchoolYearSelectValue === CUSTOM_SCHOOL_YEAR_VALUE
+
+    const selectedSubjectTransferTermLabel = React.useMemo(() => {
+        if (subjectTransferTermMode === CREATE_TERM_MODES.new) {
+            const schoolYear = String(subjectTransferSchoolYear || "").trim()
+            const semester = String(subjectTransferSemester || "").trim()
+            if (!schoolYear && !semester) return "—"
+            return [schoolYear, semester].filter(Boolean).join(" • ")
+        }
+
+        if (!resolvedSubjectTransferTermId) return "—"
+        return termLabel(termMap.get(String(resolvedSubjectTransferTermId)) ?? null)
+    }, [
+        subjectTransferTermMode,
+        subjectTransferSchoolYear,
+        subjectTransferSemester,
+        resolvedSubjectTransferTermId,
+        termMap,
+    ])
+
+    const subjectTransferSchoolYearSelectValue = subjectTransferSchoolYearOptions.includes(subjectTransferSchoolYear)
+        ? subjectTransferSchoolYear
+        : CUSTOM_SCHOOL_YEAR_VALUE
+    const showCustomSubjectTransferSchoolYearInput =
+        subjectTransferTermMode === CREATE_TERM_MODES.new &&
+        subjectTransferSchoolYearSelectValue === CUSTOM_SCHOOL_YEAR_VALUE
+
     const filteredExistingSubjects = React.useMemo(() => {
         const query = subjectSearch.trim().toLowerCase()
 
@@ -1704,6 +2338,34 @@ export default function AdminSchedulesPage() {
             return haystack.includes(query)
         })
     }, [subjectDirectory, subjectSearch, termMap])
+
+    const allFilteredExistingSubjectsSelected =
+        filteredExistingSubjects.length > 0 &&
+        filteredExistingSubjects.every((subject) => bulkLinkSubjectIdSet.has(subject.$id))
+    const someFilteredExistingSubjectsSelected =
+        !allFilteredExistingSubjectsSelected &&
+        filteredExistingSubjects.some((subject) => bulkLinkSubjectIdSet.has(subject.$id))
+
+    const filteredTransferSubjects = React.useMemo(() => {
+        const query = subjectTransferSearch.trim().toLowerCase()
+
+        return subjects.filter((subject) => {
+            if (!query) return true
+
+            const haystack = [subject.code, subject.title, getSubjectScopeSummary(subject)]
+                .join(" ")
+                .toLowerCase()
+
+            return haystack.includes(query)
+        })
+    }, [subjects, subjectTransferSearch])
+
+    const allFilteredTransferSubjectsSelected =
+        filteredTransferSubjects.length > 0 &&
+        filteredTransferSubjects.every((subject) => subjectTransferIdSet.has(subject.$id))
+    const someFilteredTransferSubjectsSelected =
+        !allFilteredTransferSubjectsSelected &&
+        filteredTransferSubjects.some((subject) => subjectTransferIdSet.has(subject.$id))
 
     const HeaderActions = (
         <div className="flex items-center gap-2">
@@ -1785,135 +2447,277 @@ export default function AdminSchedulesPage() {
                 />
 
                 <Card className="rounded-2xl">
-                    <CardHeader className="pb-4">
-                        <CardTitle>Subject Term & Course/Year Management</CardTitle>
-                        <CardDescription>
-                            Create new subjects directly under the selected semester and link existing subjects to the current semester plus course/year scope for faster schedule entry.
-                        </CardDescription>
-                    </CardHeader>
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="subject-term-course-year-management" className="border-none">
+                            <AccordionTrigger className="px-6 py-4 hover:no-underline">
+                                <div className="text-left">
+                                    <CardTitle>Subject Term & Course/Year Management</CardTitle>
+                                </div>
+                            </AccordionTrigger>
 
-                    <CardContent className="space-y-6">
-                        {!selectedVersion ? (
-                            <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
-                                Select a semester schedule first to create subjects for a specific academic term and course/year scope.
-                            </div>
-                        ) : (
-                            <>
-                                <div className="grid gap-6 xl:grid-cols-2">
-                                    <div className="space-y-4 rounded-2xl border p-4">
-                                        <div className="space-y-1">
-                                            <h3 className="font-semibold">Create New Subject</h3>
-                                            <p className="text-sm text-muted-foreground">
-                                                New subjects will automatically use {selectedTermLabel} and {selectedDeptLabel}.
-                                            </p>
+                            <AccordionContent>
+                                <CardContent className="space-y-6 pt-0">
+                                    <CardDescription>
+                                        Create new subjects directly under the selected semester, link existing subjects to the active term plus course/year scope, and quick-create new course/year sections for faster schedule entry.
+                                    </CardDescription>
+
+                                    {!selectedVersion ? (
+                                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                                            Select a semester schedule first to manage scoped subjects and course/year sections.
                                         </div>
-
-                                        <div className="grid gap-4 md:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="subject-code">Subject Code</Label>
-                                                <Input
-                                                    id="subject-code"
-                                                    value={subjectCode}
-                                                    onChange={(event) => setSubjectCode(event.target.value)}
-                                                    placeholder="e.g. COMP 101"
-                                                />
+                                    ) : (
+                                        <>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Badge variant="secondary" className="rounded-lg">
+                                                    {selectedTermLabel}
+                                                </Badge>
+                                                <Badge variant="outline" className="rounded-lg">
+                                                    {selectedDeptLabel}
+                                                </Badge>
+                                                <Badge variant="outline" className="rounded-lg">
+                                                    {courseYearOptions.length} scoped course/year option{courseYearOptions.length === 1 ? "" : "s"}
+                                                </Badge>
                                             </div>
 
-                                            <div className="space-y-2">
-                                                <Label htmlFor="subject-units">Units</Label>
-                                                <Input
-                                                    id="subject-units"
-                                                    value={subjectUnits}
-                                                    onChange={(event) => setSubjectUnits(event.target.value)}
-                                                    placeholder="e.g. 3"
-                                                />
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <Button onClick={() => openSubjectManagementDialog("new")} disabled={subjectSaving}>
+                                                    New Subject
+                                                </Button>
+
+                                                <Button
+                                                    variant="outline"
+                                                    onClick={() => openSubjectManagementDialog("existing")}
+                                                    disabled={subjectSaving}
+                                                >
+                                                    Existing Subjects
+                                                </Button>
                                             </div>
-                                        </div>
 
-                                        <div className="space-y-2">
-                                            <Label htmlFor="subject-title">Subject Title</Label>
-                                            <Input
-                                                id="subject-title"
-                                                value={subjectTitle}
-                                                onChange={(event) => setSubjectTitle(event.target.value)}
-                                                placeholder="Introduction to Computing"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <Label>Course / Year Scope</Label>
-                                            <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border p-3">
-                                                {courseYearOptions.length === 0 ? (
-                                                    <div className="text-sm text-muted-foreground">
-                                                        No course/year options found for the selected semester.
+                                            <div className="rounded-2xl border p-4">
+                                                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                                    <div className="space-y-1">
+                                                        <h3 className="font-semibold">Master Data Quick Create</h3>
+                                                        <p className="text-sm text-muted-foreground">
+                                                            Add a new course/year section directly from the schedule page so subject scoping and entry creation stay organized.
+                                                        </p>
                                                     </div>
-                                                ) : (
-                                                    courseYearOptions.map((option) => {
-                                                        const checked = subjectScopeKeys.includes(option.key)
 
-                                                        return (
-                                                            <label
-                                                                key={option.key}
-                                                                className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3"
-                                                            >
-                                                                <div>
-                                                                    <div className="font-medium">{option.label}</div>
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        {selectedTermLabel}
-                                                                    </div>
+                                                    <Button variant="outline" onClick={openSectionDialog} disabled={sectionSaving}>
+                                                        <PlusCircle className="mr-2 size-4" />
+                                                        New Course/Year Section
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                            <div className="rounded-2xl border">
+                                                <Accordion type="single" collapsible className="w-full">
+                                                    <AccordionItem value="subjects-available-for-this-semester" className="border-none">
+                                                        <AccordionTrigger className="px-4 py-4 hover:no-underline">
+                                                            <div className="text-left">
+                                                                <h3 className="font-semibold">Subjects Available for This Semester</h3>
+                                                            </div>
+                                                        </AccordionTrigger>
+
+                                                        <AccordionContent className="px-4 pb-4">
+                                                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                                                <div className="space-y-1">
+                                                                    <p className="text-sm text-muted-foreground">
+                                                                        These are the subjects that will appear faster during schedule entry because they already match the selected semester and course/year scope.
+                                                                    </p>
+                                                                    <p className="text-xs text-muted-foreground">
+                                                                        {subjects.length === 0
+                                                                            ? `No scoped subjects found yet for ${selectedTermLabel}.`
+                                                                            : `${subjects.length} scoped subject${subjects.length === 1 ? "" : "s"} ready for quick review.`}
+                                                                    </p>
                                                                 </div>
 
-                                                                <Checkbox
-                                                                    checked={checked}
-                                                                    onCheckedChange={(value) => {
-                                                                        const nextChecked = Boolean(value)
-                                                                        setSubjectScopeKeys((prev) =>
-                                                                            nextChecked
-                                                                                ? [...prev, option.key]
-                                                                                : prev.filter((item) => item !== option.key)
-                                                                        )
-                                                                    }}
-                                                                />
-                                                            </label>
-                                                        )
-                                                    })
-                                                )}
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    onClick={openSubjectDetailsDialog}
+                                                                    disabled={subjects.length === 0}
+                                                                >
+                                                                    Details
+                                                                </Button>
+                                                            </div>
+                                                        </AccordionContent>
+                                                    </AccordionItem>
+                                                </Accordion>
+                                            </div>
+                                        </>
+                                    )}
+                                </CardContent>
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
+                </Card>
+
+                <Dialog
+                    open={subjectManagementDialogMode === "new"}
+                    onOpenChange={handleSubjectManagementDialogChange}
+                >
+                    <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-4xl">
+                        <DialogHeader>
+                            <DialogTitle>New Subject</DialogTitle>
+                            <DialogDescription>
+                                Create a new subject and scope it to {selectedTermLabel} and the selected course/year combinations.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-6">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="secondary" className="rounded-lg">
+                                    {selectedTermLabel}
+                                </Badge>
+                                <Badge variant="outline" className="rounded-lg">
+                                    {selectedDeptLabel}
+                                </Badge>
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label htmlFor="subject-code">Subject Code</Label>
+                                    <Input
+                                        id="subject-code"
+                                        value={subjectCode}
+                                        onChange={(event) => setSubjectCode(event.target.value)}
+                                        placeholder="e.g. COMP 101"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="subject-units">Units</Label>
+                                    <Input
+                                        id="subject-units"
+                                        value={subjectUnits}
+                                        onChange={(event) => setSubjectUnits(event.target.value)}
+                                        placeholder="e.g. 3"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="subject-title">Subject Title</Label>
+                                <Input
+                                    id="subject-title"
+                                    value={subjectTitle}
+                                    onChange={(event) => setSubjectTitle(event.target.value)}
+                                    placeholder="Introduction to Computing"
+                                />
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <Label>Course / Year Scope</Label>
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <Checkbox
+                                            checked={allSubjectScopesSelected ? true : someSubjectScopesSelected ? "indeterminate" : false}
+                                            onCheckedChange={(value) =>
+                                                setSubjectScopeKeys(Boolean(value) ? courseYearOptions.map((option) => option.key) : [])
+                                            }
+                                            disabled={courseYearOptions.length === 0}
+                                        />
+                                        <span>Select all</span>
+                                    </div>
+                                </div>
+
+                                <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                    {courseYearOptions.length === 0 ? (
+                                        <div className="text-sm text-muted-foreground">
+                                            No course/year options found for the selected semester. Create one first using the quick create button.
+                                        </div>
+                                    ) : (
+                                        courseYearOptions.map((option) => {
+                                            const checked = subjectScopeKeys.includes(option.key)
+
+                                            return (
+                                                <label
+                                                    key={option.key}
+                                                    className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3"
+                                                >
+                                                    <div>
+                                                        <div className="font-medium">{option.label}</div>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            {selectedTermLabel}
+                                                        </div>
+                                                    </div>
+
+                                                    <Checkbox
+                                                        checked={checked}
+                                                        onCheckedChange={(value) => {
+                                                            const nextChecked = Boolean(value)
+                                                            setSubjectScopeKeys((prev) =>
+                                                                nextChecked
+                                                                    ? Array.from(new Set([...prev, option.key]))
+                                                                    : prev.filter((item) => item !== option.key)
+                                                            )
+                                                        }}
+                                                    />
+                                                </label>
+                                            )
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="flex flex-wrap gap-2">
+                            <Button variant="outline" onClick={resetSubjectForm} disabled={subjectSaving}>
+                                Reset
+                            </Button>
+                            <Button onClick={saveSubject} disabled={subjectSaving || !selectedVersion}>
+                                Save Subject
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                <Dialog
+                    open={subjectManagementDialogMode === "existing"}
+                    onOpenChange={handleSubjectManagementDialogChange}
+                >
+                    <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-5xl">
+                        <DialogHeader>
+                            <DialogTitle>Existing Subjects</DialogTitle>
+                            <DialogDescription>
+                                Link multiple existing subjects to {selectedTermLabel} and the selected course/year scope in one action.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-6">
+                            <div className="grid gap-6 xl:grid-cols-[1.2fr,1.8fr]">
+                                <div className="space-y-4 rounded-2xl border p-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="subject-search">Search Existing Subjects</Label>
+                                        <Input
+                                            id="subject-search"
+                                            value={subjectSearch}
+                                            onChange={(event) => setSubjectSearch(event.target.value)}
+                                            placeholder="Search by code, title, or scope"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <Label>Target Course / Year Scope</Label>
+                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                <Checkbox
+                                                    checked={allBulkLinkScopesSelected ? true : someBulkLinkScopesSelected ? "indeterminate" : false}
+                                                    onCheckedChange={(value) =>
+                                                        setBulkLinkScopeKeys(Boolean(value) ? courseYearOptions.map((option) => option.key) : [])
+                                                    }
+                                                    disabled={courseYearOptions.length === 0}
+                                                />
+                                                <span>Select all</span>
                                             </div>
                                         </div>
 
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Button onClick={saveSubject} disabled={subjectSaving || !selectedVersion}>
-                                                Save Subject
-                                            </Button>
-
-                                            <Button variant="outline" onClick={resetSubjectForm} disabled={subjectSaving}>
-                                                Reset
-                                            </Button>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-4 rounded-2xl border p-4">
-                                        <div className="space-y-1">
-                                            <h3 className="font-semibold">Link Existing Subjects</h3>
-                                            <p className="text-sm text-muted-foreground">
-                                                Select multiple existing subjects, then link them to the current semester and chosen course/year scope.
-                                            </p>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label htmlFor="subject-search">Search Existing Subjects</Label>
-                                            <Input
-                                                id="subject-search"
-                                                value={subjectSearch}
-                                                onChange={(event) => setSubjectSearch(event.target.value)}
-                                                placeholder="Search by code, title, or scope"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <Label>Target Course / Year Scope</Label>
-                                            <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border p-3">
-                                                {courseYearOptions.map((option) => {
+                                        <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                            {courseYearOptions.length === 0 ? (
+                                                <div className="text-sm text-muted-foreground">
+                                                    No course/year options found for the selected semester. Create one first using the quick create button.
+                                                </div>
+                                            ) : (
+                                                courseYearOptions.map((option) => {
                                                     const checked = bulkLinkScopeKeys.includes(option.key)
 
                                                     return (
@@ -1921,7 +2725,12 @@ export default function AdminSchedulesPage() {
                                                             key={`bulk-${option.key}`}
                                                             className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3"
                                                         >
-                                                            <div className="font-medium">{option.label}</div>
+                                                            <div>
+                                                                <div className="font-medium">{option.label}</div>
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    {selectedTermLabel}
+                                                                </div>
+                                                            </div>
 
                                                             <Checkbox
                                                                 checked={checked}
@@ -1929,117 +2738,600 @@ export default function AdminSchedulesPage() {
                                                                     const nextChecked = Boolean(value)
                                                                     setBulkLinkScopeKeys((prev) =>
                                                                         nextChecked
-                                                                            ? [...prev, option.key]
+                                                                            ? Array.from(new Set([...prev, option.key]))
                                                                             : prev.filter((item) => item !== option.key)
                                                                     )
                                                                 }}
                                                             />
                                                         </label>
                                                     )
-                                                })}
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <Label>Existing Subjects</Label>
-                                            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border p-3">
-                                                {filteredExistingSubjects.length === 0 ? (
-                                                    <div className="text-sm text-muted-foreground">
-                                                        No subjects matched your search.
-                                                    </div>
-                                                ) : (
-                                                    filteredExistingSubjects.map((subject) => {
-                                                        const checked = bulkLinkSubjectIds.includes(subject.$id)
-                                                        const subjectTerm = termMap.get(String(subject.termId || "")) ?? null
-
-                                                        return (
-                                                            <label
-                                                                key={subject.$id}
-                                                                className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border p-3"
-                                                            >
-                                                                <div className="space-y-1">
-                                                                    <div className="font-medium">
-                                                                        {[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}
-                                                                    </div>
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        Scope: {getSubjectScopeSummary(subject)}
-                                                                    </div>
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        Semester: {subjectTerm ? termLabel(subjectTerm) : "Unassigned"}
-                                                                    </div>
-                                                                </div>
-
-                                                                <Checkbox
-                                                                    checked={checked}
-                                                                    onCheckedChange={(value) => {
-                                                                        const nextChecked = Boolean(value)
-                                                                        setBulkLinkSubjectIds((prev) =>
-                                                                            nextChecked
-                                                                                ? [...prev, subject.$id]
-                                                                                : prev.filter((item) => item !== subject.$id)
-                                                                        )
-                                                                    }}
-                                                                />
-                                                            </label>
-                                                        )
-                                                    })
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Button onClick={bulkLinkSubjects} disabled={subjectSaving || !selectedVersion}>
-                                                Link Selected Subjects
-                                            </Button>
-
-                                            <Button
-                                                variant="outline"
-                                                onClick={() => {
-                                                    setBulkLinkSubjectIds([])
-                                                    setBulkLinkScopeKeys([])
-                                                }}
-                                                disabled={subjectSaving}
-                                            >
-                                                Clear Selection
-                                            </Button>
+                                                })
+                                            )}
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="rounded-2xl border p-4">
-                                    <div className="mb-3 space-y-1">
-                                        <h3 className="font-semibold">Subjects Available for This Semester</h3>
+                                <div className="space-y-4 rounded-2xl border p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="space-y-1">
+                                            <Label>Existing Subjects</Label>
+                                            <p className="text-sm text-muted-foreground">
+                                                {bulkLinkSubjectIds.length} selected from {filteredExistingSubjects.length} visible subject{filteredExistingSubjects.length === 1 ? "" : "s"}.
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                            <Checkbox
+                                                checked={allFilteredExistingSubjectsSelected ? true : someFilteredExistingSubjectsSelected ? "indeterminate" : false}
+                                                onCheckedChange={(value) => {
+                                                    const shouldSelect = Boolean(value)
+                                                    setBulkLinkSubjectIds((current) => {
+                                                        if (!shouldSelect) {
+                                                            const visibleIds = new Set(filteredExistingSubjects.map((subject) => subject.$id))
+                                                            return current.filter((subjectId) => !visibleIds.has(subjectId))
+                                                        }
+
+                                                        return Array.from(new Set([...current, ...filteredExistingSubjects.map((subject) => subject.$id)]))
+                                                    })
+                                                }}
+                                                disabled={filteredExistingSubjects.length === 0}
+                                            />
+                                            <span>Select all</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="max-h-96 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                        {filteredExistingSubjects.length === 0 ? (
+                                            <div className="text-sm text-muted-foreground">
+                                                No existing subjects matched the current search.
+                                            </div>
+                                        ) : (
+                                            filteredExistingSubjects.map((subject) => {
+                                                const checked = bulkLinkSubjectIds.includes(subject.$id)
+
+                                                return (
+                                                    <label
+                                                        key={subject.$id}
+                                                        className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border p-3"
+                                                    >
+                                                        <div className="space-y-1">
+                                                            <div className="font-medium">
+                                                                {[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}
+                                                            </div>
+                                                            <div className="text-sm text-muted-foreground">
+                                                                {getSubjectScopeSummary(subject)}
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                {termLabel(termMap.get(String(subject.termId || "")) ?? null)}
+                                                            </div>
+                                                        </div>
+
+                                                        <Checkbox
+                                                            checked={checked}
+                                                            onCheckedChange={(value) => {
+                                                                const nextChecked = Boolean(value)
+                                                                setBulkLinkSubjectIds((prev) =>
+                                                                    nextChecked
+                                                                        ? Array.from(new Set([...prev, subject.$id]))
+                                                                        : prev.filter((item) => item !== subject.$id)
+                                                                )
+                                                            }}
+                                                        />
+                                                    </label>
+                                                )
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="flex flex-wrap gap-2">
+                            <Button variant="outline" onClick={resetBulkLinkForm} disabled={subjectSaving}>
+                                Clear Selection
+                            </Button>
+                            <Button onClick={bulkLinkSubjects} disabled={subjectSaving || !selectedVersion}>
+                                Link Selected Subjects
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                <Dialog open={subjectDetailsDialogOpen} onOpenChange={handleSubjectDetailsDialogOpenChange}>
+                    <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-5xl">
+                        <DialogHeader>
+                            <DialogTitle>Subjects Available for This Semester</DialogTitle>
+                            <DialogDescription>
+                                Review the scoped subjects for {selectedTermLabel}. Open this when you need the full list instead of the compact accordion.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-6">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="secondary" className="rounded-lg">
+                                    {selectedTermLabel}
+                                </Badge>
+                                <Badge variant="outline" className="rounded-lg">
+                                    {selectedDeptLabel}
+                                </Badge>
+                                <Badge variant="outline" className="rounded-lg">
+                                    {subjects.length} subject{subjects.length === 1 ? "" : "s"}
+                                </Badge>
+                                <Badge variant="outline" className="rounded-lg">
+                                    {subjectTransferIds.length} selected
+                                </Badge>
+                            </div>
+
+                            <div className="grid gap-6 xl:grid-cols-[1.3fr,1.7fr]">
+                                <div className="space-y-4 rounded-2xl border p-4">
+                                    <div className="space-y-1">
+                                        <h3 className="font-semibold">Transfer Selected Subjects</h3>
                                         <p className="text-sm text-muted-foreground">
-                                            These are the subjects that will appear faster during schedule entry because they already match the selected semester and course/year scope.
+                                            Move all or selected subjects to another semester and replace their scope with the target course/year levels.
                                         </p>
                                     </div>
 
-                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                        {subjects.length === 0 ? (
+                                    <div className="space-y-2">
+                                        <Label>Target Term Setup</Label>
+                                        <Select
+                                            value={subjectTransferTermMode}
+                                            onValueChange={(value) => setSubjectTransferTermMode(value as CreateTermMode)}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select setup" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="existing">Use Existing Semester / Term</SelectItem>
+                                                <SelectItem value="new">Create New Semester / School Year</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {subjectTransferTermMode === CREATE_TERM_MODES.existing ? (
+                                        <div className="space-y-2">
+                                            <Label>Target Academic Term</Label>
+                                            <Select value={subjectTransferTermId} onValueChange={setSubjectTransferTermId}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select target term" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {terms.filter((term) => String(term.$id || "") !== String(selectedVersion?.termId || "")).length === 0 ? (
+                                                        <SelectItem value="__no_transfer_terms__" disabled>
+                                                            No other terms available
+                                                        </SelectItem>
+                                                    ) : (
+                                                        terms
+                                                            .filter((term) => String(term.$id || "") !== String(selectedVersion?.termId || ""))
+                                                            .map((term) => (
+                                                                <SelectItem key={term.$id} value={term.$id}>
+                                                                    {termLabel(term)}
+                                                                </SelectItem>
+                                                            ))
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="grid gap-4 md:grid-cols-2">
+                                                <div className="space-y-2">
+                                                    <Label>School Year</Label>
+                                                    <Select
+                                                        value={subjectTransferSchoolYearSelectValue}
+                                                        onValueChange={(value) => {
+                                                            if (value === CUSTOM_SCHOOL_YEAR_VALUE) {
+                                                                if (subjectTransferSchoolYearOptions.includes(subjectTransferSchoolYear)) {
+                                                                    setSubjectTransferSchoolYear("")
+                                                                }
+                                                                return
+                                                            }
+                                                            setSubjectTransferSchoolYear(value)
+                                                        }}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select school year" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {subjectTransferSchoolYearOptions.map((schoolYear) => (
+                                                                <SelectItem key={schoolYear} value={schoolYear}>
+                                                                    {schoolYear}
+                                                                </SelectItem>
+                                                            ))}
+                                                            <SelectItem value={CUSTOM_SCHOOL_YEAR_VALUE}>Custom school year</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label>Semester</Label>
+                                                    <Select value={subjectTransferSemester} onValueChange={setSubjectTransferSemester}>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select semester" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {CREATE_TERM_SEMESTER_OPTIONS.map((semesterOption) => (
+                                                                <SelectItem key={semesterOption} value={semesterOption}>
+                                                                    {semesterOption}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+
+                                            {showCustomSubjectTransferSchoolYearInput ? (
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="subject-transfer-school-year">Custom School Year</Label>
+                                                    <Input
+                                                        id="subject-transfer-school-year"
+                                                        value={subjectTransferSchoolYear}
+                                                        onChange={(event) => setSubjectTransferSchoolYear(event.target.value)}
+                                                        placeholder="e.g. 2027-2028"
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Use the format YYYY-YYYY.
+                                                    </p>
+                                                </div>
+                                            ) : null}
+                                        </>
+                                    )}
+
+                                    <div className="space-y-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <Label>Target Course / Year Levels</Label>
+                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                <Checkbox
+                                                    checked={allTransferScopesSelected ? true : someTransferScopesSelected ? "indeterminate" : false}
+                                                    onCheckedChange={(value) =>
+                                                        setSubjectTransferScopeKeys(
+                                                            Boolean(value) ? transferCourseYearOptions.map((option) => option.key) : []
+                                                        )
+                                                    }
+                                                    disabled={transferCourseYearOptions.length === 0}
+                                                />
+                                                <span>Select all</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                            {transferCourseYearOptions.length === 0 ? (
+                                                <div className="text-sm text-muted-foreground">
+                                                    No course offerings are available yet for this college.
+                                                </div>
+                                            ) : (
+                                                transferCourseYearOptions.map((option) => {
+                                                    const checked = subjectTransferScopeKeys.includes(option.key)
+
+                                                    return (
+                                                        <label
+                                                            key={`transfer-scope-${option.key}`}
+                                                            className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3"
+                                                        >
+                                                            <div>
+                                                                <div className="font-medium">{option.label}</div>
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    {selectedSubjectTransferTermLabel}
+                                                                </div>
+                                                            </div>
+
+                                                            <Checkbox
+                                                                checked={checked}
+                                                                onCheckedChange={(value) => {
+                                                                    const nextChecked = Boolean(value)
+                                                                    setSubjectTransferScopeKeys((prev) =>
+                                                                        nextChecked
+                                                                            ? Array.from(new Set([...prev, option.key]))
+                                                                            : prev.filter((item) => item !== option.key)
+                                                                    )
+                                                                }}
+                                                            />
+                                                        </label>
+                                                    )
+                                                })
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 rounded-2xl border p-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="subject-transfer-search">Search Subjects</Label>
+                                        <Input
+                                            id="subject-transfer-search"
+                                            value={subjectTransferSearch}
+                                            onChange={(event) => setSubjectTransferSearch(event.target.value)}
+                                            placeholder="Search by code, title, or current scope"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="space-y-1">
+                                            <Label>Subjects in {selectedTermLabel}</Label>
+                                            <p className="text-sm text-muted-foreground">
+                                                {subjectTransferIds.length} selected from {filteredTransferSubjects.length} visible subject{filteredTransferSubjects.length === 1 ? "" : "s"}.
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                            <Checkbox
+                                                checked={allFilteredTransferSubjectsSelected ? true : someFilteredTransferSubjectsSelected ? "indeterminate" : false}
+                                                onCheckedChange={(value) => {
+                                                    const shouldSelect = Boolean(value)
+                                                    setSubjectTransferIds((current) => {
+                                                        if (!shouldSelect) {
+                                                            const visibleIds = new Set(filteredTransferSubjects.map((subject) => subject.$id))
+                                                            return current.filter((subjectId) => !visibleIds.has(subjectId))
+                                                        }
+
+                                                        return Array.from(
+                                                            new Set([...current, ...filteredTransferSubjects.map((subject) => subject.$id)])
+                                                        )
+                                                    })
+                                                }}
+                                                disabled={filteredTransferSubjects.length === 0}
+                                            />
+                                            <span>Select all</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="max-h-128 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                        {filteredTransferSubjects.length === 0 ? (
                                             <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
                                                 No scoped subjects found yet for {selectedTermLabel}.
                                             </div>
                                         ) : (
-                                            subjects.map((subject) => (
-                                                <div key={subject.$id} className="rounded-xl border p-4">
-                                                    <div className="font-medium">
-                                                        {[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}
-                                                    </div>
-                                                    <div className="mt-1 text-sm text-muted-foreground">
-                                                        {getSubjectScopeSummary(subject)}
-                                                    </div>
-                                                    <div className="mt-1 text-xs text-muted-foreground">
-                                                        Units: {subject.units ?? "—"}
-                                                    </div>
-                                                </div>
-                                            ))
+                                            filteredTransferSubjects.map((subject) => {
+                                                const checked = subjectTransferIds.includes(subject.$id)
+
+                                                return (
+                                                    <label
+                                                        key={`transfer-subject-${subject.$id}`}
+                                                        className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border p-3"
+                                                    >
+                                                        <div className="space-y-1">
+                                                            <div className="font-medium">
+                                                                {[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}
+                                                            </div>
+                                                            <div className="text-sm text-muted-foreground">
+                                                                {getSubjectScopeSummary(subject)}
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                Units: {subject.units ?? "—"}
+                                                            </div>
+                                                        </div>
+
+                                                        <Checkbox
+                                                            checked={checked}
+                                                            onCheckedChange={(value) => {
+                                                                const nextChecked = Boolean(value)
+                                                                setSubjectTransferIds((prev) =>
+                                                                    nextChecked
+                                                                        ? Array.from(new Set([...prev, subject.$id]))
+                                                                        : prev.filter((item) => item !== subject.$id)
+                                                                )
+                                                            }}
+                                                        />
+                                                    </label>
+                                                )
+                                            })
                                         )}
                                     </div>
                                 </div>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={resetSubjectTransferForm}
+                                disabled={subjectTransferSaving}
+                            >
+                                Clear Selection
+                            </Button>
+                            <Button
+                                onClick={transferSubjects}
+                                disabled={subjectTransferSaving || subjectTransferIds.length === 0 || !selectedVersion}
+                            >
+                                Transfer Selected Subjects
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                <Dialog open={sectionDialogOpen} onOpenChange={setSectionDialogOpen}>
+                    <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-3xl">
+                        <DialogHeader>
+                            <DialogTitle>New Course/Year Section</DialogTitle>
+                            <DialogDescription>
+                                Create a section for the selected college using an existing term like 2026-2027 • 1st Semester or create a new term on the spot.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-6">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="secondary" className="rounded-lg">
+                                    {selectedDeptLabel}
+                                </Badge>
+                                <Badge variant="outline" className="rounded-lg">
+                                    {selectedSectionTermLabel}
+                                </Badge>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label>Term Setup</Label>
+                                <Select value={sectionTermMode} onValueChange={(value) => setSectionTermMode(value as CreateTermMode)}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select setup" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="existing">Use Existing Semester / Term</SelectItem>
+                                        <SelectItem value="new">Create New Semester / School Year</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                    Choose an existing term or create a new one without leaving this dialog.
+                                </p>
+                            </div>
+
+                            {sectionTermMode === CREATE_TERM_MODES.existing ? (
+                                <div className="space-y-2">
+                                    <Label>Academic Term</Label>
+                                    <Select value={sectionTermId} onValueChange={setSectionTermId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select term" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {terms.length === 0 ? (
+                                                <SelectItem value="__no_terms__" disabled>
+                                                    No terms available
+                                                </SelectItem>
+                                            ) : (
+                                                terms.map((term) => (
+                                                    <SelectItem key={term.$id} value={term.$id}>
+                                                        {termLabel(term)}
+                                                    </SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>School Year</Label>
+                                        <Select
+                                            value={sectionSchoolYearSelectValue}
+                                            onValueChange={(value) => {
+                                                if (value === CUSTOM_SCHOOL_YEAR_VALUE) {
+                                                    if (sectionSchoolYearOptions.includes(sectionSchoolYear)) {
+                                                        setSectionSchoolYear("")
+                                                    }
+                                                    return
+                                                }
+                                                setSectionSchoolYear(value)
+                                            }}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select school year" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {sectionSchoolYearOptions.map((schoolYear) => (
+                                                    <SelectItem key={schoolYear} value={schoolYear}>
+                                                        {schoolYear}
+                                                    </SelectItem>
+                                                ))}
+                                                <SelectItem value={CUSTOM_SCHOOL_YEAR_VALUE}>Custom school year</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-xs text-muted-foreground">
+                                            Pick from the list or choose custom.
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label>Semester</Label>
+                                        <Select value={sectionSemester} onValueChange={setSectionSemester}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select semester" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {CREATE_TERM_SEMESTER_OPTIONS.map((semesterOption) => (
+                                                    <SelectItem key={semesterOption} value={semesterOption}>
+                                                        {semesterOption}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                {showCustomSectionSchoolYearInput ? (
+                                    <div className="space-y-2">
+                                        <Label htmlFor="section-school-year-custom">Custom School Year</Label>
+                                        <Input
+                                            id="section-school-year-custom"
+                                            value={sectionSchoolYear}
+                                            onChange={(event) => setSectionSchoolYear(event.target.value)}
+                                            placeholder="e.g. 2027-2028"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            Use the format YYYY-YYYY.
+                                        </p>
+                                    </div>
+                                ) : null}
+                                </>
+                            )}
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label>Course</Label>
+                                    <Select value={sectionProgramId} onValueChange={setSectionProgramId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select a course" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {programs.length === 0 ? (
+                                                <SelectItem value="__no_programs__" disabled>
+                                                    No courses available
+                                                </SelectItem>
+                                            ) : (
+                                                programs.map((program) => (
+                                                    <SelectItem key={program.$id} value={program.$id}>
+                                                        {String(program.code || program.name || program.$id)}
+                                                    </SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Year Level</Label>
+                                    <Select value={sectionYearLevel} onValueChange={setSectionYearLevel}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select year level" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {YEAR_LEVEL_OPTIONS.map((yearLevelOption) => (
+                                                <SelectItem key={yearLevelOption} value={yearLevelOption}>
+                                                    {yearLevelOption}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="section-name">Section Name / Label</Label>
+                                <Input
+                                    id="section-name"
+                                    value={sectionName}
+                                    onChange={(event) => setSectionName(event.target.value)}
+                                    placeholder="e.g. A"
+                                />
+                            </div>
+
+                            <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+                                <div>Term: {selectedSectionTermLabel}</div>
+                                <div className="mt-1">
+                                    Preview: {buildSectionDisplayLabel(selectedSectionProgram?.code, selectedSectionProgram?.name, sectionYearLevel, sectionName || "Section")}
+                                </div>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="flex flex-wrap gap-2">
+                            <Button variant="outline" onClick={resetSectionForm} disabled={sectionSaving}>
+                                Reset
+                            </Button>
+                            <Button onClick={saveSection} disabled={sectionSaving || !selectedVersion || programs.length === 0}>
+                                Create Section
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
 
                 <PlannerManagementSection
                     selectedVersion={selectedVersion}
