@@ -880,7 +880,7 @@ export function MasterDataDialogs({ vm }: Props) {
                             className="bg-destructive text-white hover:bg-destructive/90"
                             onClick={() => void vm.confirmDelete()}
                         >
-                            Delete
+                            {vm.deleteActionLabel}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

@@ -353,6 +353,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkCollegeSemester, setBulkCollegeSemester] = React.useState("")
     const [bulkCollegeSubjectIds, setBulkCollegeSubjectIds] = React.useState<string[]>([])
     const [bulkCollegeSaving, setBulkCollegeSaving] = React.useState(false)
+    const [selectedSubjectIds, setSelectedSubjectIds] = React.useState<string[]>([])
 
     const termMap = React.useMemo(() => {
         const map = new Map<string, LooseAcademicTermDoc>()
@@ -372,6 +373,41 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         [filteredSubjects]
     )
 
+    const visibleSubjectIds = React.useMemo(
+        () => allVisibleSubjects.map((subject) => String(subject.$id)),
+        [allVisibleSubjects]
+    )
+
+    const visibleSubjectIdSet = React.useMemo(
+        () => new Set(visibleSubjectIds),
+        [visibleSubjectIds]
+    )
+
+    React.useEffect(() => {
+        setSelectedSubjectIds((current) =>
+            current.filter((subjectId) => visibleSubjectIdSet.has(subjectId))
+        )
+    }, [visibleSubjectIdSet])
+
+    const selectedSubjectIdSet = React.useMemo(
+        () => new Set(selectedSubjectIds),
+        [selectedSubjectIds]
+    )
+
+    const selectedVisibleSubjects = React.useMemo(
+        () =>
+            allVisibleSubjects.filter((subject) =>
+                selectedSubjectIdSet.has(String(subject.$id))
+            ),
+        [allVisibleSubjects, selectedSubjectIdSet]
+    )
+
+    const allVisibleSelected =
+        visibleSubjectIds.length > 0 &&
+        selectedVisibleSubjects.length === visibleSubjectIds.length
+
+    const someVisibleSelected =
+        selectedVisibleSubjects.length > 0 && !allVisibleSelected
 
     const bulkScopeProgramOptions = React.useMemo(() => {
         const collegeId = String(bulkCollegeId ?? "").trim()
@@ -831,6 +867,70 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         vm,
     ])
 
+    const toggleSubjectSelection = React.useCallback(
+        (subjectId: string, checked: boolean) => {
+            setSelectedSubjectIds((current) => {
+                if (checked) {
+                    if (current.includes(subjectId)) return current
+                    return [...current, subjectId]
+                }
+
+                return current.filter((id) => id !== subjectId)
+            })
+        },
+        []
+    )
+
+    const toggleVisibleSubjectSelection = React.useCallback(
+        (checked: boolean) => {
+            setSelectedSubjectIds(checked ? visibleSubjectIds : [])
+        },
+        [visibleSubjectIds]
+    )
+
+    const toggleGroupedSubjectSelection = React.useCallback(
+        (subjectIds: string[], checked: boolean) => {
+            setSelectedSubjectIds((current) => {
+                const next = new Set(current)
+
+                if (checked) {
+                    subjectIds.forEach((subjectId) => next.add(subjectId))
+                } else {
+                    subjectIds.forEach((subjectId) => next.delete(subjectId))
+                }
+
+                return Array.from(next)
+            })
+        },
+        []
+    )
+
+    const openDeleteSelectedSubjects = React.useCallback(() => {
+        if (selectedVisibleSubjects.length === 0) {
+            toast.error("Select at least one subject to delete.")
+            return
+        }
+
+        vm.setDeleteIntent({
+            type: "subjects",
+            docs: selectedVisibleSubjects as any,
+            scope: "selected",
+        })
+    }, [selectedVisibleSubjects, vm])
+
+    const openDeleteAllVisibleSubjects = React.useCallback(() => {
+        if (allVisibleSubjects.length === 0) {
+            toast.error("No visible subjects available for deletion.")
+            return
+        }
+
+        vm.setDeleteIntent({
+            type: "subjects",
+            docs: allVisibleSubjects as any,
+            scope: "visible",
+        })
+    }, [allVisibleSubjects, vm])
+
     const handleTableActionClick = React.useCallback(
         (action: () => void | Promise<unknown>) =>
             (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -855,7 +955,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
     return (
         <TabsContent value="subjects" className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                     <div className="font-medium">Subjects</div>
                     <div className="text-sm text-muted-foreground">
@@ -889,6 +989,73 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                 </div>
             </div>
 
+            <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge variant="secondary">
+                        {allVisibleSubjects.length} visible
+                    </Badge>
+                    <Badge
+                        variant={selectedVisibleSubjects.length > 0 ? "default" : "outline"}
+                    >
+                        {selectedVisibleSubjects.length} selected
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                        Bulk delete uses the current visible list or your checkbox selection.
+                    </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+                        <Checkbox
+                            checked={
+                                allVisibleSelected
+                                    ? true
+                                    : someVisibleSelected
+                                        ? "indeterminate"
+                                        : false
+                            }
+                            onCheckedChange={(value) =>
+                                toggleVisibleSubjectSelection(Boolean(value))
+                            }
+                            aria-label="Select all visible subjects"
+                        />
+                        <span className="text-sm font-medium">Select all visible</span>
+                    </div>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedSubjectIds([])}
+                        disabled={selectedVisibleSubjects.length === 0}
+                    >
+                        Clear Selection
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={openDeleteSelectedSubjects}
+                        disabled={selectedVisibleSubjects.length === 0}
+                    >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete Selected
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={openDeleteAllVisibleSubjects}
+                        disabled={allVisibleSubjects.length === 0}
+                    >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete All Visible
+                    </Button>
+                </div>
+            </div>
+
             {vm.loading ? (
                 <div className="space-y-3">
                     <Skeleton className="h-10 w-full" />
@@ -904,7 +1071,20 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     onValueChange={setExpandedGroups}
                     className="space-y-4"
                 >
-                    {groupedSubjects.map((group) => (
+                    {groupedSubjects.map((group) => {
+                        const groupSubjectIds = group.subjects.map((subject) =>
+                            String(subject.$id)
+                        )
+                        const selectedGroupCount = groupSubjectIds.filter((subjectId) =>
+                            selectedSubjectIdSet.has(subjectId)
+                        ).length
+                        const allGroupSelected =
+                            groupSubjectIds.length > 0 &&
+                            selectedGroupCount === groupSubjectIds.length
+                        const someGroupSelected =
+                            selectedGroupCount > 0 && !allGroupSelected
+
+                        return (
                         <AccordionItem
                             key={group.key}
                             value={group.key}
@@ -920,6 +1100,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                             <Badge variant="secondary">
                                                 {group.subjects.length}
                                             </Badge>
+                                            <Badge
+                                                variant={selectedGroupCount > 0 ? "default" : "outline"}
+                                            >
+                                                {selectedGroupCount} selected
+                                            </Badge>
                                         </div>
 
                                         <div className="text-xs text-muted-foreground">
@@ -933,6 +1118,31 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                 </AccordionTrigger>
 
                                 <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+                                    <div
+                                        className="flex items-center gap-2 rounded-md border bg-background px-3 py-2"
+                                        onPointerDown={stopActionAreaInteraction}
+                                        onMouseDown={stopActionAreaInteraction}
+                                        onTouchStart={stopActionAreaInteraction}
+                                    >
+                                        <Checkbox
+                                            checked={
+                                                allGroupSelected
+                                                    ? true
+                                                    : someGroupSelected
+                                                        ? "indeterminate"
+                                                        : false
+                                            }
+                                            onCheckedChange={(value) =>
+                                                toggleGroupedSubjectSelection(
+                                                    groupSubjectIds,
+                                                    Boolean(value)
+                                                )
+                                            }
+                                            aria-label={`Select ${group.title} subjects`}
+                                        />
+                                        <span className="text-sm font-medium">Select group</span>
+                                    </div>
+
                                     <Button
                                         type="button"
                                         variant="outline"
@@ -1023,6 +1233,30 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                 <Table className="min-w-max">
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead className="w-14">
+                                                <div
+                                                    className="flex items-center justify-center"
+                                                    onPointerDown={stopActionAreaInteraction}
+                                                    onMouseDown={stopActionAreaInteraction}
+                                                    onTouchStart={stopActionAreaInteraction}
+                                                >
+                                                    <Checkbox
+                                                        checked={
+                                                            allVisibleSelected
+                                                                ? true
+                                                                : someVisibleSelected
+                                                                    ? "indeterminate"
+                                                                    : false
+                                                        }
+                                                        onCheckedChange={(value) =>
+                                                            toggleVisibleSubjectSelection(
+                                                                Boolean(value)
+                                                            )
+                                                        }
+                                                        aria-label="Select all visible subjects"
+                                                    />
+                                                </div>
+                                            </TableHead>
                                             <TableHead className="w-40">Code</TableHead>
                                             <TableHead>Title</TableHead>
                                             <TableHead className="w-72">College</TableHead>
@@ -1047,6 +1281,26 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
                                             return (
                                                 <TableRow key={subject.$id}>
+                                                    <TableCell className="align-middle">
+                                                        <div
+                                                            className="flex items-center justify-center"
+                                                            onPointerDown={stopActionAreaInteraction}
+                                                            onMouseDown={stopActionAreaInteraction}
+                                                            onTouchStart={stopActionAreaInteraction}
+                                                        >
+                                                            <Checkbox
+                                                                checked={selectedSubjectIdSet.has(String(subject.$id))}
+                                                                onCheckedChange={(value) =>
+                                                                    toggleSubjectSelection(
+                                                                        String(subject.$id),
+                                                                        Boolean(value)
+                                                                    )
+                                                                }
+                                                                aria-label={`Select ${subject.code} ${subject.title}`}
+                                                            />
+                                                        </div>
+                                                    </TableCell>
+
                                                     <TableCell className="font-medium">
                                                         {subject.code}
                                                     </TableCell>
@@ -1161,7 +1415,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                 </Table>
                             </AccordionContent>
                         </AccordionItem>
-                    ))}
+                    )})}
                 </Accordion>
             )}
 

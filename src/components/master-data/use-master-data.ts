@@ -1257,6 +1257,56 @@ export function useMasterDataManagement() {
                 toast.success("Subject deleted.")
             }
 
+            if (deleteIntent.type === "subjects") {
+                const subjectDocs = deleteIntent.docs.filter((doc) => str(doc?.$id))
+
+                if (subjectDocs.length === 0) {
+                    setDeleteIntent(null)
+                    toast.error("No subjects available for deletion.")
+                    return
+                }
+
+                let deleted = 0
+                const failedLabels: string[] = []
+
+                for (const subject of subjectDocs) {
+                    try {
+                        await databases.deleteDocument(
+                            DATABASE_ID,
+                            COLLECTIONS.SUBJECTS,
+                            subject.$id
+                        )
+                        deleted += 1
+                    } catch {
+                        failedLabels.push(`${subject.code} — ${subject.title}`)
+                    }
+                }
+
+                setDeleteIntent(null)
+                await refreshAll()
+
+                if (deleted === subjectDocs.length) {
+                    toast.success(
+                        `${deleted} subject${deleted === 1 ? "" : "s"} deleted.`
+                    )
+                    return
+                }
+
+                if (deleted > 0) {
+                    const failedPreview = failedLabels.slice(0, 3).join(", ")
+                    const failedSuffix =
+                        failedLabels.length > 3 ? ", and more" : ""
+
+                    toast.error(
+                        `Deleted ${deleted} subject${deleted === 1 ? "" : "s"}, but failed for ${failedLabels.length}: ${failedPreview}${failedSuffix}.`
+                    )
+                    return
+                }
+
+                toast.error("Failed to delete the selected subjects.")
+                return
+            }
+
             if (deleteIntent.type === "faculty") {
                 await databases.deleteDocument(DATABASE_ID, COLLECTIONS.FACULTY_PROFILES, deleteIntent.doc.$id)
                 toast.success("Faculty deleted.")
@@ -1446,6 +1496,14 @@ export function useMasterDataManagement() {
         })
     }, [recordRows, q, recordSubjectFilter, recordUnitFilter])
 
+    const bulkDeleteSubjectPreview =
+        deleteIntent?.type === "subjects"
+            ? deleteIntent.docs
+                  .slice(0, 3)
+                  .map((subject) => `"${subject.code} — ${subject.title}"`)
+                  .join(", ")
+            : ""
+
     const deleteTitle =
         deleteIntent?.type === "college"
             ? "Delete College"
@@ -1453,11 +1511,15 @@ export function useMasterDataManagement() {
                 ? "Delete Program"
                 : deleteIntent?.type === "subject"
                     ? "Delete Subject"
-                    : deleteIntent?.type === "faculty"
-                        ? "Delete Faculty"
-                        : deleteIntent?.type === "section"
-                            ? "Delete Section"
-                            : "Delete"
+                    : deleteIntent?.type === "subjects"
+                        ? deleteIntent.scope === "visible"
+                            ? "Delete All Visible Subjects"
+                            : "Delete Selected Subjects"
+                        : deleteIntent?.type === "faculty"
+                            ? "Delete Faculty"
+                            : deleteIntent?.type === "section"
+                                ? "Delete Section"
+                                : "Delete"
 
     const deleteText =
         deleteIntent?.type === "college"
@@ -1466,11 +1528,30 @@ export function useMasterDataManagement() {
                 ? `This will permanently delete "${deleteIntent.doc.code} — ${deleteIntent.doc.name}".`
                 : deleteIntent?.type === "subject"
                     ? `This will permanently delete "${deleteIntent.doc.code} — ${deleteIntent.doc.title}".`
-                    : deleteIntent?.type === "faculty"
-                        ? `This will permanently delete faculty for userId "${deleteIntent.doc.userId}".`
-                        : deleteIntent?.type === "section"
-                            ? `This will permanently delete section "${buildSectionDisplayLabel(deleteIntent.doc.yearLevel, deleteIntent.doc.name)}".`
-                            : "This action cannot be undone."
+                    : deleteIntent?.type === "subjects"
+                        ? `This will permanently delete ${deleteIntent.docs.length} subject${deleteIntent.docs.length === 1 ? "" : "s"} from the current ${deleteIntent.scope === "visible" ? "visible list" : "selection"}${bulkDeleteSubjectPreview ? `, including ${bulkDeleteSubjectPreview}${deleteIntent.docs.length > 3 ? ", and more" : ""}` : ""}.`
+                        : deleteIntent?.type === "faculty"
+                            ? `This will permanently delete faculty for userId "${deleteIntent.doc.userId}".`
+                            : deleteIntent?.type === "section"
+                                ? `This will permanently delete section "${buildSectionDisplayLabel(deleteIntent.doc.yearLevel, deleteIntent.doc.name)}".`
+                                : "This action cannot be undone."
+
+    const deleteActionLabel =
+        deleteIntent?.type === "subjects"
+            ? deleteIntent.scope === "visible"
+                ? "Delete All Visible"
+                : "Delete Selected"
+            : deleteIntent?.type === "subject"
+                ? "Delete Subject"
+                : deleteIntent?.type === "college"
+                    ? "Delete College"
+                    : deleteIntent?.type === "program"
+                        ? "Delete Program"
+                        : deleteIntent?.type === "faculty"
+                            ? "Delete Faculty"
+                            : deleteIntent?.type === "section"
+                                ? "Delete Section"
+                                : "Delete"
 
     return {
         // main
@@ -1628,6 +1709,7 @@ export function useMasterDataManagement() {
         setDeleteIntent,
         deleteTitle,
         deleteText,
+        deleteActionLabel,
         confirmDelete,
 
         // list of records

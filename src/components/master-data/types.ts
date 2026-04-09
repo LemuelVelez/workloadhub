@@ -137,6 +137,7 @@ export type DeleteIntent =
     | { type: "college"; doc: CollegeDoc }
     | { type: "program"; doc: ProgramDoc }
     | { type: "subject"; doc: SubjectDoc }
+    | { type: "subjects"; docs: SubjectDoc[]; scope: "selected" | "visible" }
     | { type: "faculty"; doc: FacultyProfileDoc }
     | { type: "section"; doc: SectionDoc }
 
