@@ -24,6 +24,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -364,77 +365,162 @@ export function MasterDataDialogs({ vm }: Props) {
                             </Select>
                         </div>
 
-                        <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="grid gap-4 lg:grid-cols-2">
                             <div className="grid gap-2">
-                                <Label>Program</Label>
-                                <Select
-                                    value={vm.subjectProgramId || "__none__"}
-                                    onValueChange={vm.setSubjectProgramId}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Program" />
-                                    </SelectTrigger>
-                                    <SelectContent>
+                                <div className="flex items-center justify-between gap-2">
+                                    <Label>Programs</Label>
+                                    <span className="text-xs text-muted-foreground">
+                                        {vm.subjectProgramIds.length} selected
+                                    </span>
+                                </div>
+                                <ScrollArea className="h-44 rounded-md border">
+                                    <div className="space-y-2 p-3">
                                         {subjectProgramsForSelectedCollege.length === 0 ? (
-                                            <SelectItem value="__none__" disabled>
-                                                No programs found for the selected college
-                                            </SelectItem>
+                                            <div className="text-sm text-muted-foreground">
+                                                No programs found for the selected college.
+                                            </div>
                                         ) : (
-                                            subjectProgramsForSelectedCollege.map((program) => (
-                                                <SelectItem key={program.$id} value={program.$id}>
-                                                    {program.code} — {program.name}
-                                                </SelectItem>
-                                            ))
+                                            subjectProgramsForSelectedCollege.map((program) => {
+                                                const checked = vm.subjectProgramIds.includes(program.$id)
+                                                return (
+                                                    <label
+                                                        key={program.$id}
+                                                        htmlFor={`subject-program-${program.$id}`}
+                                                        className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                    >
+                                                        <Checkbox
+                                                            id={`subject-program-${program.$id}`}
+                                                            checked={checked}
+                                                            onCheckedChange={(value) => {
+                                                                const nextChecked = Boolean(value)
+                                                                vm.setSubjectProgramIds((current) => {
+                                                                    if (nextChecked) {
+                                                                        return current.includes(program.$id)
+                                                                            ? current
+                                                                            : [...current, program.$id]
+                                                                    }
+                                                                    return current.filter((id) => id !== program.$id)
+                                                                })
+                                                            }}
+                                                        />
+                                                        <div className="min-w-0 flex-1 text-sm">
+                                                            <div className="font-medium">{program.code}</div>
+                                                            <div className="text-muted-foreground">{program.name}</div>
+                                                        </div>
+                                                    </label>
+                                                )
+                                            })
                                         )}
-                                    </SelectContent>
-                                </Select>
+                                    </div>
+                                </ScrollArea>
                             </div>
 
-                            <div className="grid gap-2">
-                                <Label>Year Level</Label>
-                                <Select value={vm.subjectYearLevel} onValueChange={vm.setSubjectYearLevel}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Year Level" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {YEAR_LEVEL_OPTIONS.map((year) => (
-                                            <SelectItem key={year} value={String(year)}>
-                                                {String(year)}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
+                            <div className="grid gap-4">
+                                <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <Label>Year Levels</Label>
+                                        <span className="text-xs text-muted-foreground">
+                                            {vm.subjectYearLevels.length} selected
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 rounded-md border p-3">
+                                        {YEAR_LEVEL_OPTIONS.map((year) => {
+                                            const value = String(year)
+                                            const checked = vm.subjectYearLevels.includes(value)
+                                            return (
+                                                <label
+                                                    key={value}
+                                                    htmlFor={`subject-year-${value}`}
+                                                    className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition hover:bg-muted/40"
+                                                >
+                                                    <Checkbox
+                                                        id={`subject-year-${value}`}
+                                                        checked={checked}
+                                                        onCheckedChange={(nextValue) => {
+                                                            const isChecked = Boolean(nextValue)
+                                                            vm.setSubjectYearLevels((current) => {
+                                                                if (isChecked) {
+                                                                    return current.includes(value)
+                                                                        ? current
+                                                                        : [...current, value]
+                                                                }
+                                                                return current.filter((item) => item !== value)
+                                                            })
+                                                        }}
+                                                    />
+                                                    <span>{value}</span>
+                                                </label>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
 
-                        <div className="grid gap-2">
-                            <Label>Academic Term (optional)</Label>
-                            <Select
-                                value={vm.subjectTermId || "__none__"}
-                                onValueChange={(v) => vm.setSubjectTermId(v === "__none__" ? "" : v)}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="No Term Link" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="__none__">No Term Link</SelectItem>
-                                    {vm.terms.map((t) => (
-                                        <SelectItem key={t.$id} value={t.$id}>
-                                            {vm.termLabel(vm.terms, t.$id)}
-                                            {t.isActive ? " • Active" : ""}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <div className="text-xs text-muted-foreground">
-                                Link the subject directly to a term so only matching semester subjects appear when selecting records. If you leave this blank, the subject can still inherit the selected record term later.
+                                <div className="grid gap-2">
+                                    <Label>Semester</Label>
+                                    <Select value={vm.subjectSemester || "__none__"} onValueChange={(v) => vm.setSubjectSemester(v === "__none__" ? "" : v)}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select Semester" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__none__">No Semester</SelectItem>
+                                            <SelectItem value="1st Semester">1st Semester</SelectItem>
+                                            <SelectItem value="2nd Semester">2nd Semester</SelectItem>
+                                            <SelectItem value="Summer">Summer</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label>Academic Term (optional)</Label>
+                                    <Select
+                                        value={vm.subjectTermId || "__none__"}
+                                        onValueChange={(v) => {
+                                            const nextValue = v === "__none__" ? "" : v
+                                            vm.setSubjectTermId(nextValue)
+
+                                            const matchedTerm = vm.terms.find((term) => term.$id === nextValue)
+                                            if (matchedTerm?.semester) {
+                                                vm.setSubjectSemester(String(matchedTerm.semester))
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="No Term Link" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__none__">No Term Link</SelectItem>
+                                            {vm.terms.map((t) => (
+                                                <SelectItem key={t.$id} value={t.$id}>
+                                                    {vm.termLabel(vm.terms, t.$id)}
+                                                    {t.isActive ? " • Active" : ""}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="text-xs text-muted-foreground">
+                                        Optional direct term link. The semester value is still saved so subjects remain properly scoped even before term linking.
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
                         <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                            Subject scope preview: <span className="font-medium text-foreground">{vm.subjectProgramId === "__none__" ? "Select a program" : vm.programLabel(vm.programs, vm.subjectProgramId)}</span>
+                            Subject scope preview:{" "}
+                            <span className="font-medium text-foreground">
+                                {vm.subjectProgramIds.length === 0
+                                    ? "Select at least one program"
+                                    : vm.subjectProgramIds
+                                        .map((programId) => vm.programLabel(vm.programs, programId))
+                                        .join(", ")}
+                            </span>
                             {" • "}
-                            <span className="font-medium text-foreground">{vm.subjectYearLevel || "Select a year level"}</span>
+                            <span className="font-medium text-foreground">
+                                {vm.subjectYearLevels.length === 0 ? "Select year levels" : vm.subjectYearLevels.join(", ")}
+                            </span>
+                            {" • "}
+                            <span className="font-medium text-foreground">
+                                {vm.subjectSemester || "Select semester"}
+                            </span>
                         </div>
 
                         <div className="grid gap-2">

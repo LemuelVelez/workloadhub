@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "008_add_subject_scope_linking" as const;
+export const SCHEMA_MIGRATION_ID = "009_add_subject_multi_scope_visibility" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -119,7 +119,10 @@ export const ATTR = {
         termId: "termId",
         departmentId: "departmentId",
         programId: "programId",
+        programIds: "programIds",
         yearLevel: "yearLevel",
+        yearLevels: "yearLevels",
+        semester: "semester",
         code: "code",
         title: "title",
         units: "units",
@@ -310,6 +313,7 @@ export const INDEX = {
         departmentId: "idx_subjects_departmentId",
         programId: "idx_subjects_programId",
         yearLevel: "idx_subjects_yearLevel",
+        semester: "idx_subjects_semester",
         termId: "idx_subjects_termId",
         termProgramYear: "idx_subjects_term_program_year",
         titleFulltext: "idx_subjects_title_fulltext",
@@ -442,7 +446,10 @@ export type Subject = {
     termId?: string | null;
     departmentId?: string | null;
     programId?: string | null;
+    programIds?: string[] | null;
     yearLevel?: SectionYearLevelValue | null;
+    yearLevels?: string[] | null;
+    semester?: string | null;
     code: string;
     title: string;
     units: number;
@@ -699,3 +706,4 @@ export type CollectionDocMap = {
 
     [COLLECTIONS.AUDIT_LOGS]: AuditLogDoc;
 };
+

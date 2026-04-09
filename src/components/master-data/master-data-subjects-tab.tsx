@@ -43,7 +43,9 @@ type LooseAcademicTermDoc = AcademicTermDoc & Record<string, unknown>
 
 const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
 const SUBJECT_PROGRAM_KEYS = ["programId", "program", "program_id", "programID"] as const
+const SUBJECT_PROGRAM_ARRAY_KEYS = ["programIds", "program_ids"] as const
 const SUBJECT_SCOPE_YEAR_LEVEL_KEYS = ["yearLevel", "sectionYearLevel", "sectionYear", "year_level"] as const
+const SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS = ["yearLevels", "year_levels"] as const
 const SUBJECT_SEMESTER_KEYS = [
     "semester",
     "semesterLabel",
@@ -86,6 +88,42 @@ function readFirstStringValue(
     return ""
 }
 
+function readStringArrayValues(
+    source: Record<string, unknown> | null | undefined,
+    arrayKeys: readonly string[],
+    fallbackKeys: readonly string[] = []
+) {
+    const values: string[] = []
+
+    for (const key of arrayKeys) {
+        const value = source?.[key]
+
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                const normalized = String(item ?? "").trim()
+                if (normalized) values.push(normalized)
+            }
+            continue
+        }
+
+        if (typeof value === "string" && value.trim()) {
+            const parts = value.includes(",") ? value.split(",") : [value]
+            for (const part of parts) {
+                const normalized = String(part ?? "").trim()
+                if (normalized) values.push(normalized)
+            }
+        }
+    }
+
+    if (values.length === 0) {
+        for (const key of fallbackKeys) {
+            const normalized = String(source?.[key] ?? "").trim()
+            if (normalized) values.push(normalized)
+        }
+    }
+
+    return Array.from(new Set(values))
+}
 
 function normalizeSectionYearLevelValue(value?: string | number | null) {
     return String(value ?? "")
@@ -94,13 +132,27 @@ function normalizeSectionYearLevelValue(value?: string | number | null) {
         .replace(/\s+/g, " ")
 }
 
-function resolveSubjectProgramId(subject: LooseSubjectDoc) {
-    return readFirstStringValue(subject, SUBJECT_PROGRAM_KEYS)
+function extractSubjectYearNumber(value?: string | number | null) {
+    const normalized = normalizeSectionYearLevelValue(value)
+    return normalized.match(/([1-9]\d*)$/)?.[1] ?? normalized
 }
 
-function resolveSubjectYearLevel(subject: LooseSubjectDoc) {
-    return normalizeSectionYearLevelValue(
-        readFirstStringValue(subject, SUBJECT_SCOPE_YEAR_LEVEL_KEYS)
+function resolveSubjectProgramIds(subject: LooseSubjectDoc) {
+    return readStringArrayValues(subject, SUBJECT_PROGRAM_ARRAY_KEYS, SUBJECT_PROGRAM_KEYS)
+}
+
+
+function resolveSubjectYearLevels(subject: LooseSubjectDoc) {
+    return Array.from(
+        new Set(
+            readStringArrayValues(
+                subject,
+                SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS,
+                SUBJECT_SCOPE_YEAR_LEVEL_KEYS
+            )
+                .map((value) => extractSubjectYearNumber(value))
+                .filter(Boolean)
+        )
     )
 }
 
@@ -144,6 +196,22 @@ function buildStoredSubjectYearLevel(
     if (normalizedYearLevel.startsWith(`${programPrefix} `)) return normalizedYearLevel
 
     return `${programPrefix} ${yearNumber}`
+}
+
+function formatProgramScopeLabels(
+    programs: MasterDataManagementVM["programs"],
+    programIds: string[]
+) {
+    const labels = programIds
+        .map((programId) => programs.find((program) => String(program.$id) === String(programId)))
+        .filter(Boolean)
+        .map((program) => `${program!.code} — ${program!.name}`)
+
+    return Array.from(new Set(labels))
+}
+
+function formatYearLevelScopeLabels(yearLevels: string[]) {
+    return Array.from(new Set(yearLevels.map((value) => extractSubjectYearNumber(value)).filter(Boolean)))
 }
 
 function normalizeSemesterLabel(value: string) {
@@ -280,8 +348,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
     const [bulkCollegeOpen, setBulkCollegeOpen] = React.useState(false)
     const [bulkCollegeId, setBulkCollegeId] = React.useState("")
-    const [bulkCollegeProgramId, setBulkCollegeProgramId] = React.useState("__none__")
-    const [bulkCollegeYearLevel, setBulkCollegeYearLevel] = React.useState("1")
+    const [bulkCollegeProgramIds, setBulkCollegeProgramIds] = React.useState<string[]>([])
+    const [bulkCollegeYearLevels, setBulkCollegeYearLevels] = React.useState<string[]>([])
+    const [bulkCollegeSemester, setBulkCollegeSemester] = React.useState("")
     const [bulkCollegeSubjectIds, setBulkCollegeSubjectIds] = React.useState<string[]>([])
     const [bulkCollegeSaving, setBulkCollegeSaving] = React.useState(false)
 
@@ -301,22 +370,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     const allVisibleSubjects = React.useMemo(
         () => sortSubjects(filteredSubjects),
         [filteredSubjects]
-    )
-
-    const allVisibleUnlinkedSubjects = React.useMemo(
-        () =>
-            allVisibleSubjects.filter(
-                (subject) => !resolveSubjectTermId(subject)
-            ),
-        [allVisibleSubjects]
-    )
-
-    const allVisibleLinkedSubjects = React.useMemo(
-        () =>
-            allVisibleSubjects.filter((subject) =>
-                Boolean(resolveSubjectTermId(subject))
-            ),
-        [allVisibleSubjects]
     )
 
 
@@ -544,21 +597,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         []
     )
 
-    const openSingleSubjectLinkDialog = React.useCallback(
-        (subject: LooseSubjectDoc) => {
-            const subjectId = String(subject.$id)
-            const semesterHint =
-                resolveSubjectSemester(subject, termMap) || ""
-
-            openBulkLinkDialog({
-                semesterHint:
-                    semesterHint === INHERIT_SEMESTER_LABEL ? "" : semesterHint,
-                subjectIds: [subjectId],
-                lockedSubjectIds: [subjectId],
-            })
-        },
-        [openBulkLinkDialog, termMap]
-    )
 
     const handleBulkLinkOpenChange = React.useCallback((nextOpen: boolean) => {
         setBulkLinkOpen(nextOpen)
@@ -640,16 +678,10 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
     React.useEffect(() => {
         if (!bulkCollegeOpen) return
-        if (bulkCollegeProgramId === "__none__") return
 
-        const matchedProgram = bulkScopeProgramOptions.find(
-            (program) => String(program.$id) === String(bulkCollegeProgramId)
-        )
-
-        if (!matchedProgram) {
-            setBulkCollegeProgramId("__none__")
-        }
-    }, [bulkCollegeOpen, bulkCollegeProgramId, bulkScopeProgramOptions])
+        const validProgramIds = new Set(bulkScopeProgramOptions.map((program) => String(program.$id)))
+        setBulkCollegeProgramIds((current) => current.filter((programId) => validProgramIds.has(String(programId))))
+    }, [bulkCollegeOpen, bulkScopeProgramOptions])
 
     const openBulkCollegeDialog = React.useCallback(() => {
         setBulkCollegeSubjectIds(
@@ -663,8 +695,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
         if (!nextOpen) {
             setBulkCollegeId("")
-            setBulkCollegeProgramId("__none__")
-            setBulkCollegeYearLevel("1")
+            setBulkCollegeProgramIds([])
+            setBulkCollegeYearLevels([])
+            setBulkCollegeSemester("")
             setBulkCollegeSubjectIds([])
         }
     }, [])
@@ -685,14 +718,19 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
     const saveBulkCollegeSubjects = React.useCallback(async () => {
         const normalizedCollegeId = String(bulkCollegeId ?? "").trim()
-        const normalizedProgramId =
-            String(bulkCollegeProgramId ?? "").trim() === "__none__"
-                ? ""
-                : String(bulkCollegeProgramId ?? "").trim()
-        const normalizedYearLevel = buildStoredSubjectYearLevel(
+        const normalizedProgramIds = Array.from(
+            new Set(bulkCollegeProgramIds.map((programId) => String(programId).trim()).filter(Boolean))
+        )
+        const normalizedYearLevels = Array.from(
+            new Set(bulkCollegeYearLevels.map((yearLevel) => extractSubjectYearNumber(yearLevel)).filter(Boolean))
+        )
+        const normalizedSemester = normalizeSemesterLabel(String(bulkCollegeSemester ?? "").trim())
+        const primaryProgramId = normalizedProgramIds[0] ?? null
+        const primaryYearLevel = normalizedYearLevels[0] ?? ""
+        const legacyYearLevel = buildStoredSubjectYearLevel(
             vm.programs,
-            bulkCollegeYearLevel,
-            normalizedProgramId || null
+            primaryYearLevel,
+            primaryProgramId
         )
         const selectedSubjectIds = Array.from(
             new Set(
@@ -707,13 +745,18 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             return
         }
 
-        if (!normalizedProgramId) {
-            toast.error("Please select a program.")
+        if (normalizedProgramIds.length === 0) {
+            toast.error("Please select at least one program.")
             return
         }
 
-        if (!normalizedYearLevel) {
-            toast.error("Please select a year level.")
+        if (normalizedYearLevels.length === 0) {
+            toast.error("Please select at least one year level.")
+            return
+        }
+
+        if (!normalizedSemester) {
+            toast.error("Please select a semester.")
             return
         }
 
@@ -741,8 +784,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         subjectId,
                         {
                             departmentId: normalizedCollegeId,
-                            programId: normalizedProgramId,
-                            yearLevel: normalizedYearLevel,
+                            programId: primaryProgramId,
+                            programIds: normalizedProgramIds,
+                            yearLevel: legacyYearLevel || null,
+                            yearLevels: normalizedYearLevels,
+                            semester: normalizedSemester,
                         }
                     )
                     updated += 1
@@ -757,7 +803,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
             if (updated > 0 && failed.length === 0) {
                 toast.success(
-                    `${updated} subject${updated === 1 ? "" : "s"} updated with a scope.`
+                    `${updated} subject${updated === 1 ? "" : "s"} updated with the visible scope.`
                 )
                 handleBulkCollegeOpenChange(false)
                 return
@@ -777,9 +823,10 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     }, [
         allVisibleSubjects,
         bulkCollegeId,
-        bulkCollegeProgramId,
+        bulkCollegeProgramIds,
+        bulkCollegeSemester,
         bulkCollegeSubjectIds,
-        bulkCollegeYearLevel,
+        bulkCollegeYearLevels,
         handleBulkCollegeOpenChange,
         vm,
     ])
@@ -821,66 +868,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={bulkLinking || bulkUnlinking}
-                        onClick={() =>
-                            openBulkLinkDialog({
-                                subjectIds: allVisibleSubjects.map((subject) =>
-                                    String(subject.$id)
-                                ),
-                            })
-                        }
-                    >
-                        <Link2 className="mr-2 h-4 w-4" />
-                        Edit All Links to Term
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
                         disabled={bulkCollegeSaving || bulkLinking || bulkUnlinking}
                         onClick={openBulkCollegeDialog}
                     >
                         <Pencil className="mr-2 h-4 w-4" />
-                        Edit
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={bulkLinking || bulkUnlinking}
-                        onClick={() =>
-                            openBulkLinkDialog({
-                                subjectIds: allVisibleUnlinkedSubjects.map((subject) =>
-                                    String(subject.$id)
-                                ),
-                            })
-                        }
-                    >
-                        <Link2 className="mr-2 h-4 w-4" />
-                        Link All Subjects
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={
-                            allVisibleLinkedSubjects.length === 0 ||
-                            bulkLinking ||
-                            bulkUnlinking
-                        }
-                        onClick={() =>
-                            void unlinkSubjectIds(
-                                allVisibleLinkedSubjects.map((subject) =>
-                                    String(subject.$id)
-                                )
-                            )
-                        }
-                    >
-                        <Unlink2 className="mr-2 h-4 w-4" />
-                        {bulkUnlinking ? "Unlinking..." : "Unlink All Subjects"}
+                        Edit Visible Subject Scope
                     </Button>
 
                     <Button
@@ -1051,7 +1043,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
                                             const termLabel = linkedTermId
                                                 ? vm.termLabel(vm.terms, linkedTermId)
-                                                : "Not yet linked. Use Link to Term to permanently connect."
+                                                : "No direct academic term link. Semester scope is still saved on the subject."
 
                                             return (
                                                 <TableRow key={subject.$id}>
@@ -1070,14 +1062,19 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                     </TableCell>
 
                                                     <TableCell className="text-muted-foreground">
-                                                        {vm.programLabel(
-                                                            vm.programs,
-                                                            resolveSubjectProgramId(subject) || null
-                                                        )}
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).length === 0 ? (
+                                                                <span>—</span>
+                                                            ) : (
+                                                                formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).map((label) => (
+                                                                    <Badge key={label} variant="outline">{label}</Badge>
+                                                                ))
+                                                            )}
+                                                        </div>
                                                     </TableCell>
 
                                                     <TableCell className="text-muted-foreground">
-                                                        {resolveSubjectYearLevel(subject) || "—"}
+                                                        {formatYearLevelScopeLabels(resolveSubjectYearLevels(subject)).join(", ") || "—"}
                                                     </TableCell>
 
                                                     <TableCell>
@@ -1128,37 +1125,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             onMouseDown={stopActionAreaInteraction}
                                                             onTouchStart={stopActionAreaInteraction}
                                                         >
-                                                            {linkedTermId ? (
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={handleTableActionClick(() =>
-                                                                        vm.setSubjectTermLink(
-                                                                            String(subject.$id),
-                                                                            null
-                                                                        )
-                                                                    )}
-                                                                >
-                                                                    <Unlink2 className="mr-2 h-4 w-4" />
-                                                                    Unlink Term
-                                                                </Button>
-                                                            ) : (
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={handleTableActionClick(() =>
-                                                                        openSingleSubjectLinkDialog(
-                                                                            subject
-                                                                        )
-                                                                    )}
-                                                                >
-                                                                    <Link2 className="mr-2 h-4 w-4" />
-                                                                    Link to Term
-                                                                </Button>
-                                                            )}
-
                                                             <Button
                                                                 type="button"
                                                                 variant="outline"
@@ -1204,12 +1170,12 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>Edit Visible Subject Scope</DialogTitle>
                         <DialogDescription>
-                            Select a college, program, and year level then apply that scope to the selected visible subjects.
+                            Apply a college, multiple programs, multiple year levels, and one semester to the selected visible subjects.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
-                        <div className="grid gap-4 sm:grid-cols-3">
+                        <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)_minmax(0,280px)]">
                             <div className="grid gap-2">
                                 <label className="text-sm font-medium">College</label>
                                 <Select value={bulkCollegeId} onValueChange={setBulkCollegeId}>
@@ -1230,44 +1196,104 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         )}
                                     </SelectContent>
                                 </Select>
+
+                                <div className="grid gap-2">
+                                    <label className="text-sm font-medium">Semester</label>
+                                    <Select value={bulkCollegeSemester || "__none__"} onValueChange={(value) => setBulkCollegeSemester(value === "__none__" ? "" : value)}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select Semester" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__none__">No Semester</SelectItem>
+                                            <SelectItem value="1st Semester">1st Semester</SelectItem>
+                                            <SelectItem value="2nd Semester">2nd Semester</SelectItem>
+                                            <SelectItem value="Summer">Summer</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
 
                             <div className="grid gap-2">
-                                <label className="text-sm font-medium">Program</label>
-                                <Select value={bulkCollegeProgramId} onValueChange={setBulkCollegeProgramId}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Program" />
-                                    </SelectTrigger>
-                                    <SelectContent>
+                                <div className="flex items-center justify-between gap-2">
+                                    <label className="text-sm font-medium">Programs</label>
+                                    <span className="text-xs text-muted-foreground">{bulkCollegeProgramIds.length} selected</span>
+                                </div>
+                                <ScrollArea className="h-44 rounded-md border">
+                                    <div className="space-y-2 p-3">
                                         {bulkScopeProgramOptions.length === 0 ? (
-                                            <SelectItem value="__none__" disabled>
-                                                No programs found for the selected college
-                                            </SelectItem>
+                                            <div className="text-sm text-muted-foreground">
+                                                No programs found for the selected college.
+                                            </div>
                                         ) : (
-                                            bulkScopeProgramOptions.map((program) => (
-                                                <SelectItem key={program.$id} value={program.$id}>
-                                                    {program.code} — {program.name}
-                                                </SelectItem>
-                                            ))
+                                            bulkScopeProgramOptions.map((program) => {
+                                                const checked = bulkCollegeProgramIds.includes(program.$id)
+                                                return (
+                                                    <label
+                                                        key={program.$id}
+                                                        htmlFor={`bulk-college-program-${program.$id}`}
+                                                        className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                    >
+                                                        <Checkbox
+                                                            id={`bulk-college-program-${program.$id}`}
+                                                            checked={checked}
+                                                            onCheckedChange={(value) => {
+                                                                const nextChecked = Boolean(value)
+                                                                setBulkCollegeProgramIds((current) => {
+                                                                    if (nextChecked) {
+                                                                        return current.includes(program.$id)
+                                                                            ? current
+                                                                            : [...current, program.$id]
+                                                                    }
+                                                                    return current.filter((id) => id !== program.$id)
+                                                                })
+                                                            }}
+                                                        />
+                                                        <div className="min-w-0 flex-1 text-sm">
+                                                            <div className="font-medium">{program.code}</div>
+                                                            <div className="text-muted-foreground">{program.name}</div>
+                                                        </div>
+                                                    </label>
+                                                )
+                                            })
                                         )}
-                                    </SelectContent>
-                                </Select>
+                                    </div>
+                                </ScrollArea>
                             </div>
 
                             <div className="grid gap-2">
-                                <label className="text-sm font-medium">Year Level</label>
-                                <Select value={bulkCollegeYearLevel} onValueChange={setBulkCollegeYearLevel}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Year Level" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {["1", "2", "3", "4", "5", "6"].map((yearLevel) => (
-                                            <SelectItem key={yearLevel} value={yearLevel}>
-                                                {yearLevel}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <div className="flex items-center justify-between gap-2">
+                                    <label className="text-sm font-medium">Year Levels</label>
+                                    <span className="text-xs text-muted-foreground">{bulkCollegeYearLevels.length} selected</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 rounded-md border p-3">
+                                    {["1", "2", "3", "4", "5", "6"].map((yearLevel) => {
+                                        const checked = bulkCollegeYearLevels.includes(yearLevel)
+                                        return (
+                                            <label
+                                                key={yearLevel}
+                                                htmlFor={`bulk-college-year-${yearLevel}`}
+                                                className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition hover:bg-muted/40"
+                                            >
+                                                <Checkbox
+                                                    id={`bulk-college-year-${yearLevel}`}
+                                                    checked={checked}
+                                                    onCheckedChange={(value) => {
+                                                        const nextChecked = Boolean(value)
+                                                        setBulkCollegeYearLevels((current) => {
+                                                            if (nextChecked) {
+                                                                return current.includes(yearLevel)
+                                                                    ? current
+                                                                    : [...current, yearLevel]
+                                                            }
+                                                            return current.filter((item) => item !== yearLevel)
+                                                        })
+                                                    }}
+                                                />
+                                                <span>{yearLevel}</span>
+                                            </label>
+                                        )
+                                    })}
+                                </div>
                             </div>
                         </div>
 
@@ -1341,7 +1367,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                         <span className="font-medium">
                                                             {subject.code}
                                                         </span>
-                                                        <Badge variant="outline">{vm.programLabel(vm.programs, resolveSubjectProgramId(subject) || null)}</Badge>
+                                                        <Badge variant="outline">{formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).join(", ") || "No Program Scope"}</Badge>
                                                     </div>
 
                                                     <div className="text-sm text-foreground">
@@ -1353,7 +1379,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                     </div>
 
                                                     <div className="text-xs text-muted-foreground">
-                                                        Year Level: {resolveSubjectYearLevel(subject) || "—"}
+                                                        Year Level: {formatYearLevelScopeLabels(resolveSubjectYearLevels(subject)).join(", ") || "—"}
                                                     </div>
 
                                                     <div className="text-xs text-muted-foreground">
@@ -1385,8 +1411,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             disabled={
                                 bulkCollegeSaving ||
                                 !bulkCollegeId ||
-                                bulkCollegeProgramId === "__none__" ||
-                                !bulkCollegeYearLevel ||
+                                bulkCollegeProgramIds.length === 0 ||
+                                bulkCollegeYearLevels.length === 0 ||
+                                !bulkCollegeSemester ||
                                 bulkCollegeSubjectIds.length === 0
                             }
                         >

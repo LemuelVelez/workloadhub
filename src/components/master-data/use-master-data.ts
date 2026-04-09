@@ -37,7 +37,10 @@ import type {
 
 const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
 const SUBJECT_PROGRAM_KEYS = ["programId", "program", "program_id", "programID"] as const
+const SUBJECT_PROGRAM_ARRAY_KEYS = ["programIds", "program_ids"] as const
 const SUBJECT_SCOPE_YEAR_LEVEL_KEYS = ["yearLevel", "sectionYearLevel", "sectionYear", "year_level"] as const
+const SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS = ["yearLevels", "year_levels"] as const
+const SUBJECT_SEMESTER_KEYS = ["semester", "semesterLabel", "termSemester", "termSem"] as const
 
 async function listDocs(collectionId: string, queries: any[] = []) {
     const res = await databases.listDocuments(DATABASE_ID, collectionId, queries)
@@ -55,6 +58,43 @@ function readFirstStringValue(
         }
     }
     return ""
+}
+
+function readStringArrayValues(
+    source: Record<string, unknown> | null | undefined,
+    arrayKeys: readonly string[],
+    fallbackStringKeys: readonly string[] = []
+) {
+    const values: string[] = []
+
+    for (const key of arrayKeys) {
+        const value = source?.[key]
+
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                const normalized = str(item)
+                if (normalized) values.push(normalized)
+            }
+            continue
+        }
+
+        if (typeof value === "string" && value.trim()) {
+            const parts = value.includes(",") ? value.split(",") : [value]
+            for (const part of parts) {
+                const normalized = str(part)
+                if (normalized) values.push(normalized)
+            }
+        }
+    }
+
+    if (values.length === 0) {
+        for (const key of fallbackStringKeys) {
+            const normalized = str(source?.[key])
+            if (normalized) values.push(normalized)
+        }
+    }
+
+    return Array.from(new Set(values))
 }
 
 function hasOwnKey(source: Record<string, unknown> | null | undefined, key: string) {
@@ -90,6 +130,20 @@ function buildSubjectProgramPayload(
     }, {})
 }
 
+function buildSubjectProgramIdsPayload(
+    source: Record<string, unknown> | null | undefined,
+    programIdsInput: string[] = []
+) {
+    const nextValue = Array.from(new Set(programIdsInput.map((value) => str(value)).filter(Boolean)))
+    const existingKeys = SUBJECT_PROGRAM_ARRAY_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["programIds"]
+
+    return keysToUpdate.reduce<Record<string, string[]>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
 function buildSubjectYearLevelPayload(
     source: Record<string, unknown> | null | undefined,
     yearLevelInput?: string | number | null,
@@ -111,20 +165,72 @@ function buildSubjectYearLevelPayload(
     }, {})
 }
 
+function buildSubjectYearLevelsPayload(
+    source: Record<string, unknown> | null | undefined,
+    yearLevelsInput: Array<string | number> = []
+) {
+    const nextValue = Array.from(
+        new Set(
+            yearLevelsInput
+                .map((value) => extractSectionYearNumber(value) || normalizeSectionYearLevelValue(value))
+                .filter(Boolean)
+        )
+    )
+    const existingKeys = SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["yearLevels"]
+
+    return keysToUpdate.reduce<Record<string, string[]>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectSemesterPayload(
+    source: Record<string, unknown> | null | undefined,
+    semesterInput?: string | null
+) {
+    const nextValue = str(semesterInput) || null
+    const existingKeys = SUBJECT_SEMESTER_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["semester"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function resolveSubjectProgramIds(source: Record<string, unknown> | null | undefined) {
+    return readStringArrayValues(source, SUBJECT_PROGRAM_ARRAY_KEYS, SUBJECT_PROGRAM_KEYS)
+}
+
 function resolveSubjectProgramId(source: Record<string, unknown> | null | undefined) {
-    return readFirstStringValue(source, SUBJECT_PROGRAM_KEYS)
+    return resolveSubjectProgramIds(source)[0] ?? readFirstStringValue(source, SUBJECT_PROGRAM_KEYS)
+}
+
+function resolveSubjectYearLevels(source: Record<string, unknown> | null | undefined) {
+    return Array.from(
+        new Set(
+            readStringArrayValues(
+                source,
+                SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS,
+                SUBJECT_SCOPE_YEAR_LEVEL_KEYS
+            )
+                .map((value) => extractSectionYearNumber(value) || normalizeSectionYearLevelValue(value))
+                .filter(Boolean)
+        )
+    )
 }
 
 function resolveSubjectYearLevel(
     source: Record<string, unknown> | null | undefined,
     programs: ProgramDoc[]
 ) {
-    const rawYearLevel = readFirstStringValue(source, SUBJECT_SCOPE_YEAR_LEVEL_KEYS)
+    const primaryYearLevel = resolveSubjectYearLevels(source)[0] ?? readFirstStringValue(source, SUBJECT_SCOPE_YEAR_LEVEL_KEYS)
     const programId = resolveSubjectProgramId(source)
 
     return (
-        buildStoredSectionYearLevel(rawYearLevel, programId, programs) ||
-        normalizeSectionYearLevelValue(rawYearLevel)
+        buildStoredSectionYearLevel(primaryYearLevel, programId, programs) ||
+        normalizeSectionYearLevelValue(primaryYearLevel)
     )
 }
 
@@ -295,7 +401,10 @@ export function useMasterDataManagement() {
                     termId: readFirstStringValue(s, SUBJECT_TERM_KEYS) || null,
                     departmentId: s.departmentId ? str(s.departmentId) : null,
                     programId: resolveSubjectProgramId(s) || null,
+                    programIds: resolveSubjectProgramIds(s),
                     yearLevel: resolveSubjectYearLevel(s, mappedPrograms) || null,
+                    yearLevels: resolveSubjectYearLevels(s),
+                    semester: readFirstStringValue(s, SUBJECT_SEMESTER_KEYS) || null,
                     code: str(s.code),
                     title: str(s.title),
                     units: num(s.units, 0),
@@ -573,8 +682,9 @@ export function useMasterDataManagement() {
     const [subjectEditing, setSubjectEditing] = React.useState<SubjectDoc | null>(null)
 
     const [subjectCollegeId, setSubjectCollegeId] = React.useState("")
-    const [subjectProgramId, setSubjectProgramId] = React.useState("__none__")
-    const [subjectYearLevel, setSubjectYearLevel] = React.useState("1")
+    const [subjectProgramIds, setSubjectProgramIds] = React.useState<string[]>([])
+    const [subjectYearLevels, setSubjectYearLevels] = React.useState<string[]>([])
+    const [subjectSemester, setSubjectSemester] = React.useState("")
     const [subjectTermId, setSubjectTermId] = React.useState("")
     const [subjectCode, setSubjectCode] = React.useState("")
     const [subjectTitle, setSubjectTitle] = React.useState("")
@@ -583,12 +693,18 @@ export function useMasterDataManagement() {
     const [subjectLab, setSubjectLab] = React.useState("0")
     const [subjectActive, setSubjectActive] = React.useState(true)
 
+    const selectedTermSemesterForSubjectDialog = React.useMemo(() => {
+        const selectedTerm = terms.find((term) => str(term.$id) === str(selectedTermId))
+        return str(selectedTerm?.semester)
+    }, [terms, selectedTermId])
+
     React.useEffect(() => {
         if (!subjectOpen) return
         if (!subjectEditing) {
             setSubjectCollegeId(defaultCollegeId)
-            setSubjectProgramId("__none__")
-            setSubjectYearLevel("1")
+            setSubjectProgramIds([])
+            setSubjectYearLevels([])
+            setSubjectSemester(selectedTermSemesterForSubjectDialog)
             setSubjectTermId(str(selectedTermId))
             setSubjectCode("")
             setSubjectTitle("")
@@ -599,17 +715,21 @@ export function useMasterDataManagement() {
             return
         }
 
+        const linkedTermId = readFirstStringValue(subjectEditing as any, SUBJECT_TERM_KEYS)
+        const linkedTerm = terms.find((term) => str(term.$id) === linkedTermId)
+
         setSubjectCollegeId(String(subjectEditing.departmentId ?? ""))
-        setSubjectProgramId(resolveSubjectProgramId(subjectEditing as any) || "__none__")
-        setSubjectYearLevel(resolveSubjectYearLevel(subjectEditing as any, programs) || "1")
-        setSubjectTermId(readFirstStringValue(subjectEditing as any, SUBJECT_TERM_KEYS))
+        setSubjectProgramIds(resolveSubjectProgramIds(subjectEditing as any))
+        setSubjectYearLevels(resolveSubjectYearLevels(subjectEditing as any))
+        setSubjectSemester(str(linkedTerm?.semester) || readFirstStringValue(subjectEditing as any, SUBJECT_SEMESTER_KEYS))
+        setSubjectTermId(linkedTermId)
         setSubjectCode(subjectEditing.code)
         setSubjectTitle(subjectEditing.title)
         setSubjectUnits(String(subjectEditing.units ?? 0))
         setSubjectLec(String(subjectEditing.lectureHours ?? 0))
         setSubjectLab(String(subjectEditing.labHours ?? 0))
         setSubjectActive(Boolean(subjectEditing.isActive))
-    }, [subjectOpen, subjectEditing, defaultCollegeId, programs, selectedTermId])
+    }, [subjectOpen, subjectEditing, defaultCollegeId, programs, selectedTermId, selectedTermSemesterForSubjectDialog, terms])
 
 
 
@@ -624,13 +744,10 @@ export function useMasterDataManagement() {
 
     React.useEffect(() => {
         if (!subjectOpen) return
-        if (str(subjectProgramId) === "__none__") return
 
-        const subjectProgram = programs.find((program) => str(program.$id) === str(subjectProgramId))
-        if (!subjectProgram || str(subjectProgram.departmentId) !== str(subjectCollegeId)) {
-            setSubjectProgramId("__none__")
-        }
-    }, [programs, subjectCollegeId, subjectOpen, subjectProgramId])
+        const validProgramIds = new Set(subjectProgramsForSelectedCollege.map((program) => str(program.$id)))
+        setSubjectProgramIds((current) => current.filter((programId) => validProgramIds.has(str(programId))))
+    }, [subjectCollegeId, subjectOpen, subjectProgramsForSelectedCollege])
 
     async function saveSubject() {
         const units = num(subjectUnits, 0)
@@ -639,9 +756,20 @@ export function useMasterDataManagement() {
         const total = lec + lab
         const termId = str(subjectTermId)
         const collegeId = str(subjectCollegeId)
-        const programId = str(subjectProgramId) === "__none__" ? null : str(subjectProgramId)
-        const yearLevel = buildStoredSectionYearLevel(subjectYearLevel, programId, programs)
-        const yearNumber = extractSectionYearNumber(yearLevel)
+        const programIds = Array.from(new Set(subjectProgramIds.map((value) => str(value)).filter(Boolean)))
+        const primaryProgramId = programIds[0] ?? null
+        const yearLevels = Array.from(
+            new Set(
+                subjectYearLevels
+                    .map((value) => extractSectionYearNumber(value) || normalizeSectionYearLevelValue(value))
+                    .filter(Boolean)
+            )
+        )
+        const primaryYearLevel = yearLevels[0] ?? ""
+        const legacyYearLevel = buildStoredSectionYearLevel(primaryYearLevel, primaryProgramId, programs)
+        const yearNumber = extractSectionYearNumber(primaryYearLevel)
+        const linkedTermSemester = str(terms.find((term) => str(term.$id) === termId)?.semester)
+        const semester = str(subjectSemester) || linkedTermSemester
 
         const payload: any = {
             code: str(subjectCode),
@@ -655,11 +783,20 @@ export function useMasterDataManagement() {
                 ? buildSubjectTermPayload(subjectEditing as any, termId)
                 : { termId: termId || null }),
             ...(subjectEditing
-                ? buildSubjectProgramPayload(subjectEditing as any, programId)
-                : { programId }),
+                ? buildSubjectProgramPayload(subjectEditing as any, primaryProgramId)
+                : { programId: primaryProgramId }),
             ...(subjectEditing
-                ? buildSubjectYearLevelPayload(subjectEditing as any, yearLevel, programId, programs)
-                : { yearLevel: yearLevel || null }),
+                ? buildSubjectProgramIdsPayload(subjectEditing as any, programIds)
+                : { programIds }),
+            ...(subjectEditing
+                ? buildSubjectYearLevelPayload(subjectEditing as any, legacyYearLevel, primaryProgramId, programs)
+                : { yearLevel: legacyYearLevel || null }),
+            ...(subjectEditing
+                ? buildSubjectYearLevelsPayload(subjectEditing as any, yearLevels)
+                : { yearLevels }),
+            ...(subjectEditing
+                ? buildSubjectSemesterPayload(subjectEditing as any, semester)
+                : { semester: semester || null }),
         }
 
         payload.departmentId = collegeId ? collegeId : null
@@ -674,13 +811,18 @@ export function useMasterDataManagement() {
             return
         }
 
-        if (!programId) {
-            toast.error("Program is required for Subjects.")
+        if (programIds.length === 0) {
+            toast.error("Select at least one program for Subjects.")
             return
         }
 
-        if (!yearLevel || !yearNumber || !YEAR_LEVEL_OPTIONS.map(String).includes(yearNumber)) {
-            toast.error("Year level must be valid for Subjects.")
+        if (!primaryYearLevel || !yearNumber || !YEAR_LEVEL_OPTIONS.map(String).includes(yearNumber)) {
+            toast.error("Select at least one valid year level for Subjects.")
+            return
+        }
+
+        if (!semester) {
+            toast.error("Semester is required for Subjects.")
             return
         }
 
@@ -1151,9 +1293,12 @@ export function useMasterDataManagement() {
         if (!q) return subjects
         return subjects.filter((s: any) => {
             const linkedTermText = readFirstStringValue(s, SUBJECT_TERM_KEYS)
-            const subjectProgramText = programLabel(programs, resolveSubjectProgramId(s) || null)
-            const subjectYearLevelText = resolveSubjectYearLevel(s, programs)
-            return `${s.code} ${s.title} ${linkedTermText} ${subjectProgramText} ${subjectYearLevelText}`.toLowerCase().includes(q)
+            const subjectProgramText = resolveSubjectProgramIds(s)
+                .map((programId) => programLabel(programs, programId || null))
+                .join(" ")
+            const subjectYearLevelText = resolveSubjectYearLevels(s).join(" ")
+            const subjectSemesterText = readFirstStringValue(s, SUBJECT_SEMESTER_KEYS)
+            return `${s.code} ${s.title} ${linkedTermText} ${subjectProgramText} ${subjectYearLevelText} ${subjectSemesterText}`.toLowerCase().includes(q)
         })
     }, [subjects, q, programs])
 
@@ -1401,10 +1546,12 @@ export function useMasterDataManagement() {
         setSubjectEditing,
         subjectCollegeId,
         setSubjectCollegeId,
-        subjectProgramId,
-        setSubjectProgramId,
-        subjectYearLevel,
-        setSubjectYearLevel,
+        subjectProgramIds,
+        setSubjectProgramIds,
+        subjectYearLevels,
+        setSubjectYearLevels,
+        subjectSemester,
+        setSubjectSemester,
         subjectProgramsForSelectedCollege,
         subjectTermId,
         setSubjectTermId,

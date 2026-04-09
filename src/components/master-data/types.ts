@@ -21,7 +21,10 @@ export type SubjectDoc = {
     termId?: string | null
     departmentId?: string | null
     programId?: string | null
+    programIds?: string[] | null
     yearLevel?: string | number | null
+    yearLevels?: Array<string | number> | null
+    semester?: string | null
     code: string
     title: string
     units: number

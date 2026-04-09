@@ -41,7 +41,9 @@ type LooseAcademicTermDoc = AcademicTermDoc & Record<string, unknown>
 
 const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
 const SUBJECT_PROGRAM_KEYS = ["programId", "program", "program_id", "programID"] as const
+const SUBJECT_PROGRAM_ARRAY_KEYS = ["programIds", "program_ids"] as const
 const SUBJECT_SCOPE_YEAR_LEVEL_KEYS = ["yearLevel", "sectionYearLevel", "sectionYear", "year_level"] as const
+const SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS = ["yearLevels", "year_levels"] as const
 const SUBJECT_SEMESTER_KEYS = [
     "semester",
     "semesterLabel",
@@ -102,6 +104,43 @@ function resolveSubjectSemester(
 }
 
 
+function readStringArrayValues(
+    source: Record<string, unknown> | null | undefined,
+    arrayKeys: readonly string[],
+    fallbackKeys: readonly string[] = []
+) {
+    const values: string[] = []
+
+    for (const key of arrayKeys) {
+        const value = source?.[key]
+
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                const normalized = String(item ?? "").trim()
+                if (normalized) values.push(normalized)
+            }
+            continue
+        }
+
+        if (typeof value === "string" && value.trim()) {
+            const parts = value.includes(",") ? value.split(",") : [value]
+            for (const part of parts) {
+                const normalized = String(part ?? "").trim()
+                if (normalized) values.push(normalized)
+            }
+        }
+    }
+
+    if (values.length === 0) {
+        for (const key of fallbackKeys) {
+            const normalized = String(source?.[key] ?? "").trim()
+            if (normalized) values.push(normalized)
+        }
+    }
+
+    return Array.from(new Set(values))
+}
+
 function normalizeSectionYearLevelValue(value?: string | number | null) {
     return String(value ?? "")
         .trim()
@@ -109,28 +148,46 @@ function normalizeSectionYearLevelValue(value?: string | number | null) {
         .replace(/\s+/g, " ")
 }
 
-function resolveSubjectProgramId(subject: LooseSubjectDoc) {
-    return readFirstStringValue(subject, SUBJECT_PROGRAM_KEYS)
+function extractSubjectYearNumber(value?: string | number | null) {
+    const normalized = normalizeSectionYearLevelValue(value)
+    return normalized.match(/([1-9]\d*)$/)?.[1] ?? normalized
 }
 
-function resolveSubjectYearLevel(subject: LooseSubjectDoc) {
-    return normalizeSectionYearLevelValue(
-        readFirstStringValue(subject, SUBJECT_SCOPE_YEAR_LEVEL_KEYS)
+function resolveSubjectProgramIds(subject: LooseSubjectDoc) {
+    return readStringArrayValues(subject, SUBJECT_PROGRAM_ARRAY_KEYS, SUBJECT_PROGRAM_KEYS)
+}
+
+
+function resolveSubjectYearLevels(subject: LooseSubjectDoc) {
+    return Array.from(
+        new Set(
+            readStringArrayValues(
+                subject,
+                SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS,
+                SUBJECT_SCOPE_YEAR_LEVEL_KEYS
+            )
+                .map((value) => extractSubjectYearNumber(value))
+                .filter(Boolean)
+        )
     )
 }
+
 
 function getSubjectScopeSortRank(
     subject: LooseSubjectDoc,
     selectedProgramId: string,
     selectedYearLevel: string
 ) {
-    const subjectProgramId = resolveSubjectProgramId(subject)
-    const subjectYearLevel = resolveSubjectYearLevel(subject)
+    const subjectProgramIds = resolveSubjectProgramIds(subject)
+    const subjectYearLevels = resolveSubjectYearLevels(subject)
+    const selectedYearNumber = extractSubjectYearNumber(selectedYearLevel)
 
-    const programMatches = !selectedProgramId || subjectProgramId === selectedProgramId
-    const yearMatches = !selectedYearLevel || subjectYearLevel === selectedYearLevel
+    const programMatches =
+        !selectedProgramId || subjectProgramIds.length === 0 || subjectProgramIds.includes(selectedProgramId)
+    const yearMatches =
+        !selectedYearNumber || subjectYearLevels.length === 0 || subjectYearLevels.includes(selectedYearNumber)
 
-    if (programMatches && yearMatches && subjectProgramId && subjectYearLevel) return 0
+    if (programMatches && yearMatches && subjectProgramIds.length > 0 && subjectYearLevels.length > 0) return 0
     if (programMatches && yearMatches) return 1
     if (programMatches || yearMatches) return 2
     return 3
@@ -228,6 +285,7 @@ export function MasterDataRecordEditDialog({
         const selectedTermId = recordTermId.trim()
         const selectedProgramId = selectedSectionContext.programId
         const selectedYearLevel = selectedSectionContext.yearLevel
+        const selectedYearNumber = extractSubjectYearNumber(selectedYearLevel)
 
         return [...(vm.subjects as LooseSubjectDoc[])]
             .filter((subject) => {
@@ -246,13 +304,21 @@ export function MasterDataRecordEditDialog({
                     }
                 }
 
-                const subjectProgramId = resolveSubjectProgramId(subject)
-                if (selectedProgramId && subjectProgramId && subjectProgramId !== selectedProgramId) {
+                const subjectProgramIds = resolveSubjectProgramIds(subject)
+                if (
+                    selectedProgramId &&
+                    subjectProgramIds.length > 0 &&
+                    !subjectProgramIds.includes(selectedProgramId)
+                ) {
                     return false
                 }
 
-                const subjectYearLevel = resolveSubjectYearLevel(subject)
-                if (selectedYearLevel && subjectYearLevel && subjectYearLevel !== selectedYearLevel) {
+                const subjectYearLevels = resolveSubjectYearLevels(subject)
+                if (
+                    selectedYearNumber &&
+                    subjectYearLevels.length > 0 &&
+                    !subjectYearLevels.includes(selectedYearNumber)
+                ) {
                     return false
                 }
 
@@ -266,8 +332,8 @@ export function MasterDataRecordEditDialog({
                 if (termRankDelta !== 0) return termRankDelta
 
                 const scopeRankDelta =
-                    getSubjectScopeSortRank(a, selectedProgramId, selectedYearLevel) -
-                    getSubjectScopeSortRank(b, selectedProgramId, selectedYearLevel)
+                    getSubjectScopeSortRank(a, selectedProgramId, selectedYearNumber) -
+                    getSubjectScopeSortRank(b, selectedProgramId, selectedYearNumber)
 
                 if (scopeRankDelta !== 0) return scopeRankDelta
 
@@ -439,22 +505,23 @@ export function MasterDataRecordEditDialog({
             return
         }
 
-        const selectedSubjectProgramId = resolveSubjectProgramId(selectedSubject)
-        const selectedSubjectYearLevel = resolveSubjectYearLevel(selectedSubject)
+        const selectedSubjectProgramIds = resolveSubjectProgramIds(selectedSubject)
+        const selectedSubjectYearLevels = resolveSubjectYearLevels(selectedSubject)
+        const selectedSectionYearNumber = extractSubjectYearNumber(selectedSectionContext.yearLevel)
 
         if (
             selectedSectionContext.programId &&
-            selectedSubjectProgramId &&
-            selectedSubjectProgramId !== selectedSectionContext.programId
+            selectedSubjectProgramIds.length > 0 &&
+            !selectedSubjectProgramIds.includes(selectedSectionContext.programId)
         ) {
             toast.error("Selected subject belongs to a different program than the current section.")
             return
         }
 
         if (
-            selectedSectionContext.yearLevel &&
-            selectedSubjectYearLevel &&
-            selectedSubjectYearLevel !== selectedSectionContext.yearLevel
+            selectedSectionYearNumber &&
+            selectedSubjectYearLevels.length > 0 &&
+            !selectedSubjectYearLevels.includes(selectedSectionYearNumber)
         ) {
             toast.error("Selected subject belongs to a different year level than the current section.")
             return
@@ -517,20 +584,27 @@ export function MasterDataRecordEditDialog({
 
         try {
             const selectedSubjectTermId = resolveSubjectTermId(selectedSubject)
-            const selectedSubjectProgramId = resolveSubjectProgramId(selectedSubject)
-            const selectedSubjectYearLevel = resolveSubjectYearLevel(selectedSubject)
-            const subjectScopePatch: Record<string, string | null> = {}
+            const selectedSubjectProgramIds = resolveSubjectProgramIds(selectedSubject)
+            const selectedSubjectYearLevels = resolveSubjectYearLevels(selectedSubject)
+            const selectedSectionYearNumber = extractSubjectYearNumber(selectedSectionContext.yearLevel)
+            const subjectScopePatch: Record<string, unknown> = {}
 
             if (!selectedSubjectTermId) {
                 subjectScopePatch.termId = termId
             }
 
-            if (selectedSectionContext.programId && !selectedSubjectProgramId) {
-                subjectScopePatch.programId = selectedSectionContext.programId
+            if (!selectedSubjectSemester && selectedTermSemester) {
+                subjectScopePatch.semester = selectedTermSemester
             }
 
-            if (selectedSectionContext.yearLevel && !selectedSubjectYearLevel) {
+            if (selectedSectionContext.programId && selectedSubjectProgramIds.length === 0) {
+                subjectScopePatch.programId = selectedSectionContext.programId
+                subjectScopePatch.programIds = [selectedSectionContext.programId]
+            }
+
+            if (selectedSectionYearNumber && selectedSubjectYearLevels.length === 0) {
                 subjectScopePatch.yearLevel = selectedSectionContext.yearLevel
+                subjectScopePatch.yearLevels = [selectedSectionYearNumber]
             }
 
             if (Object.keys(subjectScopePatch).length > 0) {
@@ -753,16 +827,18 @@ export function MasterDataRecordEditDialog({
                                                 resolveSubjectSemester(subject, termMap) ||
                                                 selectedTermSemester ||
                                                 "No Semester"
-                                            const subjectProgramId = resolveSubjectProgramId(subject)
-                                            const subjectYearLevel = resolveSubjectYearLevel(subject)
+                                            const subjectProgramLabels = resolveSubjectProgramIds(subject)
+                                                .map((programId) => vm.programLabel(vm.programs, programId))
+                                                .filter((label) => label && label !== "Unknown Program")
+                                            const subjectYearLevels = resolveSubjectYearLevels(subject)
                                             const scopeSuffixParts = [subjectSemester]
 
-                                            if (subjectProgramId) {
-                                                scopeSuffixParts.push(vm.programLabel(vm.programs, subjectProgramId))
+                                            if (subjectProgramLabels.length > 0) {
+                                                scopeSuffixParts.push(subjectProgramLabels.join(", "))
                                             }
 
-                                            if (subjectYearLevel) {
-                                                scopeSuffixParts.push(subjectYearLevel)
+                                            if (subjectYearLevels.length > 0) {
+                                                scopeSuffixParts.push(subjectYearLevels.join(", "))
                                             }
 
                                             if (!linkedTermId) {
