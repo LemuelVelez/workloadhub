@@ -96,6 +96,12 @@ type CourseYearScopeOption = {
     yearLevel?: string | number | null
 }
 
+type SubjectScopeGroup = {
+    key: string
+    label: string
+    subjects: SubjectDoc[]
+}
+
 type ProgramDoc = {
     $id: string
     departmentId?: string | null
@@ -374,6 +380,151 @@ function buildSectionDisplayLabel(
     if (!normalizedSectionName) return courseYearLabel
 
     return `${courseYearLabel} - ${normalizedSectionName}`
+}
+
+function buildSubjectScopePayloadFromOptions(
+    selectedOptions: CourseYearScopeOption[],
+    sections: SectionDoc[],
+    fallbackTermId?: string | null,
+    fallbackDepartmentId?: string | null
+) {
+    const scopedOptions = selectedOptions.filter(
+        (option) => String(option.programId || option.programCode || option.programName || option.yearLevel || "").trim()
+    )
+
+    const programIds = uniqStrings(scopedOptions.map((option) => option.programId))
+    const programCodes = uniqStrings(scopedOptions.map((option) => option.programCode))
+    const programNames = uniqStrings(scopedOptions.map((option) => option.programName))
+    const yearLevels = uniqYearValues(scopedOptions.map((option) => option.yearLevel))
+
+    const matchingSectionIds = uniqStrings(
+        sections
+            .filter((section) => {
+                return scopedOptions.some((option) => {
+                    const programMatches =
+                        !option.programId ||
+                        String(section.programId || "").trim() === String(option.programId || "").trim() ||
+                        normalizeText(section.programCode) === normalizeText(option.programCode) ||
+                        normalizeText(section.programName) === normalizeText(option.programName)
+
+                    const yearMatches =
+                        !String(option.yearLevel ?? "").trim() ||
+                        normalizeYearLevelForDisplay(section.yearLevel) === normalizeYearLevelForDisplay(option.yearLevel)
+
+                    return programMatches && yearMatches
+                })
+            })
+            .map((section) => section.$id)
+    )
+
+    const firstProgramId = programIds[0] || null
+    const firstProgramCode = programCodes[0] || null
+    const firstProgramName = programNames[0] || null
+    const firstYearLevel = yearLevels[0] || null
+    const firstSectionId = matchingSectionIds[0] || null
+
+    return {
+        termId: fallbackTermId ?? null,
+        departmentId: fallbackDepartmentId ?? null,
+        programId: firstProgramId,
+        programIds: programIds.length > 0 ? programIds : null,
+        programCode: firstProgramCode,
+        programCodes: programCodes.length > 0 ? programCodes : null,
+        programName: firstProgramName,
+        yearLevel: firstYearLevel,
+        yearLevels: yearLevels.length > 0 ? yearLevels : null,
+        sectionId: firstSectionId,
+        sectionIds: matchingSectionIds.length > 0 ? matchingSectionIds : null,
+        linkedSectionId: firstSectionId,
+        linkedSectionIds: matchingSectionIds.length > 0 ? matchingSectionIds : null,
+    }
+}
+
+function getSubjectTermLabel(subject: SubjectDoc, termMap: Map<string, AcademicTermDoc>) {
+    const label = termLabel(termMap.get(String(subject.termId || "")) ?? null)
+    return label || "No semester"
+}
+
+function groupSubjectsByProgramYear(subjects: SubjectDoc[]) {
+    const groups = new Map<string, SubjectScopeGroup>()
+
+    for (const subject of subjects) {
+        const programCodes = uniqStrings([
+            subject.programCode,
+            ...(Array.isArray(subject.programCodes)
+                ? subject.programCodes
+                : String(subject.programCodes || "")
+                      .split(",")
+                      .map((value) => value.trim())),
+        ])
+
+        const programNames = uniqStrings([
+            subject.programName,
+            ...(Array.isArray((subject as any).programNames)
+                ? (subject as any).programNames
+                : String((subject as any).programNames || "")
+                      .split(",")
+                      .map((value: string) => value.trim())),
+        ])
+
+        const yearLevels = uniqYearValues([
+            subject.yearLevel,
+            ...(Array.isArray(subject.yearLevels)
+                ? subject.yearLevels
+                : String(subject.yearLevels || "")
+                      .split(",")
+                      .map((value) => value.trim())),
+        ])
+
+        const primaryProgramCode = programCodes[0] || ""
+        const primaryProgramName = programNames[0] || ""
+
+        if (programCodes.length === 0 && yearLevels.length === 0) {
+            const key = "all-course-year"
+            const label = "All course/year levels"
+            const existing = groups.get(key)
+            if (existing) {
+                existing.subjects.push(subject)
+            } else {
+                groups.set(key, { key, label, subjects: [subject] })
+            }
+            continue
+        }
+
+        const normalizedYears = yearLevels.length > 0 ? yearLevels : [null]
+        const normalizedPrograms = programCodes.length > 0 || programNames.length > 0 ? [primaryProgramCode || primaryProgramName] : [""]
+
+        for (const programLabel of normalizedPrograms) {
+            for (const yearLevel of normalizedYears) {
+                const key = `${normalizeText(programLabel)}::${normalizeYearLevelForDisplay(yearLevel)}`
+                const label = formatCourseYearScopeLabel(primaryProgramCode || primaryProgramName, primaryProgramName, yearLevel)
+                const existing = groups.get(key)
+                if (existing) {
+                    existing.subjects.push(subject)
+                } else {
+                    groups.set(key, { key, label, subjects: [subject] })
+                }
+            }
+        }
+    }
+
+    return Array.from(groups.values())
+        .map((group) => ({
+            ...group,
+            subjects: group.subjects
+                .slice()
+                .sort((a, b) => {
+                    const codeCompare = String(a.code || "").localeCompare(String(b.code || ""), undefined, {
+                        numeric: true,
+                        sensitivity: "base",
+                    })
+                    if (codeCompare !== 0) return codeCompare
+                    return String(a.title || "").localeCompare(String(b.title || ""), undefined, {
+                        sensitivity: "base",
+                    })
+                }),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
 }
 
 export default function AdminSchedulesPage() {
@@ -1201,28 +1352,14 @@ export default function AdminSchedulesPage() {
                 departmentId?: string | null
             }
         ) => {
-            const programIds = uniqStrings(selectedOptions.map((option) => option.programId || ""))
-            const programCodes = uniqStrings(selectedOptions.map((option) => option.programCode || ""))
-            const programNames = uniqStrings(selectedOptions.map((option) => option.programName || ""))
-            const yearLevels = uniqYearValues(selectedOptions.map((option) => option.yearLevel))
-
-            return {
-                termId: overrides?.termId ?? selectedVersion?.termId ?? null,
-                departmentId: overrides?.departmentId ?? selectedVersion?.departmentId ?? null,
-                programId: programIds[0] || null,
-                programIds: programIds.length > 0 ? programIds : null,
-                programCode: programCodes[0] || null,
-                programCodes: programCodes.length > 0 ? programCodes : null,
-                programName: programNames[0] || null,
-                yearLevel: yearLevels[0] || null,
-                yearLevels: yearLevels.length > 0 ? yearLevels : null,
-                sectionId: null,
-                sectionIds: null,
-                linkedSectionId: null,
-                linkedSectionIds: null,
-            }
+            return buildSubjectScopePayloadFromOptions(
+                selectedOptions,
+                sections,
+                overrides?.termId ?? selectedVersion?.termId ?? null,
+                overrides?.departmentId ?? selectedVersion?.departmentId ?? null
+            )
         },
-        [selectedVersion]
+        [sections, selectedVersion]
     )
 
     const sanitizeSubjectWritePayload = React.useCallback((payload: Record<string, any>) => {
@@ -1425,8 +1562,8 @@ export default function AdminSchedulesPage() {
     }, [subjectDirectory])
 
     React.useEffect(() => {
-        setSubjectTransferIds((prev) => prev.filter((subjectId) => subjects.some((subject) => subject.$id === subjectId)))
-    }, [subjects])
+        setSubjectTransferIds((prev) => prev.filter((subjectId) => subjectDirectory.some((subject) => subject.$id === subjectId)))
+    }, [subjectDirectory])
 
     React.useEffect(() => {
         if (!selectedVersion) {
@@ -1936,7 +2073,7 @@ export default function AdminSchedulesPage() {
                 payload
             )
 
-            toast.success("Subject created and linked to the selected semester.")
+            toast.success("Subject created and scoped to the selected semester and program/year.")
             resetSubjectForm()
             setSubjectManagementDialogMode(null)
             await fetchScheduleContext()
@@ -1977,7 +2114,7 @@ export default function AdminSchedulesPage() {
                 await databases.updateDocument(DATABASE_ID, COLLECTIONS.SUBJECTS, subjectId, nextPayload)
             }
 
-            toast.success("Selected subjects linked to the selected semester.")
+            toast.success("Selected subjects linked to the selected semester and program/year scope.")
             resetBulkLinkForm()
             setSubjectManagementDialogMode(null)
             await fetchScheduleContext()
@@ -2070,11 +2207,6 @@ export default function AdminSchedulesPage() {
                 return
             }
 
-            if (String(targetTermIdToUse) === String(selectedVersion.termId || "")) {
-                toast.error("Please choose another semester before transferring subjects.")
-                return
-            }
-
             const payload = sanitizeSubjectWritePayload(
                 buildSubjectScopePayload(selectedTransferScopeOptions, {
                     termId: targetTermIdToUse,
@@ -2092,7 +2224,7 @@ export default function AdminSchedulesPage() {
                 "the selected semester"
 
             toast.success(
-                `${subjectTransferIds.length} subject${subjectTransferIds.length === 1 ? "" : "s"} transferred to ${targetTermLabel}.`
+                `${subjectTransferIds.length} subject${subjectTransferIds.length === 1 ? "" : "s"} updated for ${targetTermLabel}.`
             )
             resetSubjectTransferForm()
             await fetchAll()
@@ -2362,16 +2494,21 @@ export default function AdminSchedulesPage() {
     const filteredTransferSubjects = React.useMemo(() => {
         const query = subjectTransferSearch.trim().toLowerCase()
 
-        return subjects.filter((subject) => {
+        return subjectDirectory.filter((subject) => {
             if (!query) return true
 
-            const haystack = [subject.code, subject.title, getSubjectScopeSummary(subject)]
+            const haystack = [
+                subject.code,
+                subject.title,
+                getSubjectScopeSummary(subject),
+                getSubjectTermLabel(subject, termMap),
+            ]
                 .join(" ")
                 .toLowerCase()
 
             return haystack.includes(query)
         })
-    }, [subjects, subjectTransferSearch])
+    }, [subjectDirectory, subjectTransferSearch, termMap])
 
     const allFilteredTransferSubjectsSelected =
         filteredTransferSubjects.length > 0 &&
@@ -2379,6 +2516,9 @@ export default function AdminSchedulesPage() {
     const someFilteredTransferSubjectsSelected =
         !allFilteredTransferSubjectsSelected &&
         filteredTransferSubjects.some((subject) => subjectTransferIdSet.has(subject.$id))
+
+    const groupedScopedSubjects = React.useMemo(() => groupSubjectsByProgramYear(subjects), [subjects])
+    const groupedDirectorySubjects = React.useMemo(() => groupSubjectsByProgramYear(subjectDirectory), [subjectDirectory])
 
     const HeaderActions = (
         <div className="flex items-center gap-2">
@@ -2471,7 +2611,7 @@ export default function AdminSchedulesPage() {
                             <AccordionContent>
                                 <CardContent className="space-y-6 pt-0">
                                     <CardDescription>
-                                        Create new subjects directly under the selected semester, link existing subjects to the active term plus course/year scope, and quick-create new course/year sections for faster schedule entry.
+                                        Create new subjects directly under the selected semester, link subjects from any semester in the database, and keep each subject restricted to the correct program and year level so only matching sections can use it.
                                     </CardDescription>
 
                                     {!selectedVersion ? (
@@ -2488,7 +2628,7 @@ export default function AdminSchedulesPage() {
                                                     {selectedDeptLabel}
                                                 </Badge>
                                                 <Badge variant="outline" className="rounded-lg">
-                                                    {courseYearOptions.length} scoped course/year option{courseYearOptions.length === 1 ? "" : "s"}
+                                                    {courseYearOptions.length} program/year option{courseYearOptions.length === 1 ? "" : "s"}
                                                 </Badge>
                                             </div>
 
@@ -2540,12 +2680,12 @@ export default function AdminSchedulesPage() {
                                                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                                                 <div className="space-y-1">
                                                                     <p className="text-sm text-muted-foreground">
-                                                                        These are the subjects that will appear faster during schedule entry because they already match the selected semester and course/year scope.
+                                                                        Subjects are grouped by program and year level below. Only matching sections will see the subjects that belong to their program/year scope.
                                                                     </p>
                                                                     <p className="text-xs text-muted-foreground">
                                                                         {subjects.length === 0
                                                                             ? `No scoped subjects found yet for ${selectedTermLabel}.`
-                                                                            : `${subjects.length} scoped subject${subjects.length === 1 ? "" : "s"} ready for quick review.`}
+                                                                            : `${subjects.length} scoped subject${subjects.length === 1 ? "" : "s"} grouped into ${groupedScopedSubjects.length} program/year bucket${groupedScopedSubjects.length === 1 ? "" : "s"}.`}
                                                                     </p>
                                                                 </div>
 
@@ -2558,6 +2698,33 @@ export default function AdminSchedulesPage() {
                                                                 >
                                                                     Details
                                                                 </Button>
+                                                            </div>
+
+                                                            <div className="mt-4 space-y-3">
+                                                                {groupedScopedSubjects.length === 0 ? (
+                                                                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                                                                        No program/year scoped subjects found yet for {selectedTermLabel}.
+                                                                    </div>
+                                                                ) : (
+                                                                    groupedScopedSubjects.map((group) => (
+                                                                        <div key={`subject-group-preview-${group.key}`} className="rounded-xl border p-4">
+                                                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                                <div className="font-medium">{group.label}</div>
+                                                                                <Badge variant="outline" className="rounded-lg">
+                                                                                    {group.subjects.length} subject{group.subjects.length === 1 ? "" : "s"}
+                                                                                </Badge>
+                                                                            </div>
+                                                                            <div className="mt-3 space-y-2">
+                                                                                {group.subjects.map((subject) => (
+                                                                                    <div key={`subject-group-preview-item-${group.key}-${subject.$id}`} className="rounded-lg border px-3 py-2 text-sm">
+                                                                                        <div className="font-medium">{[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}</div>
+                                                                                        <div className="text-xs text-muted-foreground">Units: {subject.units ?? "—"}</div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))
+                                                                )}
                                                             </div>
                                                         </AccordionContent>
                                                     </AccordionItem>
@@ -2699,7 +2866,7 @@ export default function AdminSchedulesPage() {
                         <DialogHeader>
                             <DialogTitle>Existing Subjects</DialogTitle>
                             <DialogDescription>
-                                Link multiple existing subjects to {selectedTermLabel} and the selected course/year scope in one action.
+                                Link multiple existing subjects from any semester and assign them to the correct program/year scope for {selectedTermLabel}.
                             </DialogDescription>
                         </DialogHeader>
 
@@ -2860,9 +3027,9 @@ export default function AdminSchedulesPage() {
                 <Dialog open={subjectDetailsDialogOpen} onOpenChange={handleSubjectDetailsDialogOpenChange}>
                     <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-5xl">
                         <DialogHeader>
-                            <DialogTitle>Subjects Available for This Semester</DialogTitle>
+                            <DialogTitle>Subject Directory and Transfer</DialogTitle>
                             <DialogDescription>
-                                Review the scoped subjects for {selectedTermLabel}. Open this when you need the full list instead of the compact accordion.
+                                Review all subjects for this college, grouped by program and year level, then correct or transfer them to the proper semester and scope when needed.
                             </DialogDescription>
                         </DialogHeader>
 
@@ -2875,7 +3042,7 @@ export default function AdminSchedulesPage() {
                                     {selectedDeptLabel}
                                 </Badge>
                                 <Badge variant="outline" className="rounded-lg">
-                                    {subjects.length} subject{subjects.length === 1 ? "" : "s"}
+                                    {subjectDirectory.length} subject{subjectDirectory.length === 1 ? "" : "s"} in directory
                                 </Badge>
                                 <Badge variant="outline" className="rounded-lg">
                                     {subjectTransferIds.length} selected
@@ -2887,7 +3054,7 @@ export default function AdminSchedulesPage() {
                                     <div className="space-y-1">
                                         <h3 className="font-semibold">Transfer Selected Subjects</h3>
                                         <p className="text-sm text-muted-foreground">
-                                            Move all or selected subjects to another semester and replace their scope with the target course/year levels.
+                                            Correct selected subjects by moving them to the right semester and replacing their program/year scope. You can keep the same semester when the mistake is only in the assigned scope.
                                         </p>
                                     </div>
 
@@ -2915,18 +3082,16 @@ export default function AdminSchedulesPage() {
                                                     <SelectValue placeholder="Select target term" />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {terms.filter((term) => String(term.$id || "") !== String(selectedVersion?.termId || "")).length === 0 ? (
+                                                    {terms.length === 0 ? (
                                                         <SelectItem value="__no_transfer_terms__" disabled>
-                                                            No other terms available
+                                                            No terms available
                                                         </SelectItem>
                                                     ) : (
-                                                        terms
-                                                            .filter((term) => String(term.$id || "") !== String(selectedVersion?.termId || ""))
-                                                            .map((term) => (
-                                                                <SelectItem key={term.$id} value={term.$id}>
-                                                                    {termLabel(term)}
-                                                                </SelectItem>
-                                                            ))
+                                                        terms.map((term) => (
+                                                            <SelectItem key={term.$id} value={term.$id}>
+                                                                {termLabel(term)}
+                                                            </SelectItem>
+                                                        ))
                                                     )}
                                                 </SelectContent>
                                             </Select>
@@ -3066,9 +3231,9 @@ export default function AdminSchedulesPage() {
 
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div className="space-y-1">
-                                            <Label>Subjects in {selectedTermLabel}</Label>
+                                            <Label>All Subjects in {selectedDeptLabel}</Label>
                                             <p className="text-sm text-muted-foreground">
-                                                {subjectTransferIds.length} selected from {filteredTransferSubjects.length} visible subject{filteredTransferSubjects.length === 1 ? "" : "s"}.
+                                                {subjectTransferIds.length} selected from {filteredTransferSubjects.length} visible subject{filteredTransferSubjects.length === 1 ? "" : "s"} across all semesters.
                                             </p>
                                         </div>
 
@@ -3097,7 +3262,7 @@ export default function AdminSchedulesPage() {
                                     <div className="max-h-128 space-y-2 overflow-y-auto rounded-xl border p-3">
                                         {filteredTransferSubjects.length === 0 ? (
                                             <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-                                                No scoped subjects found yet for {selectedTermLabel}.
+                                                No subjects found in the directory for {selectedDeptLabel}.
                                             </div>
                                         ) : (
                                             filteredTransferSubjects.map((subject) => {
@@ -3116,7 +3281,7 @@ export default function AdminSchedulesPage() {
                                                                 {getSubjectScopeSummary(subject)}
                                                             </div>
                                                             <div className="text-xs text-muted-foreground">
-                                                                Units: {subject.units ?? "—"}
+                                                                {getSubjectTermLabel(subject, termMap)} • Units: {subject.units ?? "—"}
                                                             </div>
                                                         </div>
 
@@ -3135,6 +3300,44 @@ export default function AdminSchedulesPage() {
                                                 )
                                             })
                                         )}
+                                    </div>
+
+                                    <div className="space-y-3 rounded-2xl border p-4">
+                                        <div className="space-y-1">
+                                            <h3 className="font-semibold">Directory Grouped by Program / Year</h3>
+                                            <p className="text-sm text-muted-foreground">
+                                                Each group below shows only the subjects assigned to that specific program and year level.
+                                            </p>
+                                        </div>
+
+                                        <div className="max-h-96 space-y-3 overflow-y-auto rounded-xl border p-3">
+                                            {groupedDirectorySubjects.length === 0 ? (
+                                                <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                                                    No grouped subjects available yet.
+                                                </div>
+                                            ) : (
+                                                groupedDirectorySubjects.map((group) => (
+                                                    <div key={`directory-group-${group.key}`} className="rounded-xl border p-3">
+                                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                                            <div className="font-medium">{group.label}</div>
+                                                            <Badge variant="outline" className="rounded-lg">
+                                                                {group.subjects.length} subject{group.subjects.length === 1 ? "" : "s"}
+                                                            </Badge>
+                                                        </div>
+                                                        <div className="mt-3 space-y-2">
+                                                            {group.subjects.map((subject) => (
+                                                                <div key={`directory-group-item-${group.key}-${subject.$id}`} className="rounded-lg border px-3 py-2 text-sm">
+                                                                    <div className="font-medium">{[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}</div>
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        {getSubjectTermLabel(subject, termMap)} • Units: {subject.units ?? "—"}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
