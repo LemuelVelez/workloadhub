@@ -1,9 +1,10 @@
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
 import * as React from "react"
 import { toast } from "sonner"
-import { Plus, RefreshCcw } from "lucide-react"
+import { BookPlus, RefreshCcw } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
 import { useSession } from "@/hooks/use-session"
@@ -11,6 +12,16 @@ import { useSession } from "@/hooks/use-session"
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 import { VersionManagementSection } from "@/components/schedules/version-management-section"
 import { PlannerManagementSection } from "@/components/schedules/planner-management-section"
@@ -64,6 +75,15 @@ const CREATE_TERM_MODES = {
 type CreateTermMode = (typeof CREATE_TERM_MODES)[keyof typeof CREATE_TERM_MODES]
 
 const CREATE_TERM_SEMESTER_OPTIONS = ["1st Semester", "2nd Semester", "Summer"] as const
+
+type CourseYearScopeOption = {
+    key: string
+    label: string
+    programId?: string | null
+    programCode?: string | null
+    programName?: string | null
+    yearLevel?: string | number | null
+}
 
 function formatSchoolYear(startYear: number) {
     return `${startYear}-${startYear + 1}`
@@ -177,6 +197,115 @@ function buildScheduleStatusPayload(
     }
 }
 
+function uniqStrings(values: Array<string | null | undefined>) {
+    return Array.from(
+        new Set(
+            values
+                .map((value) => String(value || "").trim())
+                .filter(Boolean)
+        )
+    )
+}
+
+function uniqYearValues(values: Array<string | number | null | undefined>) {
+    return Array.from(
+        new Set(
+            values
+                .map((value) => String(value ?? "").trim())
+                .filter(Boolean)
+        )
+    )
+}
+
+function normalizeYearLevelForDisplay(value?: string | number | null) {
+    const raw = String(value ?? "").trim()
+    if (!raw) return "Unspecified"
+
+    const digits = raw.match(/\d+/)?.[0]
+    if (digits) {
+        return digits
+    }
+
+    return raw
+}
+
+function formatCourseYearScopeLabel(programCode?: string | null, programName?: string | null, yearLevel?: string | number | null) {
+    const programLabel = String(programCode || programName || "COURSE").trim()
+    const yearLabel = normalizeYearLevelForDisplay(yearLevel)
+    return `${programLabel} ${yearLabel}`.trim()
+}
+
+function buildCourseYearScopeOptions(sections: SectionDoc[]) {
+    const map = new Map<string, CourseYearScopeOption>()
+
+    for (const section of sections) {
+        const programId = String(section.programId || "").trim() || null
+        const programCode = String(section.programCode || "").trim() || null
+        const programName = String(section.programName || "").trim() || null
+        const yearLevel = String(section.yearLevel ?? "").trim() || null
+
+        const key = [
+            normalizeText(programId || ""),
+            normalizeText(programCode || ""),
+            normalizeText(programName || ""),
+            normalizeText(yearLevel || ""),
+        ].join("::")
+
+        if (!key.replace(/[:]/g, "")) continue
+
+        if (!map.has(key)) {
+            map.set(key, {
+                key,
+                label: formatCourseYearScopeLabel(programCode, programName, yearLevel),
+                programId,
+                programCode,
+                programName,
+                yearLevel,
+            })
+        }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
+}
+
+function getSubjectScopeSummary(subject?: SubjectDoc | null) {
+    if (!subject) return "Unscoped"
+
+    const programCodes = uniqStrings([
+        subject.programCode,
+        ...(Array.isArray(subject.programCodes)
+            ? subject.programCodes
+            : String(subject.programCodes || "")
+                  .split(",")
+                  .map((value) => value.trim())),
+    ])
+
+    const yearLevels = uniqYearValues([
+        subject.yearLevel,
+        ...(Array.isArray(subject.yearLevels)
+            ? subject.yearLevels
+            : String(subject.yearLevels || "")
+                  .split(",")
+                  .map((value) => value.trim())),
+    ])
+
+    if (programCodes.length === 0 && yearLevels.length === 0) {
+        return "All course/year levels"
+    }
+
+    if (programCodes.length === 0) {
+        return yearLevels.join(", ")
+    }
+
+    if (yearLevels.length === 0) {
+        return programCodes.join(", ")
+    }
+
+    return programCodes
+        .map((programCode, index) => `${programCode} ${yearLevels[index] || yearLevels[0] || ""}`.trim())
+        .join(", ")
+}
+
 export default function AdminSchedulesPage() {
     const { user } = useSession()
     const userId = String(user?.$id || user?.id || "").trim()
@@ -212,6 +341,7 @@ export default function AdminSchedulesPage() {
     const [selectedVersionId, setSelectedVersionId] = React.useState<string>("")
 
     const [subjects, setSubjects] = React.useState<SubjectDoc[]>([])
+    const [subjectDirectory, setSubjectDirectory] = React.useState<SubjectDoc[]>([])
     const [rooms, setRooms] = React.useState<RoomDoc[]>([])
     const [sections, setSections] = React.useState<SectionDoc[]>([])
     const [facultyProfiles, setFacultyProfiles] = React.useState<UserProfileDoc[]>([])
@@ -236,6 +366,15 @@ export default function AdminSchedulesPage() {
     const [formMeetingType, setFormMeetingType] = React.useState<MeetingType>("LECTURE")
     const [formAllowConflictSave, setFormAllowConflictSave] = React.useState(false)
     const [editingEntry, setEditingEntry] = React.useState<ScheduleRow | null>(null)
+
+    const [subjectCode, setSubjectCode] = React.useState("")
+    const [subjectTitle, setSubjectTitle] = React.useState("")
+    const [subjectUnits, setSubjectUnits] = React.useState("")
+    const [subjectScopeKeys, setSubjectScopeKeys] = React.useState<string[]>([])
+    const [subjectSearch, setSubjectSearch] = React.useState("")
+    const [bulkLinkSubjectIds, setBulkLinkSubjectIds] = React.useState<string[]>([])
+    const [bulkLinkScopeKeys, setBulkLinkScopeKeys] = React.useState<string[]>([])
+    const [subjectSaving, setSubjectSaving] = React.useState(false)
 
     const termMap = React.useMemo(() => {
         const m = new Map<string, AcademicTermDoc>()
@@ -467,6 +606,13 @@ export default function AdminSchedulesPage() {
         setCreateLabel("")
         setCreateNotes("")
         setCreateSetActive(false)
+    }, [])
+
+    const resetSubjectForm = React.useCallback(() => {
+        setSubjectCode("")
+        setSubjectTitle("")
+        setSubjectUnits("")
+        setSubjectScopeKeys([])
     }, [])
 
     const openCreateVersion = React.useCallback(() => {
@@ -772,9 +918,48 @@ export default function AdminSchedulesPage() {
         [versions, selectedVersionId]
     )
 
+    const courseYearOptions = React.useMemo(() => buildCourseYearScopeOptions(sections), [sections])
+
+    const selectedSubjectScopeOptions = React.useMemo(
+        () => courseYearOptions.filter((option) => subjectScopeKeys.includes(option.key)),
+        [courseYearOptions, subjectScopeKeys]
+    )
+
+    const selectedBulkLinkScopeOptions = React.useMemo(
+        () => courseYearOptions.filter((option) => bulkLinkScopeKeys.includes(option.key)),
+        [courseYearOptions, bulkLinkScopeKeys]
+    )
+
+    const buildSubjectScopePayload = React.useCallback(
+        (selectedOptions: CourseYearScopeOption[]) => {
+            const programIds = uniqStrings(selectedOptions.map((option) => option.programId || ""))
+            const programCodes = uniqStrings(selectedOptions.map((option) => option.programCode || ""))
+            const programNames = uniqStrings(selectedOptions.map((option) => option.programName || ""))
+            const yearLevels = uniqYearValues(selectedOptions.map((option) => option.yearLevel))
+
+            return {
+                termId: selectedVersion?.termId || null,
+                departmentId: selectedVersion?.departmentId || null,
+                programId: programIds[0] || null,
+                programIds: programIds.length > 0 ? programIds : null,
+                programCode: programCodes[0] || null,
+                programCodes: programCodes.length > 0 ? programCodes : null,
+                programName: programNames[0] || null,
+                yearLevel: yearLevels[0] || null,
+                yearLevels: yearLevels.length > 0 ? yearLevels : null,
+                sectionId: null,
+                sectionIds: null,
+                linkedSectionId: null,
+                linkedSectionIds: null,
+            }
+        },
+        [selectedVersion]
+    )
+
     const fetchScheduleContext = React.useCallback(async () => {
         if (!selectedVersion) {
             setSubjects([])
+            setSubjectDirectory([])
             setRooms([])
             setSections([])
             setFacultyProfiles([])
@@ -827,26 +1012,27 @@ export default function AdminSchedulesPage() {
             const selectedVersionDeptId = String(selectedVersion.departmentId || "").trim()
             const selectedVersionTermId = String(selectedVersion.termId || "").trim()
 
-            const scopedSubjects = allSubjects
+            const departmentSubjects = allSubjects
                 .filter((s) => s.isActive !== false)
                 .filter((s) => {
                     const subjectDeptId = String(s.departmentId || "").trim()
-                    if (subjectDeptId && subjectDeptId !== selectedVersionDeptId) {
-                        return false
-                    }
-
-                    const subjectTermId = String(s.termId || "").trim()
-                    if (subjectTermId && selectedVersionTermId && subjectTermId !== selectedVersionTermId) {
-                        return false
-                    }
-
-                    return true
+                    return !subjectDeptId || subjectDeptId === selectedVersionDeptId
                 })
                 .sort((a, b) => {
                     const ac = String(a.code || "").toLowerCase()
                     const bc = String(b.code || "").toLowerCase()
                     if (ac !== bc) return ac.localeCompare(bc)
                     return String(a.title || "").localeCompare(String(b.title || ""))
+                })
+
+            const scopedSubjects = departmentSubjects
+                .filter((s) => {
+                    const subjectTermId = String(s.termId || "").trim()
+                    if (subjectTermId && selectedVersionTermId && subjectTermId !== selectedVersionTermId) {
+                        return false
+                    }
+
+                    return true
                 })
 
             const scopedRooms = ((roomRes?.documents ?? []) as RoomDoc[])
@@ -868,6 +1054,7 @@ export default function AdminSchedulesPage() {
             setClasses((cRes?.documents ?? []) as ClassDoc[])
             setMeetings((mRes?.documents ?? []) as ClassMeetingDoc[])
             setSubjects(scopedSubjects)
+            setSubjectDirectory(departmentSubjects)
             setRooms(scopedRooms)
             setSections(scopedSections)
             setFacultyProfiles(scopedFaculty)
@@ -897,6 +1084,10 @@ export default function AdminSchedulesPage() {
             return [fallbackSubjectId]
         })
     }, [filteredFormSubjects])
+
+    React.useEffect(() => {
+        setBulkLinkSubjectIds((prev) => prev.filter((subjectId) => subjectDirectory.some((subject) => subject.$id === subjectId)))
+    }, [subjectDirectory])
 
     const scheduleRows = React.useMemo<ScheduleRow[]>(() => {
         const classMap = new Map<string, ClassDoc>()
@@ -1355,6 +1546,101 @@ export default function AdminSchedulesPage() {
         }
     }
 
+    const saveSubject = async () => {
+        if (!selectedVersion) {
+            toast.error("Please select a schedule semester first.")
+            return
+        }
+
+        if (!subjectCode.trim()) {
+            toast.error("Please enter a subject code.")
+            return
+        }
+
+        if (!subjectTitle.trim()) {
+            toast.error("Please enter a subject title.")
+            return
+        }
+
+        if (subjectScopeKeys.length === 0) {
+            toast.error("Please choose at least one course/year scope.")
+            return
+        }
+
+        const unitsValue = subjectUnits.trim()
+        const parsedUnits = unitsValue ? Number(unitsValue) : null
+        if (unitsValue && !Number.isFinite(parsedUnits)) {
+            toast.error("Units must be a valid number.")
+            return
+        }
+
+        setSubjectSaving(true)
+        try {
+            const payload: any = {
+                code: subjectCode.trim(),
+                title: subjectTitle.trim(),
+                units: parsedUnits,
+                isActive: true,
+                ...buildSubjectScopePayload(selectedSubjectScopeOptions),
+            }
+
+            await databases.createDocument(
+                DATABASE_ID,
+                COLLECTIONS.SUBJECTS,
+                ID.unique(),
+                payload
+            )
+
+            toast.success("Subject created and linked to the selected semester.")
+            resetSubjectForm()
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to create subject.")
+        } finally {
+            setSubjectSaving(false)
+        }
+    }
+
+    const bulkLinkSubjects = async () => {
+        if (!selectedVersion) {
+            toast.error("Please select a schedule semester first.")
+            return
+        }
+
+        if (bulkLinkSubjectIds.length === 0) {
+            toast.error("Please select at least one existing subject.")
+            return
+        }
+
+        if (bulkLinkScopeKeys.length === 0) {
+            toast.error("Please choose at least one course/year scope.")
+            return
+        }
+
+        setSubjectSaving(true)
+        try {
+            const payload = buildSubjectScopePayload(selectedBulkLinkScopeOptions)
+
+            for (const subjectId of bulkLinkSubjectIds) {
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.SUBJECTS,
+                    subjectId,
+                    payload
+                )
+            }
+
+            toast.success("Selected subjects linked to the selected semester and course/year scope.")
+            setBulkLinkSubjectIds([])
+            setBulkLinkScopeKeys([])
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to link selected subjects.")
+        } finally {
+            setSubjectSaving(false)
+        }
+    }
+
     const plannerStats = React.useMemo(() => {
         const total = scheduleRows.length
         const conflicts = conflictedRows.length
@@ -1400,6 +1686,25 @@ export default function AdminSchedulesPage() {
         return deptLabel(deptMap.get(String(selectedVersion.departmentId)) ?? null)
     }, [selectedVersion, deptMap])
 
+    const filteredExistingSubjects = React.useMemo(() => {
+        const query = subjectSearch.trim().toLowerCase()
+
+        return subjectDirectory.filter((subject) => {
+            if (!query) return true
+
+            const haystack = [
+                subject.code,
+                subject.title,
+                getSubjectScopeSummary(subject),
+                termLabel(termMap.get(String(subject.termId || "")) ?? null),
+            ]
+                .join(" ")
+                .toLowerCase()
+
+            return haystack.includes(query)
+        })
+    }, [subjectDirectory, subjectSearch, termMap])
+
     const HeaderActions = (
         <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => void fetchAll()} disabled={loading || saving}>
@@ -1408,7 +1713,7 @@ export default function AdminSchedulesPage() {
             </Button>
 
             <Button size="sm" onClick={openCreateVersion} disabled={loading || saving}>
-                <Plus className="mr-2 size-4" />
+                <BookPlus className="mr-2 size-4" />
                 New Semester
             </Button>
         </div>
@@ -1478,6 +1783,263 @@ export default function AdminSchedulesPage() {
                     onSaveVersion={saveVersion}
                     resetCreateForm={resetCreateForm}
                 />
+
+                <Card className="rounded-2xl">
+                    <CardHeader className="pb-4">
+                        <CardTitle>Subject Term & Course/Year Management</CardTitle>
+                        <CardDescription>
+                            Create new subjects directly under the selected semester and link existing subjects to the current semester plus course/year scope for faster schedule entry.
+                        </CardDescription>
+                    </CardHeader>
+
+                    <CardContent className="space-y-6">
+                        {!selectedVersion ? (
+                            <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                                Select a semester schedule first to create subjects for a specific academic term and course/year scope.
+                            </div>
+                        ) : (
+                            <>
+                                <div className="grid gap-6 xl:grid-cols-2">
+                                    <div className="space-y-4 rounded-2xl border p-4">
+                                        <div className="space-y-1">
+                                            <h3 className="font-semibold">Create New Subject</h3>
+                                            <p className="text-sm text-muted-foreground">
+                                                New subjects will automatically use {selectedTermLabel} and {selectedDeptLabel}.
+                                            </p>
+                                        </div>
+
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="subject-code">Subject Code</Label>
+                                                <Input
+                                                    id="subject-code"
+                                                    value={subjectCode}
+                                                    onChange={(event) => setSubjectCode(event.target.value)}
+                                                    placeholder="e.g. COMP 101"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="subject-units">Units</Label>
+                                                <Input
+                                                    id="subject-units"
+                                                    value={subjectUnits}
+                                                    onChange={(event) => setSubjectUnits(event.target.value)}
+                                                    placeholder="e.g. 3"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="subject-title">Subject Title</Label>
+                                            <Input
+                                                id="subject-title"
+                                                value={subjectTitle}
+                                                onChange={(event) => setSubjectTitle(event.target.value)}
+                                                placeholder="Introduction to Computing"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <Label>Course / Year Scope</Label>
+                                            <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                                {courseYearOptions.length === 0 ? (
+                                                    <div className="text-sm text-muted-foreground">
+                                                        No course/year options found for the selected semester.
+                                                    </div>
+                                                ) : (
+                                                    courseYearOptions.map((option) => {
+                                                        const checked = subjectScopeKeys.includes(option.key)
+
+                                                        return (
+                                                            <label
+                                                                key={option.key}
+                                                                className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3"
+                                                            >
+                                                                <div>
+                                                                    <div className="font-medium">{option.label}</div>
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        {selectedTermLabel}
+                                                                    </div>
+                                                                </div>
+
+                                                                <Checkbox
+                                                                    checked={checked}
+                                                                    onCheckedChange={(value) => {
+                                                                        const nextChecked = Boolean(value)
+                                                                        setSubjectScopeKeys((prev) =>
+                                                                            nextChecked
+                                                                                ? [...prev, option.key]
+                                                                                : prev.filter((item) => item !== option.key)
+                                                                        )
+                                                                    }}
+                                                                />
+                                                            </label>
+                                                        )
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Button onClick={saveSubject} disabled={subjectSaving || !selectedVersion}>
+                                                Save Subject
+                                            </Button>
+
+                                            <Button variant="outline" onClick={resetSubjectForm} disabled={subjectSaving}>
+                                                Reset
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4 rounded-2xl border p-4">
+                                        <div className="space-y-1">
+                                            <h3 className="font-semibold">Link Existing Subjects</h3>
+                                            <p className="text-sm text-muted-foreground">
+                                                Select multiple existing subjects, then link them to the current semester and chosen course/year scope.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="subject-search">Search Existing Subjects</Label>
+                                            <Input
+                                                id="subject-search"
+                                                value={subjectSearch}
+                                                onChange={(event) => setSubjectSearch(event.target.value)}
+                                                placeholder="Search by code, title, or scope"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <Label>Target Course / Year Scope</Label>
+                                            <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                                {courseYearOptions.map((option) => {
+                                                    const checked = bulkLinkScopeKeys.includes(option.key)
+
+                                                    return (
+                                                        <label
+                                                            key={`bulk-${option.key}`}
+                                                            className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3"
+                                                        >
+                                                            <div className="font-medium">{option.label}</div>
+
+                                                            <Checkbox
+                                                                checked={checked}
+                                                                onCheckedChange={(value) => {
+                                                                    const nextChecked = Boolean(value)
+                                                                    setBulkLinkScopeKeys((prev) =>
+                                                                        nextChecked
+                                                                            ? [...prev, option.key]
+                                                                            : prev.filter((item) => item !== option.key)
+                                                                    )
+                                                                }}
+                                                            />
+                                                        </label>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <Label>Existing Subjects</Label>
+                                            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border p-3">
+                                                {filteredExistingSubjects.length === 0 ? (
+                                                    <div className="text-sm text-muted-foreground">
+                                                        No subjects matched your search.
+                                                    </div>
+                                                ) : (
+                                                    filteredExistingSubjects.map((subject) => {
+                                                        const checked = bulkLinkSubjectIds.includes(subject.$id)
+                                                        const subjectTerm = termMap.get(String(subject.termId || "")) ?? null
+
+                                                        return (
+                                                            <label
+                                                                key={subject.$id}
+                                                                className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border p-3"
+                                                            >
+                                                                <div className="space-y-1">
+                                                                    <div className="font-medium">
+                                                                        {[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        Scope: {getSubjectScopeSummary(subject)}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        Semester: {subjectTerm ? termLabel(subjectTerm) : "Unassigned"}
+                                                                    </div>
+                                                                </div>
+
+                                                                <Checkbox
+                                                                    checked={checked}
+                                                                    onCheckedChange={(value) => {
+                                                                        const nextChecked = Boolean(value)
+                                                                        setBulkLinkSubjectIds((prev) =>
+                                                                            nextChecked
+                                                                                ? [...prev, subject.$id]
+                                                                                : prev.filter((item) => item !== subject.$id)
+                                                                        )
+                                                                    }}
+                                                                />
+                                                            </label>
+                                                        )
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Button onClick={bulkLinkSubjects} disabled={subjectSaving || !selectedVersion}>
+                                                Link Selected Subjects
+                                            </Button>
+
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => {
+                                                    setBulkLinkSubjectIds([])
+                                                    setBulkLinkScopeKeys([])
+                                                }}
+                                                disabled={subjectSaving}
+                                            >
+                                                Clear Selection
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-2xl border p-4">
+                                    <div className="mb-3 space-y-1">
+                                        <h3 className="font-semibold">Subjects Available for This Semester</h3>
+                                        <p className="text-sm text-muted-foreground">
+                                            These are the subjects that will appear faster during schedule entry because they already match the selected semester and course/year scope.
+                                        </p>
+                                    </div>
+
+                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                        {subjects.length === 0 ? (
+                                            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                                                No scoped subjects found yet for {selectedTermLabel}.
+                                            </div>
+                                        ) : (
+                                            subjects.map((subject) => (
+                                                <div key={subject.$id} className="rounded-xl border p-4">
+                                                    <div className="font-medium">
+                                                        {[subject.code, subject.title].filter(Boolean).join(" • ") || subject.$id}
+                                                    </div>
+                                                    <div className="mt-1 text-sm text-muted-foreground">
+                                                        {getSubjectScopeSummary(subject)}
+                                                    </div>
+                                                    <div className="mt-1 text-xs text-muted-foreground">
+                                                        Units: {subject.units ?? "—"}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </CardContent>
+                </Card>
 
                 <PlannerManagementSection
                     selectedVersion={selectedVersion}
