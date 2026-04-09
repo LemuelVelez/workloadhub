@@ -1230,6 +1230,17 @@ export default function AdminSchedulesPage() {
         const allowedKeys = [
             "termId",
             "departmentId",
+            "programId",
+            "programIds",
+            "programCode",
+            "programCodes",
+            "programName",
+            "yearLevel",
+            "yearLevels",
+            "sectionId",
+            "sectionIds",
+            "linkedSectionId",
+            "linkedSectionIds",
             "code",
             "title",
             "units",
@@ -1957,8 +1968,10 @@ export default function AdminSchedulesPage() {
             for (const subjectId of bulkLinkSubjectIds) {
                 const existingSubject = subjectDirectory.find((subject) => subject.$id === subjectId)
                 const nextPayload = sanitizeSubjectWritePayload({
-                    termId: selectedVersion.termId || existingSubject?.termId || null,
-                    departmentId: selectedVersion.departmentId || existingSubject?.departmentId || null,
+                    ...buildSubjectScopePayload(selectedBulkLinkScopeOptions, {
+                        termId: selectedVersion.termId || existingSubject?.termId || null,
+                        departmentId: selectedVersion.departmentId || existingSubject?.departmentId || null,
+                    }),
                 })
 
                 await databases.updateDocument(DATABASE_ID, COLLECTIONS.SUBJECTS, subjectId, nextPayload)
@@ -2486,6 +2499,7 @@ export default function AdminSchedulesPage() {
 
                                                 <Button
                                                     variant="outline"
+                                                    className="border-sky-200 bg-sky-50 text-sky-700 hover:border-sky-300 hover:bg-sky-100 hover:text-sky-800"
                                                     onClick={() => openSubjectManagementDialog("existing")}
                                                     disabled={subjectSaving}
                                                 >
@@ -2502,7 +2516,12 @@ export default function AdminSchedulesPage() {
                                                         </p>
                                                     </div>
 
-                                                    <Button variant="outline" onClick={openSectionDialog} disabled={sectionSaving}>
+                                                    <Button
+                                                        variant="outline"
+                                                        className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-800"
+                                                        onClick={openSectionDialog}
+                                                        disabled={sectionSaving}
+                                                    >
                                                         <PlusCircle className="mr-2 size-4" />
                                                         New Course/Year Section
                                                     </Button>
@@ -2533,6 +2552,7 @@ export default function AdminSchedulesPage() {
                                                                 <Button
                                                                     type="button"
                                                                     variant="outline"
+                                                                    className="border-violet-200 bg-violet-50 text-violet-700 hover:border-violet-300 hover:bg-violet-100 hover:text-violet-800"
                                                                     onClick={openSubjectDetailsDialog}
                                                                     disabled={subjects.length === 0}
                                                                 >
