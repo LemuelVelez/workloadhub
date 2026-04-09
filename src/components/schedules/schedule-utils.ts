@@ -291,6 +291,246 @@ export function filterSubjectsForSection(subjects: SubjectDoc[], section?: Secti
     return subjects
 }
 
+export const SUBJECT_FILTER_ALL_VALUE = "__all__"
+
+function normalizeSubjectFilterText(value?: unknown) {
+    return String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+}
+
+function splitSubjectFilterValues(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.flatMap((item) => splitSubjectFilterValues(item))
+    }
+
+    const normalized = String(value ?? "").trim()
+    if (!normalized) return []
+
+    return normalized
+        .split(/[|,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+}
+
+function getYearLevelToken(value?: unknown) {
+    const normalized = normalizeSubjectFilterText(value)
+    if (!normalized) return ""
+
+    const directMatch = normalized.match(/^(?:cs|is)?\s*([1-9]\d*)$/i)
+    if (directMatch?.[1]) return directMatch[1]
+
+    const ordinalMatch = normalized.match(/([1-9]\d*)(?:st|nd|rd|th)?(?:\s+year)?$/i)
+    if (ordinalMatch?.[1]) return ordinalMatch[1]
+
+    return ""
+}
+
+function getOrdinalSuffix(value: number) {
+    const mod100 = value % 100
+    if (mod100 >= 11 && mod100 <= 13) return "th"
+
+    switch (value % 10) {
+        case 1:
+            return "st"
+        case 2:
+            return "nd"
+        case 3:
+            return "rd"
+        default:
+            return "th"
+    }
+}
+
+export function formatYearLevelFilterLabel(value?: unknown) {
+    const rawText = String(value ?? "").trim()
+    const yearToken = getYearLevelToken(value)
+    if (!yearToken) return rawText
+
+    const parsedYear = Number.parseInt(yearToken, 10)
+    if (!Number.isFinite(parsedYear)) return rawText || yearToken
+
+    return `${parsedYear}${getOrdinalSuffix(parsedYear)} Year`
+}
+
+function buildComparableSubjectFilterTokens(value?: unknown) {
+    const normalized = normalizeSubjectFilterText(value)
+    const tokens = new Set<string>()
+    if (!normalized) return tokens
+
+    tokens.add(normalized)
+
+    const yearToken = getYearLevelToken(value)
+    if (yearToken) {
+        tokens.add(yearToken)
+        tokens.add(normalizeSubjectFilterText(formatYearLevelFilterLabel(yearToken)))
+    }
+
+    if (normalized.includes("computer science") || normalized === "cs" || normalized === "bscs") {
+        tokens.add("computer science")
+        tokens.add("cs")
+        tokens.add("bscs")
+    }
+
+    if (normalized.includes("information system") || normalized.includes("information systems") || normalized === "is" || normalized === "bsis") {
+        tokens.add("information systems")
+        tokens.add("information system")
+        tokens.add("is")
+        tokens.add("bsis")
+    }
+
+    if (normalized.includes("first")) tokens.add("1")
+    if (normalized.includes("second")) tokens.add("2")
+    if (normalized.includes("third")) tokens.add("3")
+    if (normalized.includes("fourth")) tokens.add("4")
+
+    if (normalized.includes("1st") || normalized.includes("1st semester")) tokens.add("1")
+    if (normalized.includes("2nd") || normalized.includes("2nd semester")) tokens.add("2")
+    if (normalized.includes("3rd") || normalized.includes("3rd semester")) tokens.add("3")
+    if (normalized.includes("4th") || normalized.includes("4th semester")) tokens.add("4")
+
+    return tokens
+}
+
+export function subjectFilterValuesMatch(leftValue: string, rightValue: string) {
+    const leftTokens = buildComparableSubjectFilterTokens(leftValue)
+    const rightTokens = buildComparableSubjectFilterTokens(rightValue)
+
+    for (const token of leftTokens) {
+        if (rightTokens.has(token)) return true
+    }
+
+    const leftNormalized = normalizeSubjectFilterText(leftValue)
+    const rightNormalized = normalizeSubjectFilterText(rightValue)
+    if (!leftNormalized || !rightNormalized) return false
+
+    return leftNormalized.includes(rightNormalized) || rightNormalized.includes(leftNormalized)
+}
+
+export function matchesSelectedSubjectFilter(selectedValue: string, subjectValues: string[]) {
+    if (!selectedValue || selectedValue === SUBJECT_FILTER_ALL_VALUE) return true
+    if (subjectValues.length === 0) return true
+
+    return subjectValues.some((value) => subjectFilterValuesMatch(value, selectedValue))
+}
+
+function compareSubjectFilterText(a?: string | number | null, b?: string | number | null) {
+    return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+    })
+}
+
+export function buildSubjectFilterOptions(values: Array<unknown>, formatter?: (value: unknown) => string) {
+    const seen = new Set<string>()
+    const options: string[] = []
+
+    for (const rawValue of values) {
+        for (const value of splitSubjectFilterValues(rawValue)) {
+            const displayValue = String(formatter ? formatter(value) : value).trim()
+            if (!displayValue || displayValue === "—") continue
+
+            const normalized = normalizeSubjectFilterText(displayValue)
+            if (!normalized || seen.has(normalized)) continue
+
+            seen.add(normalized)
+            options.push(displayValue)
+        }
+    }
+
+    return options.sort(compareSubjectFilterText)
+}
+
+export function getSubjectCollegeFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions([
+        anySubject.college,
+        anySubject.collegeName,
+        anySubject.collegeCode,
+        anySubject.departmentLabel,
+        anySubject.departmentName,
+        anySubject.departmentCode,
+        subject.departmentId,
+    ])
+}
+
+export function getSubjectProgramFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions([
+        subject.programName,
+        subject.programCode,
+        subject.programId,
+        subject.programIds,
+        subject.programCodes,
+        anySubject.program,
+        anySubject.programs,
+        anySubject.programLabel,
+    ])
+}
+
+export function getSubjectYearLevelFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions(
+        [subject.yearLevel, subject.yearLevels, anySubject.level, anySubject.levels],
+        formatYearLevelFilterLabel
+    )
+}
+
+export function getSubjectSemesterFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+
+    return buildSubjectFilterOptions([
+        anySubject.semester,
+        anySubject.semesters,
+        anySubject.curriculumSemester,
+        anySubject.offeredSemester,
+        anySubject.termSemester,
+    ])
+}
+
+export function getSubjectAcademicTermFilterValues(subject?: SubjectDoc | null) {
+    if (!subject) return []
+
+    const anySubject = subject as Record<string, unknown>
+    const schoolYear = String(anySubject.schoolYear ?? "").trim()
+    const semester = String(anySubject.semester ?? "").trim()
+    const combinedSchoolYearSemester = schoolYear && semester ? `${schoolYear} • ${semester}` : ""
+
+    return buildSubjectFilterOptions([
+        subject.termId,
+        anySubject.academicTerm,
+        anySubject.term,
+        anySubject.termName,
+        anySubject.termLabel,
+        anySubject.schoolYear,
+        combinedSchoolYearSemester,
+    ])
+}
+
+export function pickMatchingSubjectFilterOption(options: string[], candidates: Array<unknown>) {
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeSubjectFilterText(candidate)
+        if (!normalizedCandidate || normalizedCandidate === "—") continue
+
+        const exactMatch = options.find((option) => subjectFilterValuesMatch(option, normalizedCandidate))
+        if (exactMatch) return exactMatch
+    }
+
+    return SUBJECT_FILTER_ALL_VALUE
+}
+
 export function formatSubjectOptionLabel(subject?: SubjectDoc | null) {
     if (!subject) return "—"
     const code = String(subject.code || "").trim()
@@ -651,4 +891,3 @@ function buildTimeOptions(stepMinutes = 30) {
 }
 
 export const TIME_OPTIONS = buildTimeOptions(30)
-

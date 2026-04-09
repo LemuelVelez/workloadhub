@@ -11,7 +11,7 @@ import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
 import { Button } from "@/components/ui/button"
 
-import { PlannerManagementSection } from "@/components/schedules/planner-management-section"
+import { PlannerManagementSection, SubjectMatchingFiltersCard } from "@/components/schedules/planner-management-section"
 import type {
     AcademicTermDoc,
     CandidateConflict,
@@ -32,6 +32,7 @@ import {
     FACULTY_OPTION_NONE,
 } from "@/components/schedules/schedule-types"
 import {
+    buildSubjectFilterOptions,
     composeRemarks,
     dayExpressionsOverlap,
     dayOrder,
@@ -39,15 +40,23 @@ import {
     extractManualFaculty,
     filterSubjectsForSection,
     getCanonicalDayValue,
+    getSubjectAcademicTermFilterValues,
+    getSubjectCollegeFilterValues,
+    getSubjectProgramFilterValues,
+    getSubjectSemesterFilterValues,
+    getSubjectYearLevelFilterValues,
     hhmmToMinutes,
+    isActiveScheduleStatus,
+    matchesSelectedSubjectFilter,
     meetingTypeLabel,
     normalizeText,
+    pickMatchingSubjectFilterOption,
     rangesOverlap,
-    isActiveScheduleStatus,
     normalizeScheduleStatus,
     roomTypeLabel,
     sortSectionsForDisplay,
     stripManualFacultyTag,
+    SUBJECT_FILTER_ALL_VALUE,
     termLabel,
 } from "@/components/schedules/schedule-utils"
 
@@ -106,6 +115,12 @@ export default function AdminSchedulesPage() {
     const [formAllowConflictSave, setFormAllowConflictSave] = React.useState(false)
     const [editingEntry, setEditingEntry] = React.useState<ScheduleRow | null>(null)
 
+    const [subjectCollegeFilter, setSubjectCollegeFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectProgramFilter, setSubjectProgramFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectYearLevelFilter, setSubjectYearLevelFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectSemesterFilter, setSubjectSemesterFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [subjectAcademicTermFilter, setSubjectAcademicTermFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+
     const termMap = React.useMemo(() => {
         const m = new Map<string, AcademicTermDoc>()
         terms.forEach((t) => m.set(t.$id, t))
@@ -117,6 +132,25 @@ export default function AdminSchedulesPage() {
         departments.forEach((d) => m.set(d.$id, d))
         return m
     }, [departments])
+
+
+    const selectedVersion = React.useMemo(
+        () => versions.find((version) => version.$id === selectedVersionId) || null,
+        [versions, selectedVersionId]
+    )
+
+    const selectedTermLabel = React.useMemo(() => {
+        if (!selectedVersion) return "—"
+        return termLabel(termMap.get(String(selectedVersion.termId)) ?? null)
+    }, [selectedVersion, termMap])
+
+    const selectedDeptLabel = React.useMemo(() => {
+        if (!selectedVersion) return "—"
+        return deptLabel(deptMap.get(String(selectedVersion.departmentId)) ?? null)
+    }, [selectedVersion, deptMap])
+
+
+
 
 
     const subjectMap = React.useMemo(() => {
@@ -154,9 +188,112 @@ export default function AdminSchedulesPage() {
         [sections, formSectionId]
     )
 
+    const sectionScopedSubjects = React.useMemo(
+        () => filterSubjectsForSection(subjects, selectedFormSection),
+        [subjects, selectedFormSection]
+    )
+
+    const subjectCollegeOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedDeptLabel !== "—" ? selectedDeptLabel : "",
+                ...sectionScopedSubjects.flatMap((subject) => getSubjectCollegeFilterValues(subject)),
+            ]),
+        [sectionScopedSubjects, selectedDeptLabel]
+    )
+
+    const subjectProgramOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedFormSection?.programCode,
+                selectedFormSection?.programName,
+                selectedFormSection?.programId,
+                ...sectionScopedSubjects.flatMap((subject) => getSubjectProgramFilterValues(subject)),
+            ]),
+        [sectionScopedSubjects, selectedFormSection]
+    )
+
+    const subjectYearLevelOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedFormSection?.yearLevel,
+                ...sectionScopedSubjects.flatMap((subject) => getSubjectYearLevelFilterValues(subject)),
+            ]),
+        [sectionScopedSubjects, selectedFormSection]
+    )
+
+    const subjectSemesterOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions(sectionScopedSubjects.flatMap((subject) => getSubjectSemesterFilterValues(subject))),
+        [sectionScopedSubjects]
+    )
+
+    const subjectAcademicTermOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedTermLabel !== "—" ? selectedTermLabel : "",
+                ...sectionScopedSubjects.flatMap((subject) => getSubjectAcademicTermFilterValues(subject)),
+            ]),
+        [sectionScopedSubjects, selectedTermLabel]
+    )
+
+    const clearSubjectFilters = React.useCallback(() => {
+        setSubjectCollegeFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectProgramFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectYearLevelFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectSemesterFilter(SUBJECT_FILTER_ALL_VALUE)
+        setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
+    }, [])
+
+    const applyScheduleContextSubjectFilters = React.useCallback(() => {
+        setSubjectCollegeFilter(
+            pickMatchingSubjectFilterOption(subjectCollegeOptions, [selectedDeptLabel, selectedVersion?.departmentId])
+        )
+        setSubjectProgramFilter(
+            pickMatchingSubjectFilterOption(subjectProgramOptions, [selectedFormSection?.programCode, selectedFormSection?.programName, selectedFormSection?.programId])
+        )
+        setSubjectYearLevelFilter(
+            pickMatchingSubjectFilterOption(subjectYearLevelOptions, [selectedFormSection?.yearLevel])
+        )
+        setSubjectSemesterFilter(pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedTermLabel]))
+        setSubjectAcademicTermFilter(
+            pickMatchingSubjectFilterOption(subjectAcademicTermOptions, [selectedTermLabel, selectedVersion?.termId])
+        )
+    }, [
+        selectedDeptLabel,
+        selectedFormSection,
+        selectedTermLabel,
+        selectedVersion?.departmentId,
+        selectedVersion?.termId,
+        subjectAcademicTermOptions,
+        subjectCollegeOptions,
+        subjectProgramOptions,
+        subjectSemesterOptions,
+        subjectYearLevelOptions,
+    ])
+
+    React.useEffect(() => {
+        if (!entryDialogOpen) return
+        applyScheduleContextSubjectFilters()
+    }, [entryDialogOpen, formSectionId, selectedVersion?.$id, applyScheduleContextSubjectFilters])
+
     const filteredFormSubjects = React.useMemo(() => {
-        const scopedSubjects = filterSubjectsForSection(subjects, selectedFormSection)
-        return scopedSubjects
+        return sectionScopedSubjects
+            .filter((subject) => {
+                const subjectCollegeValues = getSubjectCollegeFilterValues(subject)
+                const subjectProgramValues = getSubjectProgramFilterValues(subject)
+                const subjectYearValues = getSubjectYearLevelFilterValues(subject)
+                const subjectSemesterValues = getSubjectSemesterFilterValues(subject)
+                const subjectAcademicTermValues = getSubjectAcademicTermFilterValues(subject)
+
+                return (
+                    matchesSelectedSubjectFilter(subjectCollegeFilter, subjectCollegeValues) &&
+                    matchesSelectedSubjectFilter(subjectProgramFilter, subjectProgramValues) &&
+                    matchesSelectedSubjectFilter(subjectYearLevelFilter, subjectYearValues) &&
+                    matchesSelectedSubjectFilter(subjectSemesterFilter, subjectSemesterValues) &&
+                    matchesSelectedSubjectFilter(subjectAcademicTermFilter, subjectAcademicTermValues)
+                )
+            })
             .slice()
             .sort((a, b) => {
                 const ac = String(a.code || "").toLowerCase()
@@ -164,7 +301,32 @@ export default function AdminSchedulesPage() {
                 if (ac !== bc) return ac.localeCompare(bc)
                 return String(a.title || "").localeCompare(String(b.title || ""))
             })
-    }, [subjects, selectedFormSection])
+    }, [
+        sectionScopedSubjects,
+        subjectAcademicTermFilter,
+        subjectCollegeFilter,
+        subjectProgramFilter,
+        subjectSemesterFilter,
+        subjectYearLevelFilter,
+    ])
+
+    const activeSubjectFilterBadges = React.useMemo(
+        () =>
+            [
+                subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE ? `College: ${subjectCollegeFilter}` : null,
+                subjectProgramFilter !== SUBJECT_FILTER_ALL_VALUE ? `Program: ${subjectProgramFilter}` : null,
+                subjectYearLevelFilter !== SUBJECT_FILTER_ALL_VALUE ? `Year Level: ${subjectYearLevelFilter}` : null,
+                subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectSemesterFilter}` : null,
+                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Academic Term: ${subjectAcademicTermFilter}` : null,
+            ].filter(Boolean) as string[],
+        [
+            subjectAcademicTermFilter,
+            subjectCollegeFilter,
+            subjectProgramFilter,
+            subjectSemesterFilter,
+            subjectYearLevelFilter,
+        ]
+    )
 
     const fetchAll = React.useCallback(async () => {
         setLoading(true)
@@ -210,10 +372,6 @@ export default function AdminSchedulesPage() {
         void fetchAll()
     }, [fetchAll])
 
-    const selectedVersion = React.useMemo(
-        () => versions.find((version) => version.$id === selectedVersionId) || null,
-        [versions, selectedVersionId]
-    )
 
     const fetchScheduleContext = React.useCallback(async () => {
         if (!selectedVersion) {
@@ -805,15 +963,6 @@ export default function AdminSchedulesPage() {
         )})`
     }, [selectedVersion])
 
-    const selectedTermLabel = React.useMemo(() => {
-        if (!selectedVersion) return "—"
-        return termLabel(termMap.get(String(selectedVersion.termId)) ?? null)
-    }, [selectedVersion, termMap])
-
-    const selectedDeptLabel = React.useMemo(() => {
-        if (!selectedVersion) return "—"
-        return deptLabel(deptMap.get(String(selectedVersion.departmentId)) ?? null)
-    }, [selectedVersion, deptMap])
 
     const HeaderActions = (
         <div className="flex items-center gap-2">
@@ -830,6 +979,28 @@ export default function AdminSchedulesPage() {
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">
+                <SubjectMatchingFiltersCard
+                    subjectCollegeFilter={subjectCollegeFilter}
+                    setSubjectCollegeFilter={setSubjectCollegeFilter}
+                    subjectProgramFilter={subjectProgramFilter}
+                    setSubjectProgramFilter={setSubjectProgramFilter}
+                    subjectYearLevelFilter={subjectYearLevelFilter}
+                    setSubjectYearLevelFilter={setSubjectYearLevelFilter}
+                    subjectSemesterFilter={subjectSemesterFilter}
+                    setSubjectSemesterFilter={setSubjectSemesterFilter}
+                    subjectAcademicTermFilter={subjectAcademicTermFilter}
+                    setSubjectAcademicTermFilter={setSubjectAcademicTermFilter}
+                    subjectCollegeOptions={subjectCollegeOptions}
+                    subjectProgramOptions={subjectProgramOptions}
+                    subjectYearLevelOptions={subjectYearLevelOptions}
+                    subjectSemesterOptions={subjectSemesterOptions}
+                    subjectAcademicTermOptions={subjectAcademicTermOptions}
+                    filteredSubjectCount={filteredFormSubjects.length}
+                    activeSubjectFilterBadges={activeSubjectFilterBadges}
+                    onClearSubjectFilters={clearSubjectFilters}
+                    onApplyScheduleContextSubjectFilters={applyScheduleContextSubjectFilters}
+                />
+
                 <PlannerManagementSection
                     selectedVersion={selectedVersion}
                     showConflictsOnly={showConflictsOnly}
@@ -873,9 +1044,10 @@ export default function AdminSchedulesPage() {
                     candidateConflictCounts={candidateConflictCounts}
                     manualFacultySuggestions={manualFacultySuggestions}
                     sections={sections}
-                    subjects={subjects}
                     facultyProfiles={facultyProfiles}
                     rooms={rooms}
+                    filteredSubjectOptions={filteredFormSubjects}
+                    activeSubjectFilterBadges={activeSubjectFilterBadges}
                     onEditEntry={openEditEntry}
                     onSaveEntry={saveEntry}
                     onDeleteEntry={deleteEntry}
