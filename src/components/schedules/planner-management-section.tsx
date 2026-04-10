@@ -83,7 +83,6 @@ import {
     formatDayDisplayLabel,
     formatSubjectOptionLabel,
     formatTimeRange,
-    formatYearLevelFilterLabel,
     joinDisplayValues,
     meetingTypeLabel,
     roomTypeLabel,
@@ -2647,7 +2646,7 @@ export function PlannerManagementSection({
                                         ) : null}
                                         {selectedSection?.yearLevel != null && String(selectedSection.yearLevel).trim() ? (
                                             <Badge variant="outline" className="rounded-full">
-                                                {formatYearLevelFilterLabel(selectedSection.yearLevel)}
+                                                {normalizeSectionYearLevelDisplay(selectedSection.yearLevel) || String(selectedSection.yearLevel).trim()}
                                             </Badge>
                                         ) : null}
                                         {selectedSection?.semester ? (

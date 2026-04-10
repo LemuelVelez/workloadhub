@@ -75,6 +75,54 @@ type AcademicTermScopeOption = {
     isActive: boolean
 }
 
+function normalizeSectionYearLevelLabel(value?: string | number | null) {
+    const normalized = String(value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+
+    if (!normalized) return ""
+
+    const prefixedMatch = normalized.match(/^(CS|IS)\s*([1-9]\d*)$/)
+    if (prefixedMatch) {
+        return `${prefixedMatch[1]} ${prefixedMatch[2]}`
+    }
+
+    if (/^(CS|IS)\s+[1-9]\d*$/.test(normalized)) {
+        return normalized
+    }
+
+    const plainNumberMatch = normalized.match(/^([1-9]\d*)$/)
+    if (plainNumberMatch) {
+        return plainNumberMatch[1]
+    }
+
+    const ordinalYearMatch = normalized.match(/^([1-9]\d*)(?:ST|ND|RD|TH)?(?:\s+YEAR)?$/)
+    if (ordinalYearMatch) {
+        return ordinalYearMatch[1]
+    }
+
+    return String(value ?? "").trim()
+}
+
+function buildSectionDisplayLabel(section?: SectionDoc | null) {
+    if (!section) return ""
+
+    const yearLabel = normalizeSectionYearLevelLabel(section.yearLevel)
+    const sectionName = String(section.name ?? "").trim()
+    const explicitLabel = String((section as any)?.label ?? "").trim()
+
+    if (yearLabel && sectionName) {
+        return `${yearLabel} - ${sectionName}`
+    }
+
+    if (yearLabel) return yearLabel
+    if (sectionName) return sectionName
+    if (explicitLabel) return explicitLabel
+
+    return String(section.$id ?? "").trim()
+}
+
 function hasLinkedSectionMetadata(section?: SectionDoc | null) {
     if (!section) return false
 
@@ -382,18 +430,7 @@ export default function AdminSchedulesPage() {
     )
 
     const getSectionFilterLabel = React.useCallback(
-        (section?: SectionDoc | null) => {
-            if (!section) return ""
-
-            const explicitLabel = normalizeDisplayValue((section as any)?.label)
-            if (explicitLabel) return explicitLabel
-
-            const yearLabel = normalizeDisplayValue(formatYearLevelFilterLabel((section as any)?.yearLevel))
-            const sectionName = normalizeDisplayValue((section as any)?.name)
-            const composedLabel = [yearLabel, sectionName].filter(Boolean).join(" - ")
-
-            return composedLabel || normalizeDisplayValue(section.$id)
-        },
+        (section?: SectionDoc | null) => normalizeDisplayValue(buildSectionDisplayLabel(section)),
         [normalizeDisplayValue]
     )
 
@@ -1078,12 +1115,12 @@ export default function AdminSchedulesPage() {
             const sectionAny = (section || {}) as any
             const secName = String((section as any)?.name || "").trim()
             const secYearRaw = (section as any)?.yearLevel ?? sectionAny.yearLevel ?? null
-            const secYearText = String(secYearRaw ?? "").trim()
             const secProgramCode = String(sectionAny.programCode || sectionAny.sectionProgramCode || "").trim()
             const secProgramName = String(sectionAny.programName || sectionAny.sectionProgramName || "").trim()
             const sectionLabel =
+                buildSectionDisplayLabel(section) ||
                 String((section as any)?.label || sectionAny.sectionLabel || "").trim() ||
-                (secName ? `${secYearText ? `Y${secYearText}` : "Y?"} - ${secName}` : String((c as any).sectionId || ""))
+                String((c as any).sectionId || "")
 
             const roomCode = String((room as any)?.code || "").trim()
             const roomName = String((room as any)?.name || "").trim()
