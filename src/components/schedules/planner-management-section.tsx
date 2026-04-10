@@ -212,8 +212,6 @@ export function SubjectMatchingFiltersCard({
     setSubjectProgramFilters,
     subjectYearLevelFilters,
     setSubjectYearLevelFilters,
-    subjectSemesterFilter,
-    setSubjectSemesterFilter,
     subjectAcademicTermFilter,
     setSubjectAcademicTermFilter,
     subjectCollegeOptions,
@@ -224,7 +222,6 @@ export function SubjectMatchingFiltersCard({
     onCreateYearLevel,
     onRenameYearLevel,
     onDeleteYearLevel,
-    subjectSemesterOptions,
     subjectAcademicTermOptions,
     filteredSubjectCount,
     activeSubjectFilterBadges,
@@ -463,40 +460,21 @@ export function SubjectMatchingFiltersCard({
                                 </div>
                             </div>
 
-                            <div className="grid gap-4 md:grid-cols-2">
-                                <div className="grid gap-2">
-                                    <Label>Semester</Label>
-                                    <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="All semesters" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
-                                            {subjectSemesterOptions.map((option) => (
-                                                <SelectItem key={option} value={option}>
-                                                    {option}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label>Semester Record</Label>
-                                    <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="All semester records" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semester records</SelectItem>
-                                            {subjectAcademicTermOptions.map((option) => (
-                                                <SelectItem key={option} value={option}>
-                                                    {option}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                            <div className="grid gap-2">
+                                <Label>Semester</Label>
+                                <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
+                                    <SelectTrigger className="rounded-xl">
+                                        <SelectValue placeholder="All semesters" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
+                                        {subjectAcademicTermOptions.map((option) => (
+                                            <SelectItem key={option} value={option}>
+                                                {option}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     </div>
@@ -1896,7 +1874,7 @@ export function PlannerManagementSection({
                 <CardHeader className="pb-4">
                     <CardTitle>Schedule Planner & Conflict Manager</CardTitle>
                     <CardDescription>
-                        Assign one subject per entry, faculty, and room. Subject matching now uses the same College, Programs, Year Levels, Semester, and Academic Term scope fields used by Add Subject.
+                        Assign one subject per entry, faculty, and room. Subject matching now uses the same College, Programs, Year Levels, and Semester scope fields used by Add Subject.
                     </CardDescription>
                 </CardHeader>
 

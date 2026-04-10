@@ -643,7 +643,7 @@ export default function AdminSchedulesPage() {
                 subjectProgramFilters.length > 0 ? `Programs: ${subjectProgramFilters.join(", ")}` : null,
                 subjectYearLevelFilters.length > 0 ? `Year Levels: ${subjectYearLevelFilters.join(", ")}` : null,
                 subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectSemesterFilter}` : null,
-                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester Record: ${subjectAcademicTermFilter}` : null,
+                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectAcademicTermFilter}` : null,
             ].filter(Boolean) as string[],
         [
             subjectAcademicTermFilter,

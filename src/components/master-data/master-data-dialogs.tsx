@@ -204,13 +204,6 @@ export function MasterDataDialogs({ vm }: Props) {
 
     const sectionYearSelectValue = extractSectionYearNumber(vm.sectionYear)
     const currentSectionTrackPrefix = extractSectionTrackPrefixFromYearLevel(vm.sectionYear)
-    const semesterOptions = Array.from(
-        new Set(
-            vm.terms
-                .map((term) => String(term.semester ?? "").trim())
-                .filter(Boolean)
-        )
-    ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
 
     const sectionStoredYearLevelValue = buildSectionYearLevelValue({
         yearLevel: vm.sectionYear,
@@ -464,29 +457,14 @@ export function MasterDataDialogs({ vm }: Props) {
 
                                 <div className="grid gap-2">
                                     <Label>Semester</Label>
-                                    <Select value={vm.subjectSemester || "__none__"} onValueChange={(v) => vm.setSubjectSemester(v === "__none__" ? "" : v)}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select Semester" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="__none__">No Semester</SelectItem>
-                                            {semesterOptions.length === 0 ? (
-                                                <SelectItem value="__no_semester_options__" disabled>
-                                                    No semesters available
-                                                </SelectItem>
-                                            ) : (
-                                                semesterOptions.map((semester) => (
-                                                    <SelectItem key={semester} value={semester}>
-                                                        {semester}
-                                                    </SelectItem>
-                                                ))
-                                            )}
-                                        </SelectContent>
-                                    </Select>
+                                    <Input value={vm.subjectSemester || "—"} disabled />
+                                    <div className="text-xs text-muted-foreground">
+                                        Filled automatically from the selected semester.
+                                    </div>
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label>Semester Link (optional)</Label>
+                                    <Label>Semester (optional)</Label>
                                     <Select
                                         value={vm.subjectTermId || "__none__"}
                                         onValueChange={(v) => {
@@ -500,10 +478,10 @@ export function MasterDataDialogs({ vm }: Props) {
                                         }}
                                     >
                                         <SelectTrigger>
-                                            <SelectValue placeholder="No Semester Link" />
+                                            <SelectValue placeholder="No Semester" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="__none__">No Semester Link</SelectItem>
+                                            <SelectItem value="__none__">No Semester</SelectItem>
                                             {vm.terms.map((t) => (
                                                 <SelectItem key={t.$id} value={t.$id}>
                                                     {vm.termLabel(vm.terms, t.$id)}
@@ -513,7 +491,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                         </SelectContent>
                                     </Select>
                                     <div className="text-xs text-muted-foreground">
-                                        Optional direct semester record link. The semester scope is still saved on the subject even without a linked semester record.
+                                        Select a semester record to fill the subject semester automatically.
                                     </div>
                                 </div>
                             </div>
@@ -534,7 +512,7 @@ export function MasterDataDialogs({ vm }: Props) {
                             </span>
                             {" • "}
                             <span className="font-medium text-foreground">
-                                {vm.subjectSemester || "Select semester"}
+                                {vm.subjectSemester || "Select semester record"}
                             </span>
                         </div>
 
@@ -714,7 +692,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                 <div className="grid gap-2">
                                     <Input value={vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
                                     <div className="text-xs text-muted-foreground">
-                                        Semester record cannot be changed once created (recommended).
+                                        Semester cannot be changed once created (recommended).
                                     </div>
                                 </div>
                             ) : (
@@ -762,12 +740,12 @@ export function MasterDataDialogs({ vm }: Props) {
                                 <Label>Semester</Label>
                                 <Input value={vm.sectionSemester || "—"} disabled />
                                 <div className="text-xs text-muted-foreground">
-                                    Filled automatically from the selected semester record.
+                                    Filled automatically from the selected semester.
                                 </div>
                             </div>
 
                             <div className="grid gap-2">
-                                <Label>Semester Record Preview</Label>
+                                <Label>Semester</Label>
                                 <Input value={vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
                             </div>
                         </div>
