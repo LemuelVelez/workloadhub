@@ -106,6 +106,24 @@ function chunk<T>(arr: T[], size = 50) {
     return out
 }
 
+function buildVersionlessScheduleRecord(termId: string, departmentId: string) {
+    const normalizedTermId = safeStr(termId)
+    const normalizedDepartmentId = safeStr(departmentId)
+
+    if (!normalizedTermId || !normalizedDepartmentId) return null
+
+    return {
+        $id: `${normalizedTermId}:${normalizedDepartmentId}`,
+        termId: normalizedTermId,
+        departmentId: normalizedDepartmentId,
+        version: 1,
+        label: "Current Schedule",
+        status: "Active",
+        isVersionless: true,
+    }
+}
+
+
 export type FacultyScheduleItem = {
     meetingId: string
     classId: string
@@ -256,7 +274,7 @@ export const facultyMemberApi = {
 
     schedules: {
         /**
-         * ✅ Returns current faculty user's schedule for ACTIVE term + ACTIVE version
+         * ✅ Returns current faculty user's schedule for ACTIVE term.
          * Includes profile for PDF header display.
          */
         async getMySchedule(args: { userId: string }) {
@@ -275,32 +293,9 @@ export const facultyMemberApi = {
 
             const profile = await facultyMemberApi.profiles.getByUserId(userId).catch(() => null)
             const departmentId = safeStr(profile?.departmentId)
+            const version = buildVersionlessScheduleRecord(termId, departmentId)
 
             if (!termId || !departmentId) {
-                return {
-                    term,
-                    version: null,
-                    profile,
-                    items: [] as FacultyScheduleItem[],
-                }
-            }
-
-            const versions = await listAllRows(
-                COLLECTIONS.SCHEDULE_VERSIONS,
-                [
-                    Query.equal("termId", termId),
-                    Query.equal("departmentId", departmentId),
-                    Query.orderDesc("version"),
-                ],
-                300
-            )
-
-            const active = versions.find((v) => safeStr(v?.status) === "Active")
-            const locked = versions.find((v) => safeStr(v?.status) === "Locked")
-            const version = active ?? locked ?? versions[0] ?? null
-            const versionId = safeStr(version?.$id)
-
-            if (!versionId) {
                 return {
                     term,
                     version: null,
@@ -314,7 +309,6 @@ export const facultyMemberApi = {
                 [
                     Query.equal("termId", termId),
                     Query.equal("departmentId", departmentId),
-                    Query.equal("versionId", versionId),
                     Query.equal("facultyUserId", userId),
                     Query.orderDesc("$updatedAt"),
                 ],
@@ -334,7 +328,7 @@ export const facultyMemberApi = {
 
             const meetingsAll = await listAllRows(
                 COLLECTIONS.CLASS_MEETINGS,
-                [Query.equal("versionId", versionId), Query.orderDesc("$updatedAt")],
+                [Query.orderDesc("$updatedAt")],
                 12000
             )
 
@@ -387,8 +381,7 @@ export const facultyMemberApi = {
 
                     const sectionLabel =
                         sec
-                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""
-                            }`
+                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""}`
                             : null
 
                     return {
@@ -455,33 +448,9 @@ export const facultyMemberApi = {
             const facultyProfile = await facultyMemberApi.profiles.getFacultyProfileByUserId(userId).catch(() => null)
 
             const departmentId = safeStr(profile?.departmentId)
+            const version = buildVersionlessScheduleRecord(termId, departmentId)
 
             if (!termId || !departmentId) {
-                return {
-                    term,
-                    version: null,
-                    profile,
-                    facultyProfile,
-                    items: [] as FacultyWorkloadSummaryItem[],
-                }
-            }
-
-            const versions = await listAllRows(
-                COLLECTIONS.SCHEDULE_VERSIONS,
-                [
-                    Query.equal("termId", termId),
-                    Query.equal("departmentId", departmentId),
-                    Query.orderDesc("version"),
-                ],
-                300
-            )
-
-            const active = versions.find((v) => safeStr(v?.status) === "Active")
-            const locked = versions.find((v) => safeStr(v?.status) === "Locked")
-            const version = active ?? locked ?? versions[0] ?? null
-            const versionId = safeStr(version?.$id)
-
-            if (!versionId) {
                 return {
                     term,
                     version: null,
@@ -496,7 +465,6 @@ export const facultyMemberApi = {
                 [
                     Query.equal("termId", termId),
                     Query.equal("departmentId", departmentId),
-                    Query.equal("versionId", versionId),
                     Query.equal("facultyUserId", userId),
                     Query.orderDesc("$updatedAt"),
                 ],
@@ -537,7 +505,7 @@ export const facultyMemberApi = {
             // Meetings stats for scheduled hours
             const meetingsAll = await listAllRows(
                 COLLECTIONS.CLASS_MEETINGS,
-                [Query.equal("versionId", versionId), Query.orderDesc("$updatedAt")],
+                [Query.orderDesc("$updatedAt")],
                 12000
             )
 
@@ -568,8 +536,7 @@ export const facultyMemberApi = {
 
                     const sectionLabel =
                         sec
-                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""
-                            }`
+                            ? `${Number(sec?.yearLevel || 0) || ""}${safeStr(sec?.name) ? ` - ${safeStr(sec?.name)}` : ""}`
                             : null
 
                     const sUnits = toNum(subj?.units, 0)

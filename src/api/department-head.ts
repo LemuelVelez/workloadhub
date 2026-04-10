@@ -122,12 +122,22 @@ export const departmentHeadApi = {
 
     scheduleVersions: {
         async listByTermDepartment(termId: string, departmentId: string) {
-            if (!termId || !departmentId) return []
-            return listAllRows(COLLECTIONS.SCHEDULE_VERSIONS, [
-                Query.equal("termId", termId),
-                Query.equal("departmentId", departmentId),
-                Query.orderDesc("version"),
-            ])
+            const normalizedTermId = safeStr(termId)
+            const normalizedDepartmentId = safeStr(departmentId)
+
+            if (!normalizedTermId || !normalizedDepartmentId) return []
+
+            return [
+                {
+                    $id: `${normalizedTermId}:${normalizedDepartmentId}`,
+                    termId: normalizedTermId,
+                    departmentId: normalizedDepartmentId,
+                    version: 1,
+                    label: "Current Schedule",
+                    status: "Active",
+                    isVersionless: true,
+                },
+            ]
         },
 
         async create(args: {
@@ -138,201 +148,71 @@ export const departmentHeadApi = {
             notes?: string | null
             copyFromVersionId?: string | null
         }) {
-            const { termId, departmentId, createdBy, label, notes, copyFromVersionId } = args
+            const termId = safeStr(args.termId)
+            const departmentId = safeStr(args.departmentId)
+            const createdBy = safeStr(args.createdBy)
 
             if (!termId || !departmentId || !createdBy) {
                 throw new Error("Missing required fields (termId, departmentId, createdBy).")
             }
 
-            // Determine next version number
-            const existing = await listAllRows(
-                COLLECTIONS.SCHEDULE_VERSIONS,
-                [
-                    Query.equal("termId", termId),
-                    Query.equal("departmentId", departmentId),
-                    Query.orderDesc("version"),
-                ],
-                50
-            )
-
-            const maxVersion = existing.reduce((acc, row) => {
-                const v = Number(row?.version)
-                return Number.isFinite(v) ? Math.max(acc, v) : acc
-            }, 0)
-
-            const nextVersion = maxVersion + 1
-
-            const versionRow: any = await tablesDB.createRow({
-                databaseId: DATABASE_ID,
-                tableId: COLLECTIONS.SCHEDULE_VERSIONS,
-                rowId: ID.unique(),
-                data: {
-                    termId,
-                    departmentId,
-                    version: nextVersion,
-                    label: label ?? null,
-                    status: "Draft",
-                    createdBy,
-                    lockedBy: null,
-                    lockedAt: null,
-                    notes: notes ?? null,
-                },
-            })
-
-            const newVersionId = safeStr(versionRow?.$id)
-
-            // Optional: Copy classes + meetings from existing version
-            const sourceId = safeStr(copyFromVersionId)
-            if (sourceId && newVersionId) {
-                const sourceClasses = await listAllRows(
-                    COLLECTIONS.CLASSES,
-                    [
-                        Query.equal("termId", termId),
-                        Query.equal("departmentId", departmentId),
-                        Query.equal("versionId", sourceId),
-                    ],
-                    5000
-                )
-
-                const classIdMap = new Map<string, string>()
-
-                for (const c of sourceClasses) {
-                    const oldId = safeStr(c?.$id)
-                    const newId = ID.unique()
-                    classIdMap.set(oldId, newId)
-
-                    await tablesDB.createRow({
-                        databaseId: DATABASE_ID,
-                        tableId: COLLECTIONS.CLASSES,
-                        rowId: newId,
-                        data: {
-                            versionId: newVersionId,
-                            termId,
-                            departmentId,
-                            programId: c?.programId ?? null,
-                            sectionId: c?.sectionId,
-                            subjectId: c?.subjectId,
-                            facultyUserId: c?.facultyUserId ?? null,
-                            classCode: c?.classCode ?? null,
-                            deliveryMode: c?.deliveryMode ?? null,
-                            status: c?.status ?? "Planned",
-                            remarks: c?.remarks ?? null,
-                        },
-                    })
-                }
-
-                const sourceMeetings = await listAllRows(
-                    COLLECTIONS.CLASS_MEETINGS,
-                    [Query.equal("versionId", sourceId)],
-                    8000
-                )
-
-                for (const m of sourceMeetings) {
-                    const oldClassId = safeStr(m?.classId)
-                    const newClassId = classIdMap.get(oldClassId)
-
-                    // If class wasn't copied for some reason, skip meeting
-                    if (!newClassId) continue
-
-                    await tablesDB.createRow({
-                        databaseId: DATABASE_ID,
-                        tableId: COLLECTIONS.CLASS_MEETINGS,
-                        rowId: ID.unique(),
-                        data: {
-                            versionId: newVersionId,
-                            classId: newClassId,
-                            dayOfWeek: m?.dayOfWeek,
-                            startTime: m?.startTime,
-                            endTime: m?.endTime,
-                            roomId: m?.roomId ?? null,
-                            meetingType: m?.meetingType ?? "LECTURE",
-                            notes: m?.notes ?? null,
-                        },
-                    })
-                }
+            return {
+                $id: `${termId}:${departmentId}`,
+                termId,
+                departmentId,
+                version: 1,
+                label: safeStr(args.label) || "Current Schedule",
+                status: "Active",
+                createdBy,
+                notes: safeStr(args.notes) || null,
+                copyFromVersionId: safeStr(args.copyFromVersionId) || null,
+                isVersionless: true,
             }
-
-            return versionRow
         },
 
         async setActive(args: { termId: string; departmentId: string; versionId: string }) {
-            const { termId, departmentId, versionId } = args
-            if (!termId || !departmentId || !versionId) throw new Error("Missing required fields.")
+            const termId = safeStr(args.termId)
+            const departmentId = safeStr(args.departmentId)
+            const versionId = safeStr(args.versionId) || `${termId}:${departmentId}`
 
-            // Ensure only ONE active version (Draft others that are Active)
-            const rows = await listAllRows(
-                COLLECTIONS.SCHEDULE_VERSIONS,
-                [
-                    Query.equal("termId", termId),
-                    Query.equal("departmentId", departmentId),
-                    Query.orderDesc("version"),
-                ],
-                200
-            )
+            if (!termId || !departmentId) throw new Error("Missing required fields.")
 
-            for (const r of rows) {
-                const id = safeStr(r?.$id)
-                const status = safeStr(r?.status)
-
-                if (!id) continue
-                if (id === versionId) continue
-
-                if (status === "Active") {
-                    await tablesDB.updateRow({
-                        databaseId: DATABASE_ID,
-                        tableId: COLLECTIONS.SCHEDULE_VERSIONS,
-                        rowId: id,
-                        data: { status: "Draft" },
-                    })
-                }
+            return {
+                $id: versionId,
+                termId,
+                departmentId,
+                version: 1,
+                label: "Current Schedule",
+                status: "Active",
+                isVersionless: true,
             }
-
-            // Set selected version Active (if not Locked/Archived)
-            const target = rows.find((x) => safeStr(x?.$id) === versionId)
-            const targetStatus = safeStr(target?.status)
-
-            if (targetStatus === "Locked") {
-                throw new Error("Locked versions cannot be activated.")
-            }
-            if (targetStatus === "Archived") {
-                throw new Error("Archived versions cannot be activated.")
-            }
-
-            return tablesDB.updateRow({
-                databaseId: DATABASE_ID,
-                tableId: COLLECTIONS.SCHEDULE_VERSIONS,
-                rowId: versionId,
-                data: { status: "Active" },
-            })
         },
 
         async lock(args: { versionId: string; lockedBy: string; notes?: string | null }) {
-            const { versionId, lockedBy, notes } = args
+            const versionId = safeStr(args.versionId)
+            const lockedBy = safeStr(args.lockedBy)
+
             if (!versionId || !lockedBy) throw new Error("Missing versionId or lockedBy.")
 
-            return tablesDB.updateRow({
-                databaseId: DATABASE_ID,
-                tableId: COLLECTIONS.SCHEDULE_VERSIONS,
-                rowId: versionId,
-                data: {
-                    status: "Locked",
-                    lockedBy,
-                    lockedAt: new Date().toISOString(),
-                    notes: notes ?? null,
-                },
-            })
+            return {
+                $id: versionId,
+                status: "Active",
+                lockedBy,
+                lockedAt: new Date().toISOString(),
+                notes: safeStr(args.notes) || null,
+                isVersionless: true,
+            }
         },
 
         async archive(args: { versionId: string }) {
-            const { versionId } = args
+            const versionId = safeStr(args.versionId)
             if (!versionId) throw new Error("Missing versionId.")
 
-            return tablesDB.updateRow({
-                databaseId: DATABASE_ID,
-                tableId: COLLECTIONS.SCHEDULE_VERSIONS,
-                rowId: versionId,
-                data: { status: "Archived" },
-            })
+            return {
+                $id: versionId,
+                status: "Archived",
+                isVersionless: true,
+            }
         },
     },
 
@@ -425,13 +305,13 @@ export const departmentHeadApi = {
 
     classes: {
         async listByVersion(termId: string, departmentId: string, versionId: string) {
-            if (!termId || !departmentId || !versionId) return []
+            if (!termId || !departmentId) return []
+
             return listAllRows(
                 COLLECTIONS.CLASSES,
                 [
                     Query.equal("termId", termId),
                     Query.equal("departmentId", departmentId),
-                    Query.equal("versionId", versionId),
                     Query.orderDesc("$updatedAt"),
                 ],
                 5000
@@ -455,13 +335,12 @@ export const departmentHeadApi = {
             sectionId: string
             subjectId: string
         }) {
-            const { versionId, termId, departmentId, sectionId, subjectId } = args
-            if (!versionId || !termId || !departmentId || !sectionId || !subjectId) return null
+            const { termId, departmentId, sectionId, subjectId } = args
+            if (!termId || !departmentId || !sectionId || !subjectId) return null
 
             const existing = await listAllRows(
                 COLLECTIONS.CLASSES,
                 [
-                    Query.equal("versionId", versionId),
                     Query.equal("termId", termId),
                     Query.equal("departmentId", departmentId),
                     Query.equal("sectionId", sectionId),
@@ -485,7 +364,6 @@ export const departmentHeadApi = {
             remarks?: string | null
         }) {
             const {
-                versionId,
                 termId,
                 departmentId,
                 sectionId,
@@ -496,14 +374,13 @@ export const departmentHeadApi = {
                 remarks,
             } = args
 
-            if (!versionId || !termId || !departmentId || !sectionId || !subjectId || !facultyUserId) {
+            if (!termId || !departmentId || !sectionId || !subjectId || !facultyUserId) {
                 throw new Error("Missing required assignment fields.")
             }
 
             const existing = await listAllRows(
                 COLLECTIONS.CLASSES,
                 [
-                    Query.equal("versionId", versionId),
                     Query.equal("termId", termId),
                     Query.equal("departmentId", departmentId),
                     Query.equal("sectionId", sectionId),
@@ -531,7 +408,6 @@ export const departmentHeadApi = {
                 tableId: COLLECTIONS.CLASSES,
                 rowId: ID.unique(),
                 data: {
-                    versionId,
                     termId,
                     departmentId,
                     programId: null,
@@ -549,10 +425,9 @@ export const departmentHeadApi = {
 
     classMeetings: {
         async listByVersion(versionId: string) {
-            if (!versionId) return []
             return listAllRows(
                 COLLECTIONS.CLASS_MEETINGS,
-                [Query.equal("versionId", versionId), Query.orderDesc("$updatedAt")],
+                [Query.orderDesc("$updatedAt")],
                 12000
             )
         },
@@ -567,10 +442,9 @@ export const departmentHeadApi = {
             meetingType?: string | null
             notes?: string | null
         }) {
-            const { versionId, classId, dayOfWeek, startTime, endTime, roomId, meetingType, notes } =
-                args
+            const { classId, dayOfWeek, startTime, endTime, roomId, meetingType, notes } = args
 
-            if (!versionId || !classId || !dayOfWeek || !startTime || !endTime) {
+            if (!classId || !dayOfWeek || !startTime || !endTime) {
                 throw new Error("Missing required meeting fields.")
             }
 
@@ -579,7 +453,6 @@ export const departmentHeadApi = {
                 tableId: COLLECTIONS.CLASS_MEETINGS,
                 rowId: ID.unique(),
                 data: {
-                    versionId,
                     classId,
                     dayOfWeek,
                     startTime,
