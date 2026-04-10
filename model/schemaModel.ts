@@ -215,7 +215,6 @@ export const ATTR = {
     },
     CLASSES: {
         // Schedule planner writes direct class records only.
-        // No versionId attribute is required or used here.
         termId: "termId",
         departmentId: "departmentId",
         programId: "programId",
@@ -228,7 +227,7 @@ export const ATTR = {
         remarks: "remarks",
     },
     CLASS_MEETINGS: {
-        // Class meetings are also stored without any versionId dependency.
+        // Class meetings are stored directly per class.
         classId: "classId",
         dayOfWeek: "dayOfWeek",
         startTime: "startTime",

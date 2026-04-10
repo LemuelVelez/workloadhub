@@ -291,7 +291,7 @@ export default function AdminOverviewPage() {
                 countCollection(COLLECTIONS.SUBJECTS).catch(() => 0),
                 countCollection(COLLECTIONS.ROOMS).catch(() => 0),
                 countCollection(COLLECTIONS.USER_PROFILES).catch(() => 0),
-                countCollection(COLLECTIONS.SCHEDULE_VERSIONS).catch(() => 0),
+                countCollection(COLLECTIONS.CLASSES).catch(() => 0),
                 countCollection(COLLECTIONS.CHANGE_REQUESTS).catch(() => 0),
                 countCollection(COLLECTIONS.AUDIT_LOGS).catch(() => 0),
                 countCollection(COLLECTIONS.NOTIFICATIONS).catch(() => 0),
@@ -340,7 +340,7 @@ export default function AdminOverviewPage() {
 
                 const sv: any = await databases.listDocuments(
                     DATABASE_ID,
-                    COLLECTIONS.SCHEDULE_VERSIONS,
+                    COLLECTIONS.CLASSES,
                     [Query.greaterThanEqual("$createdAt", fromIso), Query.orderAsc("$createdAt"), Query.limit(200)]
                 )
 
@@ -558,7 +558,7 @@ export default function AdminOverviewPage() {
                                 href="/dashboard/admin/master-data-management"
                             />
                             <MetricCard
-                                title="Schedule Versions"
+                                title="Schedules"
                                 value={niceNumber(counts.schedules)}
                                 icon={CalendarDays}
                                 hint="Review"
@@ -585,7 +585,7 @@ export default function AdminOverviewPage() {
                             <div className="min-w-0">
                                 <CardTitle className="truncate">Scheduling Activity</CardTitle>
                                 <CardDescription className="truncate">
-                                    Schedule versions created in the last 14 days.
+                                    Schedules created in the last 14 days.
                                 </CardDescription>
                             </div>
 
@@ -632,7 +632,7 @@ export default function AdminOverviewPage() {
                                                     active={p?.active}
                                                     payload={p?.payload}
                                                     label={p?.label ? formatDay(String(p.label)) : ""}
-                                                    valueSuffix="versions"
+                                                    valueSuffix="schedules"
                                                 />
                                             )}
                                         />
@@ -640,7 +640,7 @@ export default function AdminOverviewPage() {
                                         <Area
                                             type="monotone"
                                             dataKey="count"
-                                            name="Versions"
+                                            name="Schedules"
                                             stroke="var(--chart-1)"
                                             strokeWidth={2}
                                             fill="url(#svFill)"
