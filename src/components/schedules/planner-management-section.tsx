@@ -51,6 +51,7 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -134,6 +135,11 @@ type Props = {
     subjectCollegeOptions: string[]
     subjectProgramOptions: string[]
     subjectYearLevelOptions: string[]
+    subjectYearLevelCounts: Record<string, number>
+    yearLevelMutating: boolean
+    onCreateYearLevel: (value: string) => Promise<void> | void
+    onRenameYearLevel: (currentValue: string, nextValue: string) => Promise<void> | void
+    onDeleteYearLevel: (value: string) => Promise<void> | void
     subjectSemesterOptions: string[]
     subjectAcademicTermOptions: string[]
     onClearSubjectFilters: () => void
@@ -184,6 +190,11 @@ export type SubjectMatchingFiltersCardProps = {
     subjectCollegeOptions: string[]
     subjectProgramOptions: string[]
     subjectYearLevelOptions: string[]
+    subjectYearLevelCounts: Record<string, number>
+    yearLevelMutating: boolean
+    onCreateYearLevel: (value: string) => Promise<void> | void
+    onRenameYearLevel: (currentValue: string, nextValue: string) => Promise<void> | void
+    onDeleteYearLevel: (value: string) => Promise<void> | void
     subjectSemesterOptions: string[]
     subjectAcademicTermOptions: string[]
     filteredSubjectCount: number
@@ -208,6 +219,11 @@ export function SubjectMatchingFiltersCard({
     subjectCollegeOptions,
     subjectProgramOptions,
     subjectYearLevelOptions,
+    subjectYearLevelCounts,
+    yearLevelMutating,
+    onCreateYearLevel,
+    onRenameYearLevel,
+    onDeleteYearLevel,
     subjectSemesterOptions,
     subjectAcademicTermOptions,
     filteredSubjectCount,
@@ -219,194 +235,326 @@ export function SubjectMatchingFiltersCard({
 }: SubjectMatchingFiltersCardProps) {
     const selectedProgramCount = subjectProgramFilters.length
     const selectedYearLevelCount = subjectYearLevelFilters.length
+    const [yearLevelDraft, setYearLevelDraft] = React.useState("")
+    const [editingYearLevel, setEditingYearLevel] = React.useState<string | null>(null)
+    const [editingYearLevelDraft, setEditingYearLevelDraft] = React.useState("")
+    const [deletingYearLevel, setDeletingYearLevel] = React.useState<string | null>(null)
+
     const getCheckboxId = React.useCallback(
         (group: string, value: string) => `${idPrefix}-${group}-${String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
         [idPrefix]
     )
 
+    const handleCreateYearLevel = React.useCallback(async () => {
+        const nextValue = String(yearLevelDraft || "").trim()
+        if (!nextValue) return
+        await onCreateYearLevel(nextValue)
+        setYearLevelDraft("")
+    }, [onCreateYearLevel, yearLevelDraft])
+
+    const handleRenameYearLevel = React.useCallback(async () => {
+        if (!editingYearLevel) return
+        const nextValue = String(editingYearLevelDraft || "").trim()
+        if (!nextValue) return
+        await onRenameYearLevel(editingYearLevel, nextValue)
+        setEditingYearLevel(null)
+        setEditingYearLevelDraft("")
+    }, [editingYearLevel, editingYearLevelDraft, onRenameYearLevel])
+
+    const handleDeleteYearLevel = React.useCallback(async () => {
+        if (!deletingYearLevel) return
+        await onDeleteYearLevel(deletingYearLevel)
+        setDeletingYearLevel(null)
+    }, [deletingYearLevel, onDeleteYearLevel])
+
     return (
-        <Card className={cn("rounded-2xl", className)}>
-            <CardHeader className="pb-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-1">
-                        <CardTitle>Subject Matching Filters</CardTitle>
-                        <CardDescription>
-                            Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, year levels, semester, and academic term.
-                        </CardDescription>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary" className="rounded-lg">
-                            {filteredSubjectCount} match{filteredSubjectCount === 1 ? "" : "es"}
-                        </Badge>
-                        <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={onApplyScheduleContextSubjectFilters}>
-                            Use schedule context
-                        </Button>
-                        <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={onClearSubjectFilters}>
-                            Clear filters
-                        </Button>
-                    </div>
-                </div>
-            </CardHeader>
-
-            <CardContent className="space-y-4">
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
-                    <div className="space-y-4">
-                        <div className="grid gap-2">
-                            <Label>College</Label>
-                            <Select value={subjectCollegeFilter} onValueChange={setSubjectCollegeFilter}>
-                                <SelectTrigger className="rounded-xl">
-                                    <SelectValue placeholder="All colleges" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All colleges</SelectItem>
-                                    {subjectCollegeOptions.map((option) => (
-                                        <SelectItem key={option} value={option}>
-                                            {option}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+        <>
+            <Card className={cn("rounded-2xl", className)}>
+                <CardHeader className="pb-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="space-y-1">
+                            <CardTitle>Subject Matching Filters</CardTitle>
+                            <CardDescription>
+                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, year levels, semester, and academic term.
+                            </CardDescription>
                         </div>
 
-                        <div className="grid gap-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <Label>Programs</Label>
-                                <span className="text-xs text-muted-foreground">
-                                    {selectedProgramCount} selected
-                                </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="secondary" className="rounded-lg">
+                                {filteredSubjectCount} match{filteredSubjectCount === 1 ? "" : "es"}
+                            </Badge>
+                            <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={onApplyScheduleContextSubjectFilters}>
+                                Use schedule context
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={onClearSubjectFilters}>
+                                Clear filters
+                            </Button>
+                        </div>
+                    </div>
+                </CardHeader>
+
+                <CardContent className="space-y-4">
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
+                        <div className="space-y-4">
+                            <div className="grid gap-2">
+                                <Label>College</Label>
+                                <Select value={subjectCollegeFilter} onValueChange={setSubjectCollegeFilter}>
+                                    <SelectTrigger className="rounded-xl">
+                                        <SelectValue placeholder="All colleges" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All colleges</SelectItem>
+                                        {subjectCollegeOptions.map((option) => (
+                                            <SelectItem key={option} value={option}>
+                                                {option}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
-                            <ScrollArea className="h-44 rounded-md border">
-                                <div className="space-y-2 p-3">
-                                    {subjectProgramOptions.length === 0 ? (
-                                        <div className="text-sm text-muted-foreground">
-                                            No programs available for the current section and schedule context.
+
+                            <div className="grid gap-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <Label>Programs</Label>
+                                    <span className="text-xs text-muted-foreground">
+                                        {selectedProgramCount} selected
+                                    </span>
+                                </div>
+                                <ScrollArea className="h-44 rounded-md border">
+                                    <div className="space-y-2 p-3">
+                                        {subjectProgramOptions.length === 0 ? (
+                                            <div className="text-sm text-muted-foreground">
+                                                No programs available for the current section and schedule context.
+                                            </div>
+                                        ) : (
+                                            subjectProgramOptions.map((option) => {
+                                                const checked = subjectProgramFilters.includes(option)
+                                                return (
+                                                    <label
+                                                        key={option}
+                                                        htmlFor={getCheckboxId("program", option)}
+                                                        className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                    >
+                                                        <Checkbox
+                                                            id={getCheckboxId("program", option)}
+                                                            checked={checked}
+                                                            onCheckedChange={(value) => {
+                                                                const nextChecked = Boolean(value)
+                                                                setSubjectProgramFilters((current) => {
+                                                                    if (nextChecked) {
+                                                                        return current.includes(option)
+                                                                            ? current
+                                                                            : [...current, option]
+                                                                    }
+                                                                    return current.filter((item) => item !== option)
+                                                                })
+                                                            }}
+                                                        />
+                                                        <div className="min-w-0 flex-1 text-sm font-medium">{option}</div>
+                                                    </label>
+                                                )
+                                            })
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="grid gap-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <Label>Year Levels</Label>
+                                        <span className="text-xs text-muted-foreground">
+                                            {selectedYearLevelCount} selected
+                                        </span>
+                                    </div>
+                                    <Dialog>
+                                        <Button type="button" variant="outline" size="sm" className="rounded-xl" asChild>
+                                            <DialogTrigger>Add Year Level</DialogTrigger>
+                                        </Button>
+                                        <DialogContent>
+                                            <DialogHeader>
+                                                <DialogTitle>Add Year Level</DialogTitle>
+                                                <DialogDescription>
+                                                    Create a new sections entry for a missing year level so it becomes available in the Year Levels filter.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <div className="grid gap-2">
+                                                <Label htmlFor={`${idPrefix}-add-year-level`}>Year Level</Label>
+                                                <Input
+                                                    id={`${idPrefix}-add-year-level`}
+                                                    value={yearLevelDraft}
+                                                    onChange={(event) => setYearLevelDraft(event.target.value)}
+                                                    placeholder="Example: 1 or 1st Year"
+                                                />
+                                            </div>
+                                            <DialogFooter>
+                                                <Button type="button" onClick={() => void handleCreateYearLevel()} disabled={yearLevelMutating || !String(yearLevelDraft).trim()}>
+                                                    {yearLevelMutating ? "Saving..." : "Add Year Level"}
+                                                </Button>
+                                            </DialogFooter>
+                                        </DialogContent>
+                                    </Dialog>
+                                </div>
+                                <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-2 xl:grid-cols-3">
+                                    {subjectYearLevelOptions.length === 0 ? (
+                                        <div className="sm:col-span-2 xl:col-span-3 text-sm text-muted-foreground">
+                                            No year levels available from sections yet.
                                         </div>
                                     ) : (
-                                        subjectProgramOptions.map((option) => {
-                                            const checked = subjectProgramFilters.includes(option)
+                                        subjectYearLevelOptions.map((option) => {
+                                            const checked = subjectYearLevelFilters.includes(option)
+                                            const total = subjectYearLevelCounts[option] || 0
                                             return (
-                                                <label
-                                                    key={option}
-                                                    htmlFor={getCheckboxId("program", option)}
-                                                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
-                                                >
-                                                    <Checkbox
-                                                        id={getCheckboxId("program", option)}
-                                                        checked={checked}
-                                                        onCheckedChange={(value) => {
-                                                            const nextChecked = Boolean(value)
-                                                            setSubjectProgramFilters((current) => {
-                                                                if (nextChecked) {
-                                                                    return current.includes(option)
-                                                                        ? current
-                                                                        : [...current, option]
-                                                                }
-                                                                return current.filter((item) => item !== option)
-                                                            })
-                                                        }}
-                                                    />
-                                                    <div className="min-w-0 flex-1 text-sm font-medium">{option}</div>
-                                                </label>
+                                                <div key={option} className="rounded-md border px-3 py-2 text-sm transition hover:bg-muted/40">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <label htmlFor={getCheckboxId("year", option)} className="flex min-w-0 flex-1 items-center gap-2 cursor-pointer">
+                                                            <Checkbox
+                                                                id={getCheckboxId("year", option)}
+                                                                checked={checked}
+                                                                onCheckedChange={(value) => {
+                                                                    const nextChecked = Boolean(value)
+                                                                    setSubjectYearLevelFilters((current) => {
+                                                                        if (nextChecked) {
+                                                                            return current.includes(option)
+                                                                                ? current
+                                                                                : [...current, option]
+                                                                        }
+                                                                        return current.filter((item) => item !== option)
+                                                                    })
+                                                                }}
+                                                            />
+                                                            <span className="min-w-0 flex-1 truncate">{option}</span>
+                                                        </label>
+                                                        <Badge variant="secondary" className="rounded-full whitespace-nowrap">
+                                                            {total} section{total === 1 ? "" : "s"}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="mt-2 flex items-center gap-2">
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 rounded-lg px-2"
+                                                            onClick={() => {
+                                                                setEditingYearLevel(option)
+                                                                setEditingYearLevelDraft(option)
+                                                            }}
+                                                        >
+                                                            <PencilLine className="mr-1 size-3.5" />
+                                                            Edit
+                                                        </Button>
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 rounded-lg px-2 text-destructive hover:text-destructive"
+                                                            onClick={() => setDeletingYearLevel(option)}
+                                                        >
+                                                            <Trash2 className="mr-1 size-3.5" />
+                                                            Delete
+                                                        </Button>
+                                                    </div>
+                                                </div>
                                             )
                                         })
                                     )}
                                 </div>
-                            </ScrollArea>
-                        </div>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div className="grid gap-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <Label>Year Levels</Label>
-                                <span className="text-xs text-muted-foreground">
-                                    {selectedYearLevelCount} selected
-                                </span>
-                            </div>
-                            <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-2 xl:grid-cols-3">
-                                {subjectYearLevelOptions.length === 0 ? (
-                                    <div className="sm:col-span-2 xl:col-span-3 text-sm text-muted-foreground">
-                                        No year levels available for the current subject scope.
-                                    </div>
-                                ) : (
-                                    subjectYearLevelOptions.map((option) => {
-                                        const checked = subjectYearLevelFilters.includes(option)
-                                        return (
-                                            <label
-                                                key={option}
-                                                htmlFor={getCheckboxId("year", option)}
-                                                className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition hover:bg-muted/40"
-                                            >
-                                                <Checkbox
-                                                    id={getCheckboxId("year", option)}
-                                                    checked={checked}
-                                                    onCheckedChange={(value) => {
-                                                        const nextChecked = Boolean(value)
-                                                        setSubjectYearLevelFilters((current) => {
-                                                            if (nextChecked) {
-                                                                return current.includes(option)
-                                                                    ? current
-                                                                    : [...current, option]
-                                                            }
-                                                            return current.filter((item) => item !== option)
-                                                        })
-                                                    }}
-                                                />
-                                                <span>{option}</span>
-                                            </label>
-                                        )
-                                    })
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                            <div className="grid gap-2">
-                                <Label>Semester</Label>
-                                <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="All semesters" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
-                                        {subjectSemesterOptions.map((option) => (
-                                            <SelectItem key={option} value={option}>
-                                                {option}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
                             </div>
 
-                            <div className="grid gap-2">
-                                <Label>Academic Term</Label>
-                                <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="All academic terms" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
-                                        {subjectAcademicTermOptions.map((option) => (
-                                            <SelectItem key={option} value={option}>
-                                                {option}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="grid gap-2">
+                                    <Label>Semester</Label>
+                                    <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="All semesters" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
+                                            {subjectSemesterOptions.map((option) => (
+                                                <SelectItem key={option} value={option}>
+                                                    {option}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label>Academic Term</Label>
+                                    <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
+                                        <SelectTrigger className="rounded-xl">
+                                            <SelectValue placeholder="All academic terms" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
+                                            {subjectAcademicTermOptions.map((option) => (
+                                                <SelectItem key={option} value={option}>
+                                                    {option}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                    Subject scope preview:{" "}
-                    <span className="font-medium text-foreground">
-                        {activeSubjectFilterBadges.length > 0 ? activeSubjectFilterBadges.join(" • ") : "No additional subject filters are applied."}
-                    </span>
-                </div>
-            </CardContent>
-        </Card>
+                    <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                        Subject scope preview:{" "}
+                        <span className="font-medium text-foreground">
+                            {activeSubjectFilterBadges.length > 0 ? activeSubjectFilterBadges.join(" • ") : "No additional subject filters are applied."}
+                        </span>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Dialog open={Boolean(editingYearLevel)} onOpenChange={(open) => !open && setEditingYearLevel(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Edit Year Level</DialogTitle>
+                        <DialogDescription>
+                            Update the selected year level across the matching sections entries.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-2">
+                        <Label htmlFor={`${idPrefix}-edit-year-level`}>Year Level</Label>
+                        <Input
+                            id={`${idPrefix}-edit-year-level`}
+                            value={editingYearLevelDraft}
+                            onChange={(event) => setEditingYearLevelDraft(event.target.value)}
+                            placeholder="Example: 2 or 2nd Year"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setEditingYearLevel(null)}>
+                            Cancel
+                        </Button>
+                        <Button type="button" onClick={() => void handleRenameYearLevel()} disabled={yearLevelMutating || !String(editingYearLevelDraft).trim()}>
+                            {yearLevelMutating ? "Saving..." : "Save Changes"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <AlertDialog open={Boolean(deletingYearLevel)} onOpenChange={(open) => !open && setDeletingYearLevel(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Year Level</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will delete all sections records currently assigned to {deletingYearLevel || "this year level"}.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => void handleDeleteYearLevel()}>
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
     )
 }
 
@@ -1162,6 +1310,11 @@ export function PlannerManagementSection({
     subjectCollegeOptions,
     subjectProgramOptions,
     subjectYearLevelOptions,
+    subjectYearLevelCounts,
+    yearLevelMutating,
+    onCreateYearLevel,
+    onRenameYearLevel,
+    onDeleteYearLevel,
     subjectSemesterOptions,
     subjectAcademicTermOptions,
     onClearSubjectFilters,
@@ -2482,6 +2635,11 @@ export function PlannerManagementSection({
                                     subjectCollegeOptions={subjectCollegeOptions}
                                     subjectProgramOptions={subjectProgramOptions}
                                     subjectYearLevelOptions={subjectYearLevelOptions}
+                                    subjectYearLevelCounts={subjectYearLevelCounts}
+                                    yearLevelMutating={yearLevelMutating}
+                                    onCreateYearLevel={onCreateYearLevel}
+                                    onRenameYearLevel={onRenameYearLevel}
+                                    onDeleteYearLevel={onDeleteYearLevel}
                                     subjectSemesterOptions={subjectSemesterOptions}
                                     subjectAcademicTermOptions={subjectAcademicTermOptions}
                                     filteredSubjectCount={filteredSubjectOptions.length}

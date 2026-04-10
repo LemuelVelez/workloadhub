@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "009_add_subject_multi_scope_visibility" as const;
+export const SCHEMA_MIGRATION_ID = "010_delete_schedule_versions_collection" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -84,7 +84,6 @@ export const COLLECTIONS = {
     FIRST_LOGIN_USERS: "first_login_users",
 
     SECTIONS: "sections",
-    SCHEDULE_VERSIONS: "schedule_versions",
     CLASSES: "classes",
     CLASS_MEETINGS: "class_meetings",
 
@@ -210,19 +209,7 @@ export const ATTR = {
         studentCount: "studentCount",
         isActive: "isActive",
     },
-    SCHEDULE_VERSIONS: {
-        termId: "termId",
-        departmentId: "departmentId",
-        version: "version",
-        label: "label",
-        status: "status",
-        createdBy: "createdBy",
-        lockedBy: "lockedBy",
-        lockedAt: "lockedAt",
-        notes: "notes",
-    },
     CLASSES: {
-        versionId: "versionId",
         termId: "termId",
         departmentId: "departmentId",
         programId: "programId",
@@ -235,7 +222,6 @@ export const ATTR = {
         remarks: "remarks",
     },
     CLASS_MEETINGS: {
-        versionId: "versionId",
         classId: "classId",
         dayOfWeek: "dayOfWeek",
         startTime: "startTime",
@@ -359,13 +345,7 @@ export const INDEX = {
         // yearLevel now stores values like "CS 1" / "IS 1"
         termDeptYearNameUnique: "idx_sec_term_dept_yr_name_u",
     },
-    SCHEDULE_VERSIONS: {
-        termDept: "idx_versions_term_dept",
-        unique: "idx_versions_unique",
-        status: "idx_versions_status",
-    },
     CLASSES: {
-        versionId: "idx_classes_versionId",
         termDept: "idx_classes_term_dept",
         sectionId: "idx_classes_sectionId",
         subjectId: "idx_classes_subjectId",
@@ -373,7 +353,6 @@ export const INDEX = {
     },
     CLASS_MEETINGS: {
         classId: "idx_meetings_classId",
-        versionId: "idx_meetings_versionId",
         roomTime: "idx_meetings_room_time",
     },
     FACULTY_AVAILABILITY: {
@@ -418,7 +397,6 @@ export type Doc<T> = T & AppwriteSystemFields;
  * Common string unions for your schema
  */
 export type RoomType = "LECTURE" | "LAB" | "OTHER" | (string & {});
-export type ScheduleStatus = "Draft" | "Active" | "Locked" | "Archived" | (string & {});
 export type ClassStatus = "Planned" | "Final" | "Cancelled" | (string & {});
 export type MeetingType = "LECTURE" | "LAB" | "OTHER" | (string & {});
 export type AvailabilityPreference = "Preferred" | "Unavailable" | "Neutral" | (string & {});
@@ -558,20 +536,7 @@ export type Section = {
     isActive: boolean;
 };
 
-export type ScheduleVersion = {
-    termId: string;
-    departmentId: string;
-    version: number;
-    label?: string | null;
-    status: ScheduleStatus;
-    createdBy: string;
-    lockedBy?: string | null;
-    lockedAt?: string | null;
-    notes?: string | null;
-};
-
 export type ClassOffering = {
-    versionId: string;
     termId: string;
     departmentId: string;
     programId?: string | null;
@@ -585,7 +550,6 @@ export type ClassOffering = {
 };
 
 export type ClassMeeting = {
-    versionId: string;
     classId: string;
     /**
      * Supports canonical single-day values (for example: Monday) and compact
@@ -666,7 +630,6 @@ export type UserProfileDoc = Doc<UserProfile>;
 export type FacultyProfileDoc = Doc<FacultyProfile>;
 export type FirstLoginUserDoc = Doc<FirstLoginUser>;
 export type SectionDoc = Doc<Section>;
-export type ScheduleVersionDoc = Doc<ScheduleVersion>;
 export type ClassOfferingDoc = Doc<ClassOffering>;
 export type ClassMeetingDoc = Doc<ClassMeeting>;
 export type FacultyAvailabilityDoc = Doc<FacultyAvailability>;
@@ -694,7 +657,6 @@ export type CollectionDocMap = {
     [COLLECTIONS.FIRST_LOGIN_USERS]: FirstLoginUserDoc;
 
     [COLLECTIONS.SECTIONS]: SectionDoc;
-    [COLLECTIONS.SCHEDULE_VERSIONS]: ScheduleVersionDoc;
     [COLLECTIONS.CLASSES]: ClassOfferingDoc;
     [COLLECTIONS.CLASS_MEETINGS]: ClassMeetingDoc;
 
@@ -706,4 +668,3 @@ export type CollectionDocMap = {
 
     [COLLECTIONS.AUDIT_LOGS]: AuditLogDoc;
 };
-
