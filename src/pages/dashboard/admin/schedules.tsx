@@ -1705,7 +1705,28 @@ const sectionScopedSubjects = React.useMemo(
 
 
     const saveEntry = async () => {
-        if (filteredScopedSections.length !== 1) {
+        const normalizedFormSectionId = normalizeDisplayValue(formSectionId)
+        const normalizedSectionFilters = subjectSectionFilters
+            .map((value) => normalizeDisplayValue(value))
+            .filter(Boolean)
+
+        const selectedSectionForPayload =
+            (normalizedFormSectionId
+                ? filteredScopedSections.find((section) => normalizeDisplayValue(section.$id) === normalizedFormSectionId) || null
+                : null) ||
+            (normalizedSectionFilters.length === 1
+                ? sections.find((section) => normalizeDisplayValue(section.$id) === normalizedSectionFilters[0]) || null
+                : null) ||
+            (filteredScopedSections.length === 1 ? filteredScopedSections[0] : null)
+
+        if (!selectedSectionForPayload) {
+            toast.error("Please narrow the Sections filter to one section before saving.")
+            return
+        }
+
+        const selectedSectionId = normalizeDisplayValue(selectedSectionForPayload.$id)
+
+        if (!selectedSectionId) {
             toast.error("Please narrow the Sections filter to one section before saving.")
             return
         }
@@ -1758,7 +1779,6 @@ const sectionScopedSubjects = React.useMemo(
                     ? null
                     : formFacultyChoice
 
-            const selectedSectionForPayload = filteredScopedSections[0] || sections.find((section) => section.$id === formSectionId) || null
             const selectedSubjectForPayload =
                 subjects.find((subject) => subject.$id === selectedSubjectId) || null
 
@@ -1780,7 +1800,7 @@ const sectionScopedSubjects = React.useMemo(
                 termId: resolvedTermId,
                 departmentId: resolvedDepartmentId,
                 programId: (selectedSectionForPayload as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
-                sectionId: formSectionId,
+                sectionId: selectedSectionId,
                 facultyUserId,
                 classCode: null,
                 deliveryMode: null,
