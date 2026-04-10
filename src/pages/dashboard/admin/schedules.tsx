@@ -1049,10 +1049,33 @@ const sectionScopedSubjects = React.useMemo(
         subjectCollegeOptions,
     ])
 
+    const hasActiveSubjectScopeFilters = React.useMemo(
+        () =>
+            subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE ||
+            subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ||
+            subjectProgramFilters.length > 0 ||
+            subjectYearLevelFilters.length > 0 ||
+            subjectSectionFilters.length > 0,
+        [
+            subjectAcademicTermFilter,
+            subjectCollegeFilter,
+            subjectProgramFilters.length,
+            subjectSectionFilters.length,
+            subjectYearLevelFilters.length,
+        ]
+    )
+
     React.useEffect(() => {
-        if (!entryDialogOpen) return
+        if (!entryDialogOpen || editingEntry || hasActiveSubjectScopeFilters) return
         applyScheduleContextSubjectFilters()
-    }, [activeScheduleScopeKey, applyScheduleContextSubjectFilters, entryDialogOpen, formSectionId])
+    }, [
+        activeScheduleScopeKey,
+        applyScheduleContextSubjectFilters,
+        editingEntry,
+        entryDialogOpen,
+        formSectionId,
+        hasActiveSubjectScopeFilters,
+    ])
 
     React.useEffect(() => {
         if (subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectCollegeOptions.includes(subjectCollegeFilter)) {
@@ -1766,12 +1789,25 @@ const sectionScopedSubjects = React.useMemo(
     }, [scheduleRows])
 
     const resetEntryForm = React.useCallback(() => {
-        const nextSection = filteredScopedSections[0] || sections[0] || null
+        const normalizedSectionFilterIds = subjectSectionFilters
+            .map((value) => normalizeDisplayValue(value))
+            .filter(Boolean)
+        const preservedSelectedSections = normalizedSectionFilterIds.length > 0
+            ? filteredScopedSections.filter((section) =>
+                normalizedSectionFilterIds.includes(normalizeDisplayValue(section.$id))
+            )
+            : []
+        const nextSection = preservedSelectedSections[0] || filteredScopedSections[0] || sections[0] || null
         const nextSectionId = nextSection?.$id || ""
-        const nextSubjects = filterSubjectsForSections(subjects, nextSection ? [nextSection] : [])
+        const nextSubjects = filterSubjectsForSections(
+            subjects,
+            preservedSelectedSections.length > 0 ? preservedSelectedSections : nextSection ? [nextSection] : []
+        )
 
         setFormSectionId(nextSectionId)
-        setSubjectSectionFilters(nextSectionId ? [nextSectionId] : [])
+        if (normalizedSectionFilterIds.length === 0) {
+            setSubjectSectionFilters(nextSectionId ? [nextSectionId] : [])
+        }
         setFormSubjectIds(nextSubjects[0]?.$id ? [nextSubjects[0].$id] : [])
         setFormFacultyChoice(FACULTY_OPTION_NONE)
         setFormManualFaculty("")
@@ -1781,7 +1817,7 @@ const sectionScopedSubjects = React.useMemo(
         setFormEndTime("08:00")
         setFormMeetingType("LECTURE")
         setFormAllowConflictSave(false)
-    }, [filteredScopedSections, rooms, sections, subjects])
+    }, [filteredScopedSections, normalizeDisplayValue, rooms, sections, subjectSectionFilters, subjects])
 
     const handleEntryDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         setEntryDialogOpen(nextOpen)

@@ -1554,8 +1554,62 @@ export function PlannerManagementSection({
     const selectedSectionsSummaryLabel = React.useMemo(() => {
         if (selectedSectionsForSave.length === 0) return "—"
         if (selectedSectionsForSave.length === 1) return selectedSectionsPreviewBadges[0]?.label || selectedSectionPreviewLabel
+        if (selectedSectionsForSave.length <= 3) {
+            return selectedSectionsPreviewBadges.map((section) => section.label).join(" • ")
+        }
         return `${selectedSectionsForSave.length} sections selected`
     }, [selectedSectionPreviewLabel, selectedSectionsForSave.length, selectedSectionsPreviewBadges])
+
+    const selectedSectionProgramBadges = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    selectedSectionsForSave
+                        .map((section) => String(section.programCode || section.programName || "").trim())
+                        .filter(Boolean)
+                )
+            ),
+        [selectedSectionsForSave]
+    )
+
+    const selectedSectionYearLevelBadges = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    selectedSectionsForSave
+                        .map((section) => {
+                            const normalizedYearLevel = normalizeSectionYearLevelDisplay(section.yearLevel)
+                            return normalizedYearLevel || String(section.yearLevel || "").trim()
+                        })
+                        .filter(Boolean)
+                )
+            ),
+        [selectedSectionsForSave]
+    )
+
+    const selectedSectionSemesterBadges = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    selectedSectionsForSave
+                        .map((section) => String(section.semester || "").trim())
+                        .filter(Boolean)
+                )
+            ),
+        [selectedSectionsForSave]
+    )
+
+    const selectedSectionAcademicTermBadges = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    selectedSectionsForSave
+                        .map((section) => String(section.academicTermLabel || "").trim())
+                        .filter(Boolean)
+                )
+            ),
+        [selectedSectionsForSave]
+    )
 
     const selectedSubjectIds = React.useMemo(
         () => Array.from(new Set(formSubjectIds.map((subjectId) => String(subjectId || "").trim()).filter(Boolean))).slice(0, 1),
@@ -2784,26 +2838,32 @@ export function PlannerManagementSection({
                                         <Badge variant="secondary" className="rounded-full">
                                             {selectedDeptLabel || "Department not set"}
                                         </Badge>
-                                        {selectedSection?.programCode || selectedSection?.programName ? (
-                                            <Badge variant="outline" className="rounded-full">
-                                                {String(selectedSection?.programCode || selectedSection?.programName || "")}
+                                        {selectedSectionProgramBadges.map((program) => (
+                                            <Badge key={`program-${program}`} variant="outline" className="rounded-full">
+                                                {program}
                                             </Badge>
-                                        ) : null}
-                                        {selectedSection?.yearLevel != null && String(selectedSection.yearLevel).trim() ? (
-                                            <Badge variant="outline" className="rounded-full">
-                                                {normalizeSectionYearLevelDisplay(selectedSection.yearLevel) || String(selectedSection.yearLevel).trim()}
+                                        ))}
+                                        {selectedSectionYearLevelBadges.map((yearLevel) => (
+                                            <Badge key={`year-level-${yearLevel}`} variant="outline" className="rounded-full">
+                                                {yearLevel}
                                             </Badge>
-                                        ) : null}
-                                        {selectedSection?.semester ? (
-                                            <Badge variant="outline" className="rounded-full">
-                                                {selectedSection.semester}
+                                        ))}
+                                        {selectedSectionSemesterBadges.map((semester) => (
+                                            <Badge key={`semester-${semester}`} variant="outline" className="rounded-full">
+                                                {semester}
                                             </Badge>
-                                        ) : null}
-                                        {(selectedSection?.academicTermLabel || selectedTermLabel) ? (
-                                            <Badge variant="outline" className="rounded-full">
-                                                {selectedSection?.academicTermLabel || selectedTermLabel}
-                                            </Badge>
-                                        ) : null}
+                                        ))}
+                                        {selectedSectionAcademicTermBadges.length > 0
+                                            ? selectedSectionAcademicTermBadges.map((academicTermLabel) => (
+                                                <Badge key={`academic-term-${academicTermLabel}`} variant="outline" className="rounded-full">
+                                                    {academicTermLabel}
+                                                </Badge>
+                                            ))
+                                            : selectedTermLabel ? (
+                                                <Badge variant="outline" className="rounded-full">
+                                                    {selectedTermLabel}
+                                                </Badge>
+                                            ) : null}
                                     </div>
                                 </div>
                             </div>
