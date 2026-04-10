@@ -3,13 +3,18 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { RefreshCcw } from "lucide-react"
+import { Check, ChevronsUpDown, RefreshCcw } from "lucide-react"
 
 import DashboardLayout from "@/components/dashboard-layout"
 
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { PlannerManagementSection, SubjectMatchingFiltersCard } from "@/components/schedules/planner-management-section"
 import type {
@@ -64,6 +69,42 @@ type ScheduleProgramDoc = {
     isActive?: boolean | null
 }
 
+type AcademicTermScopeOption = {
+    $id: string
+    label: string
+    isActive: boolean
+}
+
+function hasLinkedSectionMetadata(section?: SectionDoc | null) {
+    if (!section) return false
+
+    return Boolean(
+        String((section as any).termId || "").trim() &&
+        String((section as any).departmentId || "").trim() &&
+        String((section as any).programId || "").trim() &&
+        String((section as any).yearLevel || "").trim()
+    )
+}
+
+function hasLinkedSubjectMetadata(subject?: SubjectDoc | null) {
+    if (!subject) return false
+
+    const subjectProgramIds = Array.isArray((subject as any).programIds)
+        ? ((subject as any).programIds as Array<unknown>).map((value) => String(value || "").trim()).filter(Boolean)
+        : []
+    const subjectYearLevels = Array.isArray((subject as any).yearLevels)
+        ? ((subject as any).yearLevels as Array<unknown>).map((value) => String(value || "").trim()).filter(Boolean)
+        : []
+
+    return Boolean(
+        String((subject as any).termId || "").trim() &&
+        String((subject as any).departmentId || "").trim() &&
+        (String((subject as any).programId || "").trim() || subjectProgramIds.length > 0) &&
+        (String((subject as any).yearLevel || "").trim() || subjectYearLevels.length > 0) &&
+        String((subject as any).semester || "").trim()
+    )
+}
+
 export default function AdminSchedulesPage() {
     const [loading, setLoading] = React.useState(true)
     const [, setError] = React.useState<string | null>(null)
@@ -104,6 +145,10 @@ export default function AdminSchedulesPage() {
     const [subjectSemesterFilter, setSubjectSemesterFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
     const [subjectAcademicTermFilter, setSubjectAcademicTermFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
     const [yearLevelMutating, setYearLevelMutating] = React.useState(false)
+
+    const [termScopePopoverOpen, setTermScopePopoverOpen] = React.useState(false)
+    const [termScopeSelection, setTermScopeSelection] = React.useState<string[]>([])
+    const [termScopeSaving, setTermScopeSaving] = React.useState(false)
 
     const DEFAULT_YEAR_LEVEL_SECTION_NAME = "Others"
 
@@ -163,6 +208,40 @@ export default function AdminSchedulesPage() {
         [activeAcademicTermIds]
     )
 
+
+    React.useEffect(() => {
+        setTermScopeSelection(activeAcademicTermIds)
+    }, [activeAcademicTermIds])
+
+    const academicTermScopeOptions = React.useMemo<AcademicTermScopeOption[]>(
+        () =>
+            terms
+                .slice()
+                .sort((a, b) =>
+                    String(a.schoolYear || "").localeCompare(String(b.schoolYear || ""), undefined, {
+                        numeric: true,
+                        sensitivity: "base",
+                    }) ||
+                    String(a.semester || "").localeCompare(String(b.semester || ""), undefined, {
+                        numeric: true,
+                        sensitivity: "base",
+                    })
+                )
+                .map((term) => ({
+                    $id: String(term.$id || ""),
+                    label: termLabel(term),
+                    isActive: (term as any).isActive !== false,
+                })),
+        [terms]
+    )
+
+    const selectedAcademicTermScopeLabel = React.useMemo(() => {
+        if (termScopeSelection.length === 0) return "No active academic terms selected"
+        if (termScopeSelection.length === 1) {
+            return academicTermScopeOptions.find((term) => term.$id === termScopeSelection[0])?.label || "1 academic term selected"
+        }
+        return `${termScopeSelection.length} academic terms selected`
+    }, [academicTermScopeOptions, termScopeSelection])
 
     const selectedTermLabel = React.useMemo(() => {
         if (selectedFormTermDoc) return termLabel(selectedFormTermDoc)
@@ -318,139 +397,139 @@ export default function AdminSchedulesPage() {
     )
 
 
-const departmentScopedPrograms = React.useMemo(() => {
-    const scopedDepartmentId =
-        normalizeDisplayValue(selectedFormSection?.departmentId) ||
-        (departments.length === 1 ? normalizeDisplayValue(departments[0]?.$id) : "")
+    const departmentScopedPrograms = React.useMemo(() => {
+        const scopedDepartmentId =
+            normalizeDisplayValue(selectedFormSection?.departmentId) ||
+            (departments.length === 1 ? normalizeDisplayValue(departments[0]?.$id) : "")
 
-    return programs
-        .filter((program) => program.isActive !== false)
-        .filter((program) => {
-            const programDepartmentId = normalizeDisplayValue(program.departmentId)
-            return !scopedDepartmentId || !programDepartmentId || programDepartmentId === scopedDepartmentId
+        return programs
+            .filter((program) => program.isActive !== false)
+            .filter((program) => {
+                const programDepartmentId = normalizeDisplayValue(program.departmentId)
+                return !scopedDepartmentId || !programDepartmentId || programDepartmentId === scopedDepartmentId
+            })
+            .slice()
+            .sort((a, b) => normalizeDisplayValue(a.name).localeCompare(normalizeDisplayValue(b.name), undefined, { numeric: true, sensitivity: "base" }))
+    }, [departments, normalizeDisplayValue, programs, selectedFormSection])
+
+    const getSubjectCollegeNameValues = React.useCallback(
+        (subject?: SubjectDoc | null) => {
+            if (!subject) return []
+            const anySubject = subject as Record<string, unknown>
+            return buildSubjectFilterOptions([
+                getDepartmentNameById(subject.departmentId),
+                anySubject.departmentName,
+                anySubject.collegeName,
+                anySubject.college,
+            ])
+        },
+        [getDepartmentNameById]
+    )
+
+    const getSubjectProgramNameValues = React.useCallback(
+        (subject?: SubjectDoc | null) => {
+            if (!subject) return []
+            const anySubject = subject as Record<string, unknown>
+            return buildSubjectFilterOptions([
+                subject.programName,
+                getProgramNameById(subject.programId),
+                ...(Array.isArray(subject.programIds) ? (subject.programIds as Array<string | null | undefined>).map((programId) => getProgramNameById(programId)) : []),
+                anySubject.programName,
+            ])
+        },
+        [getProgramNameById]
+    )
+
+    const getSubjectAcademicTermNameValues = React.useCallback(
+        (subject?: SubjectDoc | null) => {
+            if (!subject) return []
+            const anySubject = subject as Record<string, unknown>
+            const subjectTermLabel = buildAcademicTermOptionLabel(termMap.get(normalizeDisplayValue(subject.termId)) ?? null)
+            const inlineSchoolYear = normalizeDisplayValue(anySubject.schoolYear)
+            const inlineSemester = normalizeDisplayValue(anySubject.semester)
+            const inlineLabel = inlineSchoolYear && inlineSemester ? `${inlineSchoolYear} • ${inlineSemester}` : ""
+
+            return buildSubjectFilterOptions([
+                subjectTermLabel,
+                inlineLabel,
+            ])
+        },
+        [buildAcademicTermOptionLabel, normalizeDisplayValue, termMap]
+    )
+
+    const matchesAnySelectedSubjectFilter = React.useCallback(
+        (selectedValues: string[], subjectValues: string[]) => {
+            if (selectedValues.length === 0) return true
+            if (subjectValues.length === 0) return true
+            return selectedValues.some((selectedValue) => matchesSelectedSubjectFilter(selectedValue, subjectValues))
+        },
+        []
+    )
+
+    const subjectCollegeOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedDepartmentName,
+                ...departments.map((department) => normalizeDisplayValue(department.name)),
+                ...subjects.flatMap((subject) => getSubjectCollegeNameValues(subject)),
+            ]),
+        [departments, getSubjectCollegeNameValues, normalizeDisplayValue, selectedDepartmentName, subjects]
+    )
+
+    const subjectProgramOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                getSectionProgramDisplayName(selectedFormSection),
+                ...sections.map((section) => getSectionProgramDisplayName(section)),
+                ...departmentScopedPrograms.map((program) => normalizeDisplayValue(program.name)),
+                ...subjects.flatMap((subject) => getSubjectProgramNameValues(subject)),
+            ]),
+        [departmentScopedPrograms, getSectionProgramDisplayName, getSubjectProgramNameValues, normalizeDisplayValue, sections, selectedFormSection, subjects]
+    )
+
+    const yearLevelTotals = React.useMemo(() => {
+        const totals = new Map<string, number>()
+        sections.forEach((section) => {
+            const label = normalizeDisplayValue(formatYearLevelFilterLabel(section.yearLevel))
+            if (!label) return
+            totals.set(label, (totals.get(label) || 0) + 1)
         })
-        .slice()
-        .sort((a, b) => normalizeDisplayValue(a.name).localeCompare(normalizeDisplayValue(b.name), undefined, { numeric: true, sensitivity: "base" }))
-}, [departments, normalizeDisplayValue, programs, selectedFormSection])
+        return Array.from(totals.entries())
+            .map(([label, count]) => ({ label, count }))
+            .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
+    }, [normalizeDisplayValue, sections])
 
-const getSubjectCollegeNameValues = React.useCallback(
-    (subject?: SubjectDoc | null) => {
-        if (!subject) return []
-        const anySubject = subject as Record<string, unknown>
-        return buildSubjectFilterOptions([
-            getDepartmentNameById(subject.departmentId),
-            anySubject.departmentName,
-            anySubject.collegeName,
-            anySubject.college,
-        ])
-    },
-    [getDepartmentNameById]
-)
+    const subjectYearLevelOptions = React.useMemo(
+        () => yearLevelTotals.map((item) => item.label),
+        [yearLevelTotals]
+    )
 
-const getSubjectProgramNameValues = React.useCallback(
-    (subject?: SubjectDoc | null) => {
-        if (!subject) return []
-        const anySubject = subject as Record<string, unknown>
-        return buildSubjectFilterOptions([
-            subject.programName,
-            getProgramNameById(subject.programId),
-            ...(Array.isArray(subject.programIds) ? (subject.programIds as Array<string | null | undefined>).map((programId) => getProgramNameById(programId)) : []),
-            anySubject.programName,
-        ])
-    },
-    [getProgramNameById]
-)
+    const subjectYearLevelCounts = React.useMemo(() => {
+        return yearLevelTotals.reduce<Record<string, number>>((acc, item) => {
+            acc[item.label] = item.count
+            return acc
+        }, {})
+    }, [yearLevelTotals])
 
-const getSubjectAcademicTermNameValues = React.useCallback(
-    (subject?: SubjectDoc | null) => {
-        if (!subject) return []
-        const anySubject = subject as Record<string, unknown>
-        const subjectTermLabel = buildAcademicTermOptionLabel(termMap.get(normalizeDisplayValue(subject.termId)) ?? null)
-        const inlineSchoolYear = normalizeDisplayValue(anySubject.schoolYear)
-        const inlineSemester = normalizeDisplayValue(anySubject.semester)
-        const inlineLabel = inlineSchoolYear && inlineSemester ? `${inlineSchoolYear} • ${inlineSemester}` : ""
+    const subjectSemesterOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedSemesterLabel,
+                ...activeAcademicTerms.map((term) => normalizeDisplayValue(term.semester)),
+                ...subjects.flatMap((subject) => getSubjectSemesterFilterValues(subject)),
+            ]),
+        [activeAcademicTerms, normalizeDisplayValue, selectedSemesterLabel, subjects]
+    )
 
-        return buildSubjectFilterOptions([
-            subjectTermLabel,
-            inlineLabel,
-        ])
-    },
-    [buildAcademicTermOptionLabel, normalizeDisplayValue, termMap]
-)
-
-const matchesAnySelectedSubjectFilter = React.useCallback(
-    (selectedValues: string[], subjectValues: string[]) => {
-        if (selectedValues.length === 0) return true
-        if (subjectValues.length === 0) return true
-        return selectedValues.some((selectedValue) => matchesSelectedSubjectFilter(selectedValue, subjectValues))
-    },
-    []
-)
-
-const subjectCollegeOptions = React.useMemo(
-    () =>
-        buildSubjectFilterOptions([
-            selectedDepartmentName,
-            ...departments.map((department) => normalizeDisplayValue(department.name)),
-            ...subjects.flatMap((subject) => getSubjectCollegeNameValues(subject)),
-        ]),
-    [departments, getSubjectCollegeNameValues, normalizeDisplayValue, selectedDepartmentName, subjects]
-)
-
-const subjectProgramOptions = React.useMemo(
-    () =>
-        buildSubjectFilterOptions([
-            getSectionProgramDisplayName(selectedFormSection),
-            ...sections.map((section) => getSectionProgramDisplayName(section)),
-            ...departmentScopedPrograms.map((program) => normalizeDisplayValue(program.name)),
-            ...subjects.flatMap((subject) => getSubjectProgramNameValues(subject)),
-        ]),
-    [departmentScopedPrograms, getSectionProgramDisplayName, getSubjectProgramNameValues, normalizeDisplayValue, sections, selectedFormSection, subjects]
-)
-
-const yearLevelTotals = React.useMemo(() => {
-    const totals = new Map<string, number>()
-    sections.forEach((section) => {
-        const label = normalizeDisplayValue(formatYearLevelFilterLabel(section.yearLevel))
-        if (!label) return
-        totals.set(label, (totals.get(label) || 0) + 1)
-    })
-    return Array.from(totals.entries())
-        .map(([label, count]) => ({ label, count }))
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
-}, [normalizeDisplayValue, sections])
-
-const subjectYearLevelOptions = React.useMemo(
-    () => yearLevelTotals.map((item) => item.label),
-    [yearLevelTotals]
-)
-
-const subjectYearLevelCounts = React.useMemo(() => {
-    return yearLevelTotals.reduce<Record<string, number>>((acc, item) => {
-        acc[item.label] = item.count
-        return acc
-    }, {})
-}, [yearLevelTotals])
-
-const subjectSemesterOptions = React.useMemo(
-    () =>
-        buildSubjectFilterOptions([
-            selectedSemesterLabel,
-            ...activeAcademicTerms.map((term) => normalizeDisplayValue(term.semester)),
-            ...subjects.flatMap((subject) => getSubjectSemesterFilterValues(subject)),
-        ]),
-    [activeAcademicTerms, normalizeDisplayValue, selectedSemesterLabel, subjects]
-)
-
-const subjectAcademicTermOptions = React.useMemo(
-    () =>
-        buildSubjectFilterOptions([
-            selectedAcademicTermCompositeLabel,
-            ...activeAcademicTerms.map((term) => buildAcademicTermOptionLabel(term)),
-            ...subjects.flatMap((subject) => getSubjectAcademicTermNameValues(subject)),
-        ]),
-    [activeAcademicTerms, buildAcademicTermOptionLabel, getSubjectAcademicTermNameValues, selectedAcademicTermCompositeLabel, subjects]
-)
+    const subjectAcademicTermOptions = React.useMemo(
+        () =>
+            buildSubjectFilterOptions([
+                selectedAcademicTermCompositeLabel,
+                ...activeAcademicTerms.map((term) => buildAcademicTermOptionLabel(term)),
+                ...subjects.flatMap((subject) => getSubjectAcademicTermNameValues(subject)),
+            ]),
+        [activeAcademicTerms, buildAcademicTermOptionLabel, getSubjectAcademicTermNameValues, selectedAcademicTermCompositeLabel, subjects]
+    )
 
     const clearSubjectFilters = React.useCallback(() => {
         setSubjectCollegeFilter(SUBJECT_FILTER_ALL_VALUE)
@@ -461,34 +540,34 @@ const subjectAcademicTermOptions = React.useMemo(
     }, [])
 
 
-const applyScheduleContextSubjectFilters = React.useCallback(() => {
-    const matchedProgram = pickMatchingSubjectFilterOption(subjectProgramOptions, [getSectionProgramDisplayName(selectedFormSection)])
-    const matchedYearLevel = pickMatchingSubjectFilterOption(subjectYearLevelOptions, [formatYearLevelFilterLabel(selectedFormSection?.yearLevel)])
+    const applyScheduleContextSubjectFilters = React.useCallback(() => {
+        const matchedProgram = pickMatchingSubjectFilterOption(subjectProgramOptions, [getSectionProgramDisplayName(selectedFormSection)])
+        const matchedYearLevel = pickMatchingSubjectFilterOption(subjectYearLevelOptions, [formatYearLevelFilterLabel(selectedFormSection?.yearLevel)])
 
-    setSubjectCollegeFilter(
-        pickMatchingSubjectFilterOption(subjectCollegeOptions, [selectedDepartmentName])
-    )
-    setSubjectProgramFilters(matchedProgram !== SUBJECT_FILTER_ALL_VALUE ? [matchedProgram] : [])
-    setSubjectYearLevelFilters(matchedYearLevel !== SUBJECT_FILTER_ALL_VALUE ? [matchedYearLevel] : [])
-    setSubjectSemesterFilter(
-        pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedSemesterLabel, selectedTermLabel])
-    )
-    setSubjectAcademicTermFilter(
-        pickMatchingSubjectFilterOption(subjectAcademicTermOptions, [selectedAcademicTermCompositeLabel])
-    )
-}, [
-    getSectionProgramDisplayName,
-    selectedAcademicTermCompositeLabel,
-    selectedDepartmentName,
-    selectedFormSection,
-    selectedSemesterLabel,
-    selectedTermLabel,
-    subjectAcademicTermOptions,
-    subjectCollegeOptions,
-    subjectProgramOptions,
-    subjectSemesterOptions,
-    subjectYearLevelOptions,
-])
+        setSubjectCollegeFilter(
+            pickMatchingSubjectFilterOption(subjectCollegeOptions, [selectedDepartmentName])
+        )
+        setSubjectProgramFilters(matchedProgram !== SUBJECT_FILTER_ALL_VALUE ? [matchedProgram] : [])
+        setSubjectYearLevelFilters(matchedYearLevel !== SUBJECT_FILTER_ALL_VALUE ? [matchedYearLevel] : [])
+        setSubjectSemesterFilter(
+            pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedSemesterLabel, selectedTermLabel])
+        )
+        setSubjectAcademicTermFilter(
+            pickMatchingSubjectFilterOption(subjectAcademicTermOptions, [selectedAcademicTermCompositeLabel])
+        )
+    }, [
+        getSectionProgramDisplayName,
+        selectedAcademicTermCompositeLabel,
+        selectedDepartmentName,
+        selectedFormSection,
+        selectedSemesterLabel,
+        selectedTermLabel,
+        subjectAcademicTermOptions,
+        subjectCollegeOptions,
+        subjectProgramOptions,
+        subjectSemesterOptions,
+        subjectYearLevelOptions,
+    ])
 
     React.useEffect(() => {
         if (!entryDialogOpen) return
@@ -626,284 +705,286 @@ const applyScheduleContextSubjectFilters = React.useCallback(() => {
     }, [fetchAll])
 
 
-const fetchScheduleContext = React.useCallback(async () => {
-    if (activeAcademicTermIds.length === 0) {
-        setSubjects([])
-        setRooms([])
-        setSections([])
-        setFacultyProfiles([])
-        setClasses([])
-        setMeetings([])
+    const fetchScheduleContext = React.useCallback(async () => {
+        if (activeAcademicTermIds.length === 0) {
+            setSubjects([])
+            setRooms([])
+            setSections([])
+            setFacultyProfiles([])
+            setClasses([])
+            setMeetings([])
+            setEntriesError(null)
+            return
+        }
+
+        setEntriesLoading(true)
         setEntriesError(null)
-        return
-    }
 
-    setEntriesLoading(true)
-    setEntriesError(null)
+        try {
+            const [cRes, mRes, subjRes, roomRes, secRes, userRes] = await Promise.all([
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASSES, [
+                    Query.limit(5000),
+                ]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, [
+                    Query.limit(5000),
+                ]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.SUBJECTS, [Query.limit(5000)]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.ROOMS, [Query.limit(2000)]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [
+                    Query.limit(2000),
+                ]),
+                databases.listDocuments(DATABASE_ID, COLLECTIONS.USER_PROFILES, [
+                    Query.orderAsc("name"),
+                    Query.limit(5000),
+                ]),
+            ])
 
-    try {
-        const [cRes, mRes, subjRes, roomRes, secRes, userRes] = await Promise.all([
-            databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASSES, [
-                Query.limit(5000),
-            ]),
-            databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, [
-                Query.limit(5000),
-            ]),
-            databases.listDocuments(DATABASE_ID, COLLECTIONS.SUBJECTS, [Query.limit(5000)]),
-            databases.listDocuments(DATABASE_ID, COLLECTIONS.ROOMS, [Query.limit(2000)]),
-            databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [
-                Query.limit(2000),
-            ]),
-            databases.listDocuments(DATABASE_ID, COLLECTIONS.USER_PROFILES, [
-                Query.orderAsc("name"),
-                Query.limit(5000),
-            ]),
-        ])
+            const activeTermIdSet = new Set(activeAcademicTermIds)
 
-        const activeTermIdSet = new Set(activeAcademicTermIds)
+            const scopedClasses = ((cRes?.documents ?? []) as ClassDoc[])
+                .filter((classDoc) => activeTermIdSet.has(String(classDoc.termId || "").trim()))
 
-        const scopedClasses = ((cRes?.documents ?? []) as ClassDoc[])
-            .filter((classDoc) => activeTermIdSet.has(String(classDoc.termId || "").trim()))
+            const scopedClassIds = new Set(scopedClasses.map((classDoc) => String(classDoc.$id || "").trim()).filter(Boolean))
 
-        const scopedClassIds = new Set(scopedClasses.map((classDoc) => String(classDoc.$id || "").trim()).filter(Boolean))
+            const scopedMeetings = ((mRes?.documents ?? []) as ClassMeetingDoc[])
+                .filter((meeting) => scopedClassIds.has(String((meeting as any).classId || "").trim()))
 
-        const scopedMeetings = ((mRes?.documents ?? []) as ClassMeetingDoc[])
-            .filter((meeting) => scopedClassIds.has(String((meeting as any).classId || "").trim()))
-
-        const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
-        const scopedSubjects = allSubjects
-            .filter((subject) => (subject as any).isActive !== false)
-            .filter((subject) => {
-                const subjectTermId = String((subject as any).termId || "").trim()
-                return !subjectTermId || activeTermIdSet.has(subjectTermId)
-            })
-            .sort((a, b) => {
-                const ac = String((a as any).code || "").toLowerCase()
-                const bc = String((b as any).code || "").toLowerCase()
-                if (ac !== bc) return ac.localeCompare(bc)
-                return String((a as any).title || "").localeCompare(String((b as any).title || ""))
-            })
-
-        const scopedRooms = ((roomRes?.documents ?? []) as RoomDoc[])
-            .filter((room) => (room as any).isActive !== false)
-            .sort((a, b) => String((a as any).code || "").localeCompare(String((b as any).code || "")))
-
-        const scopedSections = ((secRes?.documents ?? []) as SectionDoc[])
-            .filter((section) => (section as any).isActive !== false)
-            .filter((section) => activeTermIdSet.has(String(section.termId || "").trim()))
-            .sort(sortSectionsForDisplay)
-
-        const scopedFaculty = ((userRes?.documents ?? []) as UserProfileDoc[])
-            .filter((facultyProfile) => (facultyProfile as any).isActive !== false)
-            .sort((a, b) =>
-                String((a as any).name || (a as any).email || (a as any).userId || "").localeCompare(
-                    String((b as any).name || (b as any).email || (b as any).userId || "")
-                )
-            )
-
-        setClasses(scopedClasses)
-        setMeetings(scopedMeetings)
-        setSubjects(scopedSubjects)
-        setRooms(scopedRooms)
-        setSections(scopedSections)
-        setFacultyProfiles(scopedFaculty)
-    } catch (e: any) {
-        setEntriesError(e?.message || "Failed to load schedule entries.")
-    } finally {
-        setEntriesLoading(false)
-    }
-}, [activeAcademicTermIds])
-
-React.useEffect(() => {
-    void fetchScheduleContext()
-}, [fetchScheduleContext])
-
-const inferSectionTrackCode = React.useCallback((section?: SectionDoc | null) => {
-    if (!section) return ""
-    const values = [
-        (section as any)?.yearLevel,
-        (section as any)?.programCode,
-        (section as any)?.programName,
-        (section as any)?.label,
-        (section as any)?.name,
-    ]
-
-    for (const value of values) {
-        const normalized = normalizeDisplayValue(value).toUpperCase()
-        if (!normalized) continue
-        if (normalized.startsWith("CS")) return "CS"
-        if (normalized.startsWith("IS")) return "IS"
-        if (normalized.includes("COMPUTER SCIENCE")) return "CS"
-        if (normalized.includes("INFORMATION SYSTEM")) return "IS"
-    }
-
-    return ""
-}, [normalizeDisplayValue])
-
-const normalizeYearLevelValueForStorage = React.useCallback((value: string, section?: SectionDoc | null) => {
-    const raw = normalizeDisplayValue(value)
-    if (!raw) return ""
-
-    const prefixedMatch = raw.match(/^(CS|IS)\s*(\d+)$/i)
-    if (prefixedMatch) {
-        return `${prefixedMatch[1].toUpperCase()} ${prefixedMatch[2]}`
-    }
-
-    const numberMatch = raw.match(/(\d+)/)
-    const numberToken = numberMatch?.[1] || ""
-    if (!numberToken) return raw
-
-    const inferredTrackCode = inferSectionTrackCode(section)
-    if (inferredTrackCode) {
-        return `${inferredTrackCode} ${numberToken}`
-    }
-
-    return numberToken
-}, [inferSectionTrackCode, normalizeDisplayValue])
-
-const getYearLevelSectionName = React.useCallback((section?: SectionDoc | null) => {
-    const rawName = normalizeDisplayValue(section?.name)
-    if (!rawName) return DEFAULT_YEAR_LEVEL_SECTION_NAME
-
-    const normalizedName = rawName.toLowerCase()
-    if (normalizedName === "others") return DEFAULT_YEAR_LEVEL_SECTION_NAME
-
-    if (/^[a-z]$/i.test(rawName)) {
-        return rawName.toUpperCase()
-    }
-
-    return DEFAULT_YEAR_LEVEL_SECTION_NAME
-}, [normalizeDisplayValue])
-
-const createYearLevelSection = React.useCallback(async (value: string) => {
-    const scopeSection = selectedFormSection || sections[0] || null
-    const nextYearLevel = normalizeYearLevelValueForStorage(value, scopeSection)
-    const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
-
-    const scopeTermId =
-        normalizeDisplayValue(scopeSection?.termId) ||
-        normalizeDisplayValue(activeAcademicTermIds[0])
-
-    const scopeDepartmentId = normalizeDisplayValue(scopeSection?.departmentId)
-    const scopeProgramId = normalizeDisplayValue((scopeSection as any)?.programId)
-    const sectionName = getYearLevelSectionName(scopeSection)
-
-    if (!scopeTermId || !scopeDepartmentId || !nextYearLevel || !nextLabel) {
-        toast.error("Please select a scoped section or ensure there is an active term before adding a year level.")
-        return
-    }
-
-    const exists = sections.some((section) => {
-        if (!subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), nextLabel)) {
-            return false
-        }
-
-        if (normalizeDisplayValue(section.termId) !== scopeTermId) return false
-        if (normalizeDisplayValue(section.departmentId) !== scopeDepartmentId) return false
-
-        const sectionProgramId = normalizeDisplayValue((section as any)?.programId)
-        if (scopeProgramId || sectionProgramId) {
-            return sectionProgramId === scopeProgramId
-        }
-
-        return true
-    })
-    if (exists) {
-        toast.error("That year level already exists in sections for the current scope.")
-        return
-    }
-
-    setYearLevelMutating(true)
-    try {
-        await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), {
-            termId: scopeTermId,
-            departmentId: scopeDepartmentId,
-            programId: scopeProgramId || null,
-            yearLevel: nextYearLevel,
-            name: sectionName,
-            studentCount: null,
-            isActive: true,
-        })
-        toast.success("Year level added.")
-        await fetchScheduleContext()
-    } catch (e: any) {
-        toast.error(e?.message || "Failed to add year level.")
-    } finally {
-        setYearLevelMutating(false)
-    }
-}, [activeAcademicTermIds, fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
-
-const renameYearLevelSections = React.useCallback(async (currentValue: string, nextValue: string) => {
-    const currentLabel = normalizeDisplayValue(currentValue)
-    const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), currentLabel))
-
-    const referenceSection = matchingSections[0] || selectedFormSection || null
-    const nextYearLevel = normalizeYearLevelValueForStorage(nextValue, referenceSection)
-    const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
-    const fallbackSectionName = getYearLevelSectionName(referenceSection)
-
-    if (!currentLabel || !nextYearLevel || !nextLabel) {
-        toast.error("Please enter a valid year level.")
-        return
-    }
-
-    if (matchingSections.length === 0) {
-        toast.error("No matching sections found for that year level.")
-        return
-    }
-
-    setYearLevelMutating(true)
-    try {
-        await Promise.all(
-            matchingSections.map((section) => {
-                const currentSectionName = normalizeDisplayValue((section as any)?.name)
-                const nextSectionName =
-                    !currentSectionName || subjectFilterValuesMatch(currentSectionName, currentLabel)
-                        ? fallbackSectionName
-                        : getYearLevelSectionName(section)
-
-                return databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id, {
-                    yearLevel: nextYearLevel,
-                    name: nextSectionName,
+            const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
+            const scopedSubjects = allSubjects
+                .filter((subject) => (subject as any).isActive !== false)
+                .filter((subject) => hasLinkedSubjectMetadata(subject))
+                .filter((subject) => {
+                    const subjectTermId = String((subject as any).termId || "").trim()
+                    return Boolean(subjectTermId) && activeTermIdSet.has(subjectTermId)
                 })
+                .sort((a, b) => {
+                    const ac = String((a as any).code || "").toLowerCase()
+                    const bc = String((b as any).code || "").toLowerCase()
+                    if (ac !== bc) return ac.localeCompare(bc)
+                    return String((a as any).title || "").localeCompare(String((b as any).title || ""))
+                })
+
+            const scopedRooms = ((roomRes?.documents ?? []) as RoomDoc[])
+                .filter((room) => (room as any).isActive !== false)
+                .sort((a, b) => String((a as any).code || "").localeCompare(String((b as any).code || "")))
+
+            const scopedSections = ((secRes?.documents ?? []) as SectionDoc[])
+                .filter((section) => (section as any).isActive !== false)
+                .filter((section) => hasLinkedSectionMetadata(section))
+                .filter((section) => activeTermIdSet.has(String(section.termId || "").trim()))
+                .sort(sortSectionsForDisplay)
+
+            const scopedFaculty = ((userRes?.documents ?? []) as UserProfileDoc[])
+                .filter((facultyProfile) => (facultyProfile as any).isActive !== false)
+                .sort((a, b) =>
+                    String((a as any).name || (a as any).email || (a as any).userId || "").localeCompare(
+                        String((b as any).name || (b as any).email || (b as any).userId || "")
+                    )
+                )
+
+            setClasses(scopedClasses)
+            setMeetings(scopedMeetings)
+            setSubjects(scopedSubjects)
+            setRooms(scopedRooms)
+            setSections(scopedSections)
+            setFacultyProfiles(scopedFaculty)
+        } catch (e: any) {
+            setEntriesError(e?.message || "Failed to load schedule entries.")
+        } finally {
+            setEntriesLoading(false)
+        }
+    }, [activeAcademicTermIds])
+
+    React.useEffect(() => {
+        void fetchScheduleContext()
+    }, [fetchScheduleContext])
+
+    const inferSectionTrackCode = React.useCallback((section?: SectionDoc | null) => {
+        if (!section) return ""
+        const values = [
+            (section as any)?.yearLevel,
+            (section as any)?.programCode,
+            (section as any)?.programName,
+            (section as any)?.label,
+            (section as any)?.name,
+        ]
+
+        for (const value of values) {
+            const normalized = normalizeDisplayValue(value).toUpperCase()
+            if (!normalized) continue
+            if (normalized.startsWith("CS")) return "CS"
+            if (normalized.startsWith("IS")) return "IS"
+            if (normalized.includes("COMPUTER SCIENCE")) return "CS"
+            if (normalized.includes("INFORMATION SYSTEM")) return "IS"
+        }
+
+        return ""
+    }, [normalizeDisplayValue])
+
+    const normalizeYearLevelValueForStorage = React.useCallback((value: string, section?: SectionDoc | null) => {
+        const raw = normalizeDisplayValue(value)
+        if (!raw) return ""
+
+        const prefixedMatch = raw.match(/^(CS|IS)\s*(\d+)$/i)
+        if (prefixedMatch) {
+            return `${prefixedMatch[1].toUpperCase()} ${prefixedMatch[2]}`
+        }
+
+        const numberMatch = raw.match(/(\d+)/)
+        const numberToken = numberMatch?.[1] || ""
+        if (!numberToken) return raw
+
+        const inferredTrackCode = inferSectionTrackCode(section)
+        if (inferredTrackCode) {
+            return `${inferredTrackCode} ${numberToken}`
+        }
+
+        return numberToken
+    }, [inferSectionTrackCode, normalizeDisplayValue])
+
+    const getYearLevelSectionName = React.useCallback((section?: SectionDoc | null) => {
+        const rawName = normalizeDisplayValue(section?.name)
+        if (!rawName) return DEFAULT_YEAR_LEVEL_SECTION_NAME
+
+        const normalizedName = rawName.toLowerCase()
+        if (normalizedName === "others") return DEFAULT_YEAR_LEVEL_SECTION_NAME
+
+        if (/^[a-z]$/i.test(rawName)) {
+            return rawName.toUpperCase()
+        }
+
+        return DEFAULT_YEAR_LEVEL_SECTION_NAME
+    }, [normalizeDisplayValue])
+
+    const createYearLevelSection = React.useCallback(async (value: string) => {
+        const scopeSection = selectedFormSection || sections[0] || null
+        const nextYearLevel = normalizeYearLevelValueForStorage(value, scopeSection)
+        const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
+
+        const scopeTermId =
+            normalizeDisplayValue(scopeSection?.termId) ||
+            normalizeDisplayValue(activeAcademicTermIds[0])
+
+        const scopeDepartmentId = normalizeDisplayValue(scopeSection?.departmentId)
+        const scopeProgramId = normalizeDisplayValue((scopeSection as any)?.programId)
+        const sectionName = getYearLevelSectionName(scopeSection)
+
+        if (!scopeTermId || !scopeDepartmentId || !nextYearLevel || !nextLabel) {
+            toast.error("Please select a scoped section or ensure there is an active term before adding a year level.")
+            return
+        }
+
+        const exists = sections.some((section) => {
+            if (!subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), nextLabel)) {
+                return false
+            }
+
+            if (normalizeDisplayValue(section.termId) !== scopeTermId) return false
+            if (normalizeDisplayValue(section.departmentId) !== scopeDepartmentId) return false
+
+            const sectionProgramId = normalizeDisplayValue((section as any)?.programId)
+            if (scopeProgramId || sectionProgramId) {
+                return sectionProgramId === scopeProgramId
+            }
+
+            return true
+        })
+        if (exists) {
+            toast.error("That year level already exists in sections for the current scope.")
+            return
+        }
+
+        setYearLevelMutating(true)
+        try {
+            await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), {
+                termId: scopeTermId,
+                departmentId: scopeDepartmentId,
+                programId: scopeProgramId || null,
+                yearLevel: nextYearLevel,
+                name: sectionName,
+                studentCount: null,
+                isActive: true,
             })
-        )
-        toast.success("Year level updated.")
-        await fetchScheduleContext()
-    } catch (e: any) {
-        toast.error(e?.message || "Failed to update year level.")
-    } finally {
-        setYearLevelMutating(false)
-    }
-}, [fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
+            toast.success("Year level added.")
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to add year level.")
+        } finally {
+            setYearLevelMutating(false)
+        }
+    }, [activeAcademicTermIds, fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
 
-const deleteYearLevelSections = React.useCallback(async (value: string) => {
-    const yearLevelLabel = normalizeDisplayValue(value)
-    if (!yearLevelLabel) {
-        toast.error("Please choose a year level to delete.")
-        return
-    }
+    const renameYearLevelSections = React.useCallback(async (currentValue: string, nextValue: string) => {
+        const currentLabel = normalizeDisplayValue(currentValue)
+        const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), currentLabel))
 
-    const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), yearLevelLabel))
-    if (matchingSections.length === 0) {
-        toast.error("No matching sections found for that year level.")
-        return
-    }
+        const referenceSection = matchingSections[0] || selectedFormSection || null
+        const nextYearLevel = normalizeYearLevelValueForStorage(nextValue, referenceSection)
+        const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
+        const fallbackSectionName = getYearLevelSectionName(referenceSection)
 
-    setYearLevelMutating(true)
-    try {
-        await Promise.all(
-            matchingSections.map((section) => databases.deleteDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id))
-        )
-        setSubjectYearLevelFilters((current) => current.filter((item) => item !== yearLevelLabel))
-        toast.success("Year level deleted.")
-        await fetchScheduleContext()
-    } catch (e: any) {
-        toast.error(e?.message || "Failed to delete year level.")
-    } finally {
-        setYearLevelMutating(false)
-    }
-}, [fetchScheduleContext, normalizeDisplayValue, sections])
+        if (!currentLabel || !nextYearLevel || !nextLabel) {
+            toast.error("Please enter a valid year level.")
+            return
+        }
+
+        if (matchingSections.length === 0) {
+            toast.error("No matching sections found for that year level.")
+            return
+        }
+
+        setYearLevelMutating(true)
+        try {
+            await Promise.all(
+                matchingSections.map((section) => {
+                    const currentSectionName = normalizeDisplayValue((section as any)?.name)
+                    const nextSectionName =
+                        !currentSectionName || subjectFilterValuesMatch(currentSectionName, currentLabel)
+                            ? fallbackSectionName
+                            : getYearLevelSectionName(section)
+
+                    return databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id, {
+                        yearLevel: nextYearLevel,
+                        name: nextSectionName,
+                    })
+                })
+            )
+            toast.success("Year level updated.")
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to update year level.")
+        } finally {
+            setYearLevelMutating(false)
+        }
+    }, [fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
+
+    const deleteYearLevelSections = React.useCallback(async (value: string) => {
+        const yearLevelLabel = normalizeDisplayValue(value)
+        if (!yearLevelLabel) {
+            toast.error("Please choose a year level to delete.")
+            return
+        }
+
+        const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), yearLevelLabel))
+        if (matchingSections.length === 0) {
+            toast.error("No matching sections found for that year level.")
+            return
+        }
+
+        setYearLevelMutating(true)
+        try {
+            await Promise.all(
+                matchingSections.map((section) => databases.deleteDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id))
+            )
+            setSubjectYearLevelFilters((current) => current.filter((item) => item !== yearLevelLabel))
+            toast.success("Year level deleted.")
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to delete year level.")
+        } finally {
+            setYearLevelMutating(false)
+        }
+    }, [fetchScheduleContext, normalizeDisplayValue, sections])
 
     React.useEffect(() => {
         setFormSubjectIds((prev) => {
@@ -944,8 +1025,8 @@ const deleteYearLevelSections = React.useCallback(async (value: string) => {
             const facultyKey = facultyUserId
                 ? `uid:${facultyUserId}`
                 : manualFaculty
-                  ? `manual:${normalizeText(manualFaculty)}`
-                  : ""
+                    ? `manual:${normalizeText(manualFaculty)}`
+                    : ""
 
             const subjectCode = String((subject as any)?.code || "").trim()
             const subjectTitle = String((subject as any)?.title || "").trim()
@@ -1136,8 +1217,8 @@ const deleteYearLevelSections = React.useCallback(async (value: string) => {
             row.isManualFaculty
                 ? FACULTY_OPTION_MANUAL
                 : row.facultyUserId
-                  ? String(row.facultyUserId)
-                  : FACULTY_OPTION_NONE
+                    ? String(row.facultyUserId)
+                    : FACULTY_OPTION_NONE
         )
         setFormManualFaculty(String(row.manualFaculty || ""))
         setFormRoomId(String(row.roomId || ""))
@@ -1159,8 +1240,8 @@ const deleteYearLevelSections = React.useCallback(async (value: string) => {
                     ? `manual:${normalizeText(formManualFaculty)}`
                     : ""
                 : formFacultyChoice === FACULTY_OPTION_NONE
-                  ? ""
-                  : `uid:${formFacultyChoice}`
+                    ? ""
+                    : `uid:${formFacultyChoice}`
 
         const out: CandidateConflict[] = []
 
@@ -1207,148 +1288,148 @@ const deleteYearLevelSections = React.useCallback(async (value: string) => {
     }, [candidateConflicts])
 
 
-const saveEntry = async () => {
-    if (!formSectionId) {
-        toast.error("Please select a section.")
-        return
-    }
-
-    const selectedSubjectId = String(formSubjectIds[0] || "").trim()
-
-    if (!selectedSubjectId) {
-        toast.error("Please select a subject.")
-        return
-    }
-
-    if (!formRoomId) {
-        toast.error("Please select a room.")
-        return
-    }
-
-    if (!formDayOfWeek) {
-        toast.error("Please select a day.")
-        return
-    }
-
-    if (!formStartTime || !formEndTime) {
-        toast.error("Please select both start and end time.")
-        return
-    }
-
-    const startMin = hhmmToMinutes(formStartTime)
-    const endMin = hhmmToMinutes(formEndTime)
-
-    if (startMin >= endMin) {
-        toast.error("End time must be later than start time.")
-        return
-    }
-
-    if (formFacultyChoice === FACULTY_OPTION_MANUAL && !formManualFaculty.trim()) {
-        toast.error("Please enter manual faculty name.")
-        return
-    }
-
-    if (candidateConflicts.length > 0 && !formAllowConflictSave) {
-        toast.error("Conflict detected. Resolve conflicts or enable override.")
-        return
-    }
-
-    setEntrySaving(true)
-    try {
-        const manualFaculty = formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
-        const facultyUserId =
-            formFacultyChoice === FACULTY_OPTION_NONE || formFacultyChoice === FACULTY_OPTION_MANUAL
-                ? null
-                : formFacultyChoice
-
-        const selectedSectionForPayload =
-            sections.find((section) => section.$id === formSectionId) || null
-        const selectedSubjectForPayload =
-            subjects.find((subject) => subject.$id === selectedSubjectId) || null
-
-        const resolvedTermId =
-            normalizeDisplayValue((selectedSectionForPayload as any)?.termId) ||
-            normalizeDisplayValue((selectedSubjectForPayload as any)?.termId) ||
-            normalizeDisplayValue(activeAcademicTermIds[0])
-
-        const resolvedDepartmentId =
-            normalizeDisplayValue((selectedSectionForPayload as any)?.departmentId) ||
-            normalizeDisplayValue((selectedSubjectForPayload as any)?.departmentId)
-
-        if (!resolvedTermId || !resolvedDepartmentId) {
-            toast.error("Unable to resolve the academic term or college for this schedule entry.")
+    const saveEntry = async () => {
+        if (!formSectionId) {
+            toast.error("Please select a section.")
             return
         }
 
-        const classPayload: any = {
-            termId: resolvedTermId,
-            departmentId: resolvedDepartmentId,
-            programId: (selectedSectionForPayload as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
-            sectionId: formSectionId,
-            facultyUserId,
-            classCode: null,
-            deliveryMode: null,
-            remarks: composeRemarks("", manualFaculty),
+        const selectedSubjectId = String(formSubjectIds[0] || "").trim()
+
+        if (!selectedSubjectId) {
+            toast.error("Please select a subject.")
+            return
         }
 
-        if (editingEntry) {
-            await databases.updateDocument(
-                DATABASE_ID,
-                COLLECTIONS.CLASSES,
-                editingEntry.classId,
-                {
-                    ...classPayload,
-                    subjectId: selectedSubjectId,
-                }
-            )
+        if (!formRoomId) {
+            toast.error("Please select a room.")
+            return
+        }
 
-            await databases.updateDocument(
-                DATABASE_ID,
-                COLLECTIONS.CLASS_MEETINGS,
-                editingEntry.meetingId,
-                {
-                    classId: editingEntry.classId,
+        if (!formDayOfWeek) {
+            toast.error("Please select a day.")
+            return
+        }
+
+        if (!formStartTime || !formEndTime) {
+            toast.error("Please select both start and end time.")
+            return
+        }
+
+        const startMin = hhmmToMinutes(formStartTime)
+        const endMin = hhmmToMinutes(formEndTime)
+
+        if (startMin >= endMin) {
+            toast.error("End time must be later than start time.")
+            return
+        }
+
+        if (formFacultyChoice === FACULTY_OPTION_MANUAL && !formManualFaculty.trim()) {
+            toast.error("Please enter manual faculty name.")
+            return
+        }
+
+        if (candidateConflicts.length > 0 && !formAllowConflictSave) {
+            toast.error("Conflict detected. Resolve conflicts or enable override.")
+            return
+        }
+
+        setEntrySaving(true)
+        try {
+            const manualFaculty = formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
+            const facultyUserId =
+                formFacultyChoice === FACULTY_OPTION_NONE || formFacultyChoice === FACULTY_OPTION_MANUAL
+                    ? null
+                    : formFacultyChoice
+
+            const selectedSectionForPayload =
+                sections.find((section) => section.$id === formSectionId) || null
+            const selectedSubjectForPayload =
+                subjects.find((subject) => subject.$id === selectedSubjectId) || null
+
+            const resolvedTermId =
+                normalizeDisplayValue((selectedSectionForPayload as any)?.termId) ||
+                normalizeDisplayValue((selectedSubjectForPayload as any)?.termId) ||
+                normalizeDisplayValue(activeAcademicTermIds[0])
+
+            const resolvedDepartmentId =
+                normalizeDisplayValue((selectedSectionForPayload as any)?.departmentId) ||
+                normalizeDisplayValue((selectedSubjectForPayload as any)?.departmentId)
+
+            if (!resolvedTermId || !resolvedDepartmentId) {
+                toast.error("Unable to resolve the academic term or college for this schedule entry.")
+                return
+            }
+
+            const classPayload: any = {
+                termId: resolvedTermId,
+                departmentId: resolvedDepartmentId,
+                programId: (selectedSectionForPayload as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
+                sectionId: formSectionId,
+                facultyUserId,
+                classCode: null,
+                deliveryMode: null,
+                remarks: composeRemarks("", manualFaculty),
+            }
+
+            if (editingEntry) {
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASSES,
+                    editingEntry.classId,
+                    {
+                        ...classPayload,
+                        subjectId: selectedSubjectId,
+                    }
+                )
+
+                await databases.updateDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASS_MEETINGS,
+                    editingEntry.meetingId,
+                    {
+                        classId: editingEntry.classId,
+                        dayOfWeek: getCanonicalDayValue(formDayOfWeek),
+                        startTime: formStartTime,
+                        endTime: formEndTime,
+                        roomId: formRoomId || null,
+                        meetingType: formMeetingType,
+                    }
+                )
+
+                toast.success("Schedule entry updated.")
+            } else {
+                const createdClass = await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASSES,
+                    ID.unique(),
+                    {
+                        ...classPayload,
+                        subjectId: selectedSubjectId,
+                        status: "Planned",
+                    }
+                )
+
+                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                    classId: (createdClass as any).$id,
                     dayOfWeek: getCanonicalDayValue(formDayOfWeek),
                     startTime: formStartTime,
                     endTime: formEndTime,
                     roomId: formRoomId || null,
                     meetingType: formMeetingType,
-                }
-            )
+                })
 
-            toast.success("Schedule entry updated.")
-        } else {
-            const createdClass = await databases.createDocument(
-                DATABASE_ID,
-                COLLECTIONS.CLASSES,
-                ID.unique(),
-                {
-                    ...classPayload,
-                    subjectId: selectedSubjectId,
-                    status: "Planned",
-                }
-            )
+                toast.success("Schedule entry created.")
+            }
 
-            await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                classId: (createdClass as any).$id,
-                dayOfWeek: getCanonicalDayValue(formDayOfWeek),
-                startTime: formStartTime,
-                endTime: formEndTime,
-                roomId: formRoomId || null,
-                meetingType: formMeetingType,
-            })
-
-            toast.success("Schedule entry created.")
+            handleEntryDialogOpenChange(false)
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to save schedule entry.")
+        } finally {
+            setEntrySaving(false)
         }
-
-        handleEntryDialogOpenChange(false)
-        await fetchScheduleContext()
-    } catch (e: any) {
-        toast.error(e?.message || "Failed to save schedule entry.")
-    } finally {
-        setEntrySaving(false)
     }
-}
 
     const deleteEntry = async () => {
         if (!editingEntry) {
@@ -1396,28 +1477,57 @@ const saveEntry = async () => {
     }, [scheduleRows, conflictedRows, laboratoryRows])
 
 
-const scheduleScopeLabel = React.useMemo(() => {
-    if (activeAcademicTerms.length === 0) return "—"
+    const scheduleScopeLabel = React.useMemo(() => {
+        if (activeAcademicTerms.length === 0) return "—"
 
-    const departmentCount = Array.from(
-        new Set(
-            sections
-                .map((section) => normalizeDisplayValue(section.departmentId))
-                .filter(Boolean)
-        )
-    ).length
+        const departmentCount = Array.from(
+            new Set(
+                sections
+                    .map((section) => normalizeDisplayValue(section.departmentId))
+                    .filter(Boolean)
+            )
+        ).length
 
-    const termLabelText =
-        activeAcademicTerms.length === 1
-            ? buildAcademicTermOptionLabel(activeAcademicTerms[0]) || "Active academic term"
-            : `${activeAcademicTerms.length} active academic terms`
+        const termLabelText =
+            activeAcademicTerms.length === 1
+                ? buildAcademicTermOptionLabel(activeAcademicTerms[0]) || "Active academic term"
+                : `${activeAcademicTerms.length} active academic terms`
 
-    const departmentLabelText =
-        selectedDepartmentName ||
-        (departmentCount > 1 ? `${departmentCount} colleges` : "All colleges")
+        const departmentLabelText =
+            selectedDepartmentName ||
+            (departmentCount > 1 ? `${departmentCount} colleges` : "All colleges")
 
-    return [termLabelText, departmentLabelText].filter(Boolean).join(" • ")
-}, [activeAcademicTerms, buildAcademicTermOptionLabel, normalizeDisplayValue, sections, selectedDepartmentName])
+        return [termLabelText, departmentLabelText].filter(Boolean).join(" • ")
+    }, [activeAcademicTerms, buildAcademicTermOptionLabel, normalizeDisplayValue, sections, selectedDepartmentName])
+
+    const applySelectedAcademicTerms = React.useCallback(async () => {
+        const normalizedSelection = Array.from(new Set(termScopeSelection.map((value) => String(value || "").trim()).filter(Boolean)))
+
+        if (normalizedSelection.length === 0) {
+            toast.error("Select at least one academic term to activate.")
+            return
+        }
+
+        setTermScopeSaving(true)
+        try {
+            const selectedSet = new Set(normalizedSelection)
+            await Promise.all(
+                terms.map((term) =>
+                    databases.updateDocument(DATABASE_ID, COLLECTIONS.ACADEMIC_TERMS, term.$id, {
+                        isActive: selectedSet.has(String(term.$id || "").trim()),
+                    })
+                )
+            )
+
+            toast.success("Active academic terms updated.")
+            setTermScopePopoverOpen(false)
+            await fetchAll()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to update active academic terms.")
+        } finally {
+            setTermScopeSaving(false)
+        }
+    }, [fetchAll, termScopeSelection, terms])
 
     const HeaderActions = (
         <div className="flex items-center gap-2">
@@ -1434,6 +1544,106 @@ const scheduleScopeLabel = React.useMemo(() => {
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">
+                <Card className="rounded-2xl">
+                    <CardHeader className="pb-4">
+                        <CardTitle className="text-base">Academic Term Scope</CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="space-y-1">
+                            <div className="text-sm text-muted-foreground">
+                                Set the active academic terms directly from this page. Schedule sections, subjects, and entries only load from the selected active terms.
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {activeAcademicTerms.length > 0 ? (
+                                    activeAcademicTerms.map((term) => (
+                                        <Badge key={term.$id} variant="secondary" className="rounded-lg">
+                                            {termLabel(term)}
+                                        </Badge>
+                                    ))
+                                ) : (
+                                    <Badge variant="outline" className="rounded-lg">No active academic term</Badge>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <Popover open={termScopePopoverOpen} onOpenChange={setTermScopePopoverOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button type="button" variant="outline" className="min-w-65 justify-between rounded-xl">
+                                        <span className="truncate">{selectedAcademicTermScopeLabel}</span>
+                                        <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent align="end" className="w-[320px] max-h-75 overflow-auto p-0">
+                                    <div className="border-b px-4 py-3">
+                                        <div className="text-sm font-medium">Select active academic terms</div>
+                                        <div className="text-xs text-muted-foreground">
+                                            Multiple terms can stay active at the same time.
+                                        </div>
+                                    </div>
+                                    <ScrollArea className="max-h-72">
+                                        <div className="space-y-2 p-3">
+                                            {academicTermScopeOptions.length === 0 ? (
+                                                <div className="text-sm text-muted-foreground">No academic terms available.</div>
+                                            ) : (
+                                                academicTermScopeOptions.map((term) => {
+                                                    const checked = termScopeSelection.includes(term.$id)
+                                                    return (
+                                                        <label
+                                                            key={term.$id}
+                                                            htmlFor={`term-scope-${term.$id}`}
+                                                            className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition hover:bg-muted/40"
+                                                        >
+                                                            <Checkbox
+                                                                id={`term-scope-${term.$id}`}
+                                                                checked={checked}
+                                                                onCheckedChange={(value) => {
+                                                                    const nextChecked = Boolean(value)
+                                                                    setTermScopeSelection((current) => {
+                                                                        if (nextChecked) {
+                                                                            return current.includes(term.$id) ? current : [...current, term.$id]
+                                                                        }
+                                                                        return current.filter((item) => item !== term.$id)
+                                                                    })
+                                                                }}
+                                                            />
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-center gap-2 font-medium">
+                                                                    <span className="truncate">{term.label}</span>
+                                                                    {term.isActive ? <Check className="size-3.5 text-muted-foreground" /> : null}
+                                                                </div>
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    {term.isActive ? "Currently active" : "Currently inactive"}
+                                                                </div>
+                                                            </div>
+                                                        </label>
+                                                    )
+                                                })
+                                            )}
+                                        </div>
+                                    </ScrollArea>
+
+                                </PopoverContent>
+                                <div className="flex-col-1 items-center justify-end gap-2 px-3 py-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setTermScopeSelection(activeAcademicTermIds)}
+                                        disabled={termScopeSaving}
+                                        className="text-primary"
+                                    >
+                                        Reset
+                                    </Button>
+                                    <Button type="button" size="sm" onClick={() => void applySelectedAcademicTerms()} disabled={termScopeSaving} className="mt-2">
+                                        {termScopeSaving ? "Saving..." : "Apply Active Terms"}
+                                    </Button>
+                                </div>
+                            </Popover>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <SubjectMatchingFiltersCard
                     subjectCollegeFilter={subjectCollegeFilter}
                     setSubjectCollegeFilter={setSubjectCollegeFilter}

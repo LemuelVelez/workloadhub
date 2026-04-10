@@ -1298,28 +1298,6 @@ export function PlannerManagementSection({
     setFormSectionId,
     formSubjectIds,
     setFormSubjectIds,
-    subjectCollegeFilter,
-    setSubjectCollegeFilter,
-    subjectProgramFilters,
-    setSubjectProgramFilters,
-    subjectYearLevelFilters,
-    setSubjectYearLevelFilters,
-    subjectSemesterFilter,
-    setSubjectSemesterFilter,
-    subjectAcademicTermFilter,
-    setSubjectAcademicTermFilter,
-    subjectCollegeOptions,
-    subjectProgramOptions,
-    subjectYearLevelOptions,
-    subjectYearLevelCounts,
-    yearLevelMutating,
-    onCreateYearLevel,
-    onRenameYearLevel,
-    onDeleteYearLevel,
-    subjectSemesterOptions,
-    subjectAcademicTermOptions,
-    onClearSubjectFilters,
-    onApplyScheduleContextSubjectFilters,
     formFacultyChoice,
     setFormFacultyChoice,
     formManualFaculty,
@@ -1343,7 +1321,6 @@ export function PlannerManagementSection({
     facultyProfiles,
     rooms,
     filteredSubjectOptions,
-    activeSubjectFilterBadges,
     onEditEntry,
     onSaveEntry,
     onDeleteEntry,
@@ -2622,34 +2599,11 @@ export function PlannerManagementSection({
                             </div>
 
                             <div className="space-y-3">
-                                <SubjectMatchingFiltersCard
-                                    subjectCollegeFilter={subjectCollegeFilter}
-                                    setSubjectCollegeFilter={setSubjectCollegeFilter}
-                                    subjectProgramFilters={subjectProgramFilters}
-                                    setSubjectProgramFilters={setSubjectProgramFilters}
-                                    subjectYearLevelFilters={subjectYearLevelFilters}
-                                    setSubjectYearLevelFilters={setSubjectYearLevelFilters}
-                                    subjectSemesterFilter={subjectSemesterFilter}
-                                    setSubjectSemesterFilter={setSubjectSemesterFilter}
-                                    subjectAcademicTermFilter={subjectAcademicTermFilter}
-                                    setSubjectAcademicTermFilter={setSubjectAcademicTermFilter}
-                                    subjectCollegeOptions={subjectCollegeOptions}
-                                    subjectProgramOptions={subjectProgramOptions}
-                                    subjectYearLevelOptions={subjectYearLevelOptions}
-                                    subjectYearLevelCounts={subjectYearLevelCounts}
-                                    yearLevelMutating={yearLevelMutating}
-                                    onCreateYearLevel={onCreateYearLevel}
-                                    onRenameYearLevel={onRenameYearLevel}
-                                    onDeleteYearLevel={onDeleteYearLevel}
-                                    subjectSemesterOptions={subjectSemesterOptions}
-                                    subjectAcademicTermOptions={subjectAcademicTermOptions}
-                                    filteredSubjectCount={filteredSubjectOptions.length}
-                                    activeSubjectFilterBadges={activeSubjectFilterBadges}
-                                    onClearSubjectFilters={onClearSubjectFilters}
-                                    onApplyScheduleContextSubjectFilters={onApplyScheduleContextSubjectFilters}
-                                    idPrefix="dialog-subject-matching-filters"
-                                    className="border bg-muted/20"
-                                />
+                                <div className="rounded-2xl border p-4">
+                                    <div className="text-xs text-muted-foreground">
+                                        Subjects shown here are automatically scoped by the selected section and only include linked college, program, year level, semester, and academic term records.
+                                    </div>
+                                </div>
 
                                 <div className="space-y-1">
                                     <Label>Subject</Label>
@@ -2676,7 +2630,7 @@ export function PlannerManagementSection({
 
                                 <div className="rounded-2xl border p-4">
                                     <div className="text-xs text-muted-foreground">
-                                        Subjects shown here are scoped by the selected section and your chosen college, program, year level, semester, and academic term filters.
+                                        Subjects shown here are automatically scoped by the selected section and only include linked college, program, year level, semester, and academic term records.
                                     </div>
 
                                     {selectedSubjectDoc ? (
@@ -2690,7 +2644,7 @@ export function PlannerManagementSection({
                                         </div>
                                     ) : filteredSubjectOptions.length === 0 ? (
                                         <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                                            No subjects match the current section and subject filters. Clear filters or adjust the schedule context to see more subjects.
+                                            No linked subjects are available for the selected section and active academic term scope.
                                         </div>
                                     ) : (
                                         <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
