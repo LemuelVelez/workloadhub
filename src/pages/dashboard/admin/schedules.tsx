@@ -42,7 +42,7 @@ import {
     dayOrder,
     deptLabel,
     extractManualFaculty,
-    filterSubjectsForSection,
+    filterSubjectsForSections,
     formatYearLevelFilterLabel,
     getCanonicalDayValue,
     getSubjectSemesterFilterValues,
@@ -54,6 +54,7 @@ import {
     pickMatchingSubjectFilterOption,
     rangesOverlap,
     roomTypeLabel,
+    sectionMatchesSubjectFilters,
     sortSectionsForDisplay,
     stripManualFacultyTag,
     subjectFilterValuesMatch,
@@ -141,6 +142,7 @@ export default function AdminSchedulesPage() {
 
     const [subjectCollegeFilter, setSubjectCollegeFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
     const [subjectProgramFilters, setSubjectProgramFilters] = React.useState<string[]>([])
+    const [subjectSectionFilters, setSubjectSectionFilters] = React.useState<string[]>([])
     const [subjectYearLevelFilters, setSubjectYearLevelFilters] = React.useState<string[]>([])
     const [subjectSemesterFilter, setSubjectSemesterFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
     const [subjectAcademicTermFilter, setSubjectAcademicTermFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
@@ -335,16 +337,6 @@ export default function AdminSchedulesPage() {
         return m
     }, [facultyProfiles])
 
-    const selectedFormSection = React.useMemo(
-        () => sections.find((section) => section.$id === formSectionId) || null,
-        [sections, formSectionId]
-    )
-
-    const sectionScopedSubjects = React.useMemo(
-        () => filterSubjectsForSection(subjects, selectedFormSection),
-        [subjects, selectedFormSection]
-    )
-
     const normalizeDisplayValue = React.useCallback((value?: unknown) => String(value ?? "").trim(), [])
 
     const buildAcademicTermOptionLabel = React.useCallback(
@@ -396,6 +388,82 @@ export default function AdminSchedulesPage() {
         [getProgramNameById, normalizeDisplayValue]
     )
 
+    const getSectionFilterLabel = React.useCallback(
+        (section?: SectionDoc | null) => {
+            if (!section) return ""
+
+            const explicitLabel = normalizeDisplayValue((section as any)?.label)
+            if (explicitLabel) return explicitLabel
+
+            const yearLabel = normalizeDisplayValue(formatYearLevelFilterLabel((section as any)?.yearLevel))
+            const sectionName = normalizeDisplayValue((section as any)?.name)
+            const composedLabel = [yearLabel, sectionName].filter(Boolean).join(" - ")
+
+            return composedLabel || normalizeDisplayValue(section.$id)
+        },
+        [normalizeDisplayValue]
+    )
+
+    const subjectSectionOptions = React.useMemo(
+        () =>
+            sections
+                .filter((section) => section.isActive !== false)
+                .slice()
+                .sort(sortSectionsForDisplay)
+                .map((section) => ({
+                    value: section.$id,
+                    label: getSectionFilterLabel(section),
+                })),
+        [getSectionFilterLabel, sections]
+    )
+
+    const filteredScopedSections = React.useMemo(
+        () =>
+            sections
+                .filter((section) =>
+                    sectionMatchesSubjectFilters({
+                        section,
+                        subjectCollegeFilter,
+                        subjectProgramFilters,
+                        subjectSectionFilters,
+                        subjectYearLevelFilters,
+                        subjectSemesterFilter,
+                        subjectAcademicTermFilter,
+                    })
+                )
+                .slice()
+                .sort(sortSectionsForDisplay),
+        [
+            sections,
+            subjectAcademicTermFilter,
+            subjectCollegeFilter,
+            subjectProgramFilters,
+            subjectSectionFilters,
+            subjectSemesterFilter,
+            subjectYearLevelFilters,
+        ]
+    )
+
+    React.useEffect(() => {
+        const fallbackSectionId = filteredScopedSections[0]?.$id || ""
+        if (!fallbackSectionId) {
+            if (formSectionId) setFormSectionId("")
+            return
+        }
+
+        if (filteredScopedSections.some((section) => section.$id === formSectionId)) return
+        setFormSectionId(fallbackSectionId)
+    }, [filteredScopedSections, formSectionId])
+
+    const selectedFormSection = React.useMemo(
+        () => filteredScopedSections.find((section) => section.$id === formSectionId) || filteredScopedSections[0] || null,
+        [filteredScopedSections, formSectionId]
+    )
+
+    const sectionScopedSubjects = React.useMemo(
+        () => filterSubjectsForSections(subjects, filteredScopedSections),
+        [filteredScopedSections, subjects]
+    )
 
     const departmentScopedPrograms = React.useMemo(() => {
         const scopedDepartmentId =
@@ -534,6 +602,7 @@ export default function AdminSchedulesPage() {
     const clearSubjectFilters = React.useCallback(() => {
         setSubjectCollegeFilter(SUBJECT_FILTER_ALL_VALUE)
         setSubjectProgramFilters([])
+        setSubjectSectionFilters([])
         setSubjectYearLevelFilters([])
         setSubjectSemesterFilter(SUBJECT_FILTER_ALL_VALUE)
         setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
@@ -548,6 +617,7 @@ export default function AdminSchedulesPage() {
             pickMatchingSubjectFilterOption(subjectCollegeOptions, [selectedDepartmentName])
         )
         setSubjectProgramFilters(matchedProgram !== SUBJECT_FILTER_ALL_VALUE ? [matchedProgram] : [])
+        setSubjectSectionFilters(selectedFormSection?.$id ? [selectedFormSection.$id] : [])
         setSubjectYearLevelFilters(matchedYearLevel !== SUBJECT_FILTER_ALL_VALUE ? [matchedYearLevel] : [])
         setSubjectSemesterFilter(
             pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedSemesterLabel, selectedTermLabel])
@@ -580,6 +650,7 @@ export default function AdminSchedulesPage() {
         }
 
         setSubjectProgramFilters((current) => current.filter((value) => subjectProgramOptions.includes(value)))
+        setSubjectSectionFilters((current) => current.filter((value) => subjectSectionOptions.some((option) => option.value === value)))
         setSubjectYearLevelFilters((current) => current.filter((value) => subjectYearLevelOptions.includes(value)))
 
         if (subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectSemesterOptions.includes(subjectSemesterFilter)) {
@@ -594,6 +665,7 @@ export default function AdminSchedulesPage() {
         subjectCollegeFilter,
         subjectCollegeOptions,
         subjectProgramOptions,
+        subjectSectionOptions,
         subjectSemesterFilter,
         subjectSemesterOptions,
         subjectYearLevelOptions,
@@ -641,14 +713,21 @@ export default function AdminSchedulesPage() {
             [
                 subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE ? `College: ${subjectCollegeFilter}` : null,
                 subjectProgramFilters.length > 0 ? `Programs: ${subjectProgramFilters.join(", ")}` : null,
+                subjectSectionFilters.length > 0
+                    ? `Sections: ${subjectSectionFilters
+                        .map((sectionId) => subjectSectionOptions.find((option) => option.value === sectionId)?.label || sectionId)
+                        .join(", ")}`
+                    : null,
                 subjectYearLevelFilters.length > 0 ? `Year Levels: ${subjectYearLevelFilters.join(", ")}` : null,
                 subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectSemesterFilter}` : null,
-                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectAcademicTermFilter}` : null,
+                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Academic Term: ${subjectAcademicTermFilter}` : null,
             ].filter(Boolean) as string[],
         [
             subjectAcademicTermFilter,
             subjectCollegeFilter,
             subjectProgramFilters,
+            subjectSectionFilters,
+            subjectSectionOptions,
             subjectSemesterFilter,
             subjectYearLevelFilters,
         ]
@@ -1179,11 +1258,12 @@ export default function AdminSchedulesPage() {
     }, [scheduleRows])
 
     const resetEntryForm = React.useCallback(() => {
-        const nextSectionId = sections[0]?.$id || ""
-        const nextSection = sections.find((section) => section.$id === nextSectionId) || null
-        const nextSubjects = filterSubjectsForSection(subjects, nextSection)
+        const nextSection = filteredScopedSections[0] || sections[0] || null
+        const nextSectionId = nextSection?.$id || ""
+        const nextSubjects = filterSubjectsForSections(subjects, nextSection ? [nextSection] : [])
 
         setFormSectionId(nextSectionId)
+        setSubjectSectionFilters(nextSectionId ? [nextSectionId] : [])
         setFormSubjectIds(nextSubjects[0]?.$id ? [nextSubjects[0].$id] : [])
         setFormFacultyChoice(FACULTY_OPTION_NONE)
         setFormManualFaculty("")
@@ -1193,7 +1273,7 @@ export default function AdminSchedulesPage() {
         setFormEndTime("08:00")
         setFormMeetingType("LECTURE")
         setFormAllowConflictSave(false)
-    }, [sections, subjects, rooms])
+    }, [filteredScopedSections, rooms, sections, subjects])
 
     const handleEntryDialogOpenChange = React.useCallback((nextOpen: boolean) => {
         setEntryDialogOpen(nextOpen)
@@ -1212,6 +1292,7 @@ export default function AdminSchedulesPage() {
     const openEditEntry = React.useCallback((row: ScheduleRow) => {
         setEditingEntry(row)
         setFormSectionId(String(row.sectionId || ""))
+        setSubjectSectionFilters(String(row.sectionId || "").trim() ? [String(row.sectionId || "")] : [])
         setFormSubjectIds(String(row.subjectId || "").trim() ? [String(row.subjectId || "")] : [])
         setFormFacultyChoice(
             row.isManualFaculty
@@ -1289,8 +1370,8 @@ export default function AdminSchedulesPage() {
 
 
     const saveEntry = async () => {
-        if (!formSectionId) {
-            toast.error("Please select a section.")
+        if (filteredScopedSections.length !== 1) {
+            toast.error("Please narrow the Sections filter to one section before saving.")
             return
         }
 
@@ -1342,8 +1423,7 @@ export default function AdminSchedulesPage() {
                     ? null
                     : formFacultyChoice
 
-            const selectedSectionForPayload =
-                sections.find((section) => section.$id === formSectionId) || null
+            const selectedSectionForPayload = filteredScopedSections[0] || sections.find((section) => section.$id === formSectionId) || null
             const selectedSubjectForPayload =
                 subjects.find((subject) => subject.$id === selectedSubjectId) || null
 
@@ -1649,6 +1729,8 @@ export default function AdminSchedulesPage() {
                     setSubjectCollegeFilter={setSubjectCollegeFilter}
                     subjectProgramFilters={subjectProgramFilters}
                     setSubjectProgramFilters={setSubjectProgramFilters}
+                    subjectSectionFilters={subjectSectionFilters}
+                    setSubjectSectionFilters={setSubjectSectionFilters}
                     subjectYearLevelFilters={subjectYearLevelFilters}
                     setSubjectYearLevelFilters={setSubjectYearLevelFilters}
                     subjectSemesterFilter={subjectSemesterFilter}
@@ -1657,6 +1739,7 @@ export default function AdminSchedulesPage() {
                     setSubjectAcademicTermFilter={setSubjectAcademicTermFilter}
                     subjectCollegeOptions={subjectCollegeOptions}
                     subjectProgramOptions={subjectProgramOptions}
+                    subjectSectionOptions={subjectSectionOptions}
                     subjectYearLevelOptions={subjectYearLevelOptions}
                     subjectYearLevelCounts={subjectYearLevelCounts}
                     yearLevelMutating={yearLevelMutating}
@@ -1699,6 +1782,7 @@ export default function AdminSchedulesPage() {
                     setSubjectCollegeFilter={setSubjectCollegeFilter}
                     subjectProgramFilters={subjectProgramFilters}
                     setSubjectProgramFilters={setSubjectProgramFilters}
+                    subjectSectionFilters={subjectSectionFilters}
                     subjectYearLevelFilters={subjectYearLevelFilters}
                     setSubjectYearLevelFilters={setSubjectYearLevelFilters}
                     subjectSemesterFilter={subjectSemesterFilter}
@@ -1707,6 +1791,7 @@ export default function AdminSchedulesPage() {
                     setSubjectAcademicTermFilter={setSubjectAcademicTermFilter}
                     subjectCollegeOptions={subjectCollegeOptions}
                     subjectProgramOptions={subjectProgramOptions}
+                    subjectSectionOptions={subjectSectionOptions}
                     subjectYearLevelOptions={subjectYearLevelOptions}
                     subjectYearLevelCounts={subjectYearLevelCounts}
                     yearLevelMutating={yearLevelMutating}

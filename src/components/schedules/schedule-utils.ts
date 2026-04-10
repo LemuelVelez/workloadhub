@@ -291,6 +291,92 @@ export function filterSubjectsForSection(subjects: SubjectDoc[], section?: Secti
     return subjects
 }
 
+export function filterSubjectsForSections(subjects: SubjectDoc[], sections: SectionDoc[]) {
+    const normalizedSections = sections.filter(Boolean)
+    if (normalizedSections.length === 0) return subjects
+
+    const matchedSubjects = subjects.filter((subject) =>
+        normalizedSections.some((section) => doesSubjectBelongToSection(subject, section))
+    )
+    const hasScopedMetadata = subjects.some((subject) => subjectHasSectionScopedMetadata(subject))
+
+    if (matchedSubjects.length > 0 || hasScopedMetadata) {
+        return matchedSubjects
+    }
+
+    return subjects
+}
+
+export type SectionScopeFilterParams = {
+    section: SectionDoc
+    subjectCollegeFilter: string
+    subjectProgramFilters: string[]
+    subjectYearLevelFilters: string[]
+    subjectSemesterFilter: string
+    subjectAcademicTermFilter: string
+    subjectSectionFilters?: string[]
+}
+
+export function sectionMatchesSubjectFilters({
+    section,
+    subjectCollegeFilter,
+    subjectProgramFilters,
+    subjectYearLevelFilters,
+    subjectSemesterFilter,
+    subjectAcademicTermFilter,
+    subjectSectionFilters = [],
+}: SectionScopeFilterParams) {
+    const normalizedCollegeFilter = normalizeToken(subjectCollegeFilter)
+    const normalizedProgramFilters = subjectProgramFilters.map(normalizeToken).filter(Boolean)
+    const normalizedYearLevelFilters = subjectYearLevelFilters.map(normalizeToken).filter(Boolean)
+    const normalizedSemesterFilter = normalizeToken(subjectSemesterFilter)
+    const normalizedAcademicTermFilter = normalizeToken(subjectAcademicTermFilter)
+    const normalizedSectionFilters = subjectSectionFilters.map(normalizeToken).filter(Boolean)
+
+    const sectionCollegeTokens = [section.departmentId, section.programCode, section.programName]
+        .map(normalizeToken)
+        .filter(Boolean)
+    const sectionProgramTokens = [section.$id, section.programId, section.programCode, section.programName]
+        .map(normalizeToken)
+        .filter(Boolean)
+    const sectionYearLevelTokens = [section.yearLevel, section.label, section.name]
+        .map((value) => normalizeToken(String(value ?? "")))
+        .filter(Boolean)
+    const sectionSemesterToken = normalizeToken(section.semester)
+    const sectionAcademicTermToken = normalizeToken(section.academicTermLabel)
+    const sectionIdToken = normalizeToken(section.$id)
+
+    if (normalizedCollegeFilter && normalizedCollegeFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
+        if (!sectionCollegeTokens.includes(normalizedCollegeFilter)) return false
+    }
+
+    if (normalizedProgramFilters.length > 0) {
+        const hasProgramMatch = normalizedProgramFilters.some((value) => sectionProgramTokens.includes(value))
+        if (!hasProgramMatch) return false
+    }
+
+    if (normalizedYearLevelFilters.length > 0) {
+        const hasYearMatch = normalizedYearLevelFilters.some((value) =>
+            sectionYearLevelTokens.some((token) => token === value || token.includes(value) || value.includes(token))
+        )
+        if (!hasYearMatch) return false
+    }
+
+    if (normalizedSemesterFilter && normalizedSemesterFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
+        if (sectionSemesterToken !== normalizedSemesterFilter) return false
+    }
+
+    if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
+        if (sectionAcademicTermToken !== normalizedAcademicTermFilter) return false
+    }
+
+    if (normalizedSectionFilters.length > 0) {
+        if (!sectionIdToken || !normalizedSectionFilters.includes(sectionIdToken)) return false
+    }
+
+    return true
+}
+
 export const SUBJECT_FILTER_ALL_VALUE = "__all__"
 
 function normalizeSubjectFilterText(value?: unknown) {

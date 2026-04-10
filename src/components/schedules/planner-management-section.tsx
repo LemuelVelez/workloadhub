@@ -87,9 +87,15 @@ import {
     joinDisplayValues,
     meetingTypeLabel,
     roomTypeLabel,
+    sectionMatchesSubjectFilters,
     SUBJECT_FILTER_ALL_VALUE,
     TIME_OPTIONS,
 } from "./schedule-utils"
+
+type SubjectSectionFilterOption = {
+    value: string
+    label: string
+}
 
 type Props = {
     hasScheduleScope: boolean
@@ -126,6 +132,7 @@ type Props = {
     setSubjectCollegeFilter: (value: string) => void
     subjectProgramFilters: string[]
     setSubjectProgramFilters: React.Dispatch<React.SetStateAction<string[]>>
+    subjectSectionFilters: string[]
     subjectYearLevelFilters: string[]
     setSubjectYearLevelFilters: React.Dispatch<React.SetStateAction<string[]>>
     subjectSemesterFilter: string
@@ -134,6 +141,7 @@ type Props = {
     setSubjectAcademicTermFilter: (value: string) => void
     subjectCollegeOptions: string[]
     subjectProgramOptions: string[]
+    subjectSectionOptions: SubjectSectionFilterOption[]
     subjectYearLevelOptions: string[]
     subjectYearLevelCounts: Record<string, number>
     yearLevelMutating: boolean
@@ -181,6 +189,8 @@ export type SubjectMatchingFiltersCardProps = {
     setSubjectCollegeFilter: (value: string) => void
     subjectProgramFilters: string[]
     setSubjectProgramFilters: React.Dispatch<React.SetStateAction<string[]>>
+    subjectSectionFilters: string[]
+    setSubjectSectionFilters: React.Dispatch<React.SetStateAction<string[]>>
     subjectYearLevelFilters: string[]
     setSubjectYearLevelFilters: React.Dispatch<React.SetStateAction<string[]>>
     subjectSemesterFilter: string
@@ -189,6 +199,7 @@ export type SubjectMatchingFiltersCardProps = {
     setSubjectAcademicTermFilter: (value: string) => void
     subjectCollegeOptions: string[]
     subjectProgramOptions: string[]
+    subjectSectionOptions: SubjectSectionFilterOption[]
     subjectYearLevelOptions: string[]
     subjectYearLevelCounts: Record<string, number>
     yearLevelMutating: boolean
@@ -210,18 +221,24 @@ export function SubjectMatchingFiltersCard({
     setSubjectCollegeFilter,
     subjectProgramFilters,
     setSubjectProgramFilters,
+    subjectSectionFilters,
+    setSubjectSectionFilters,
     subjectYearLevelFilters,
     setSubjectYearLevelFilters,
+    subjectSemesterFilter,
+    setSubjectSemesterFilter,
     subjectAcademicTermFilter,
     setSubjectAcademicTermFilter,
     subjectCollegeOptions,
     subjectProgramOptions,
+    subjectSectionOptions,
     subjectYearLevelOptions,
     subjectYearLevelCounts,
     yearLevelMutating,
     onCreateYearLevel,
     onRenameYearLevel,
     onDeleteYearLevel,
+    subjectSemesterOptions,
     subjectAcademicTermOptions,
     filteredSubjectCount,
     activeSubjectFilterBadges,
@@ -231,6 +248,7 @@ export function SubjectMatchingFiltersCard({
     idPrefix = "subject-matching-filters",
 }: SubjectMatchingFiltersCardProps) {
     const selectedProgramCount = subjectProgramFilters.length
+    const selectedSectionCount = subjectSectionFilters.length
     const selectedYearLevelCount = subjectYearLevelFilters.length
     const [yearLevelDraft, setYearLevelDraft] = React.useState("")
     const [editingYearLevel, setEditingYearLevel] = React.useState<string | null>(null)
@@ -272,7 +290,7 @@ export function SubjectMatchingFiltersCard({
                         <div className="space-y-1">
                             <CardTitle>Subject Matching Filters</CardTitle>
                             <CardDescription>
-                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, year levels, semester, and linked semester record.
+                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, sections, year levels, semester, and linked semester record.
                             </CardDescription>
                         </div>
 
@@ -348,6 +366,52 @@ export function SubjectMatchingFiltersCard({
                                                             }}
                                                         />
                                                         <div className="min-w-0 flex-1 text-sm font-medium">{option}</div>
+                                                    </label>
+                                                )
+                                            })
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <Label>Sections</Label>
+                                    <span className="text-xs text-muted-foreground">
+                                        {selectedSectionCount} selected
+                                    </span>
+                                </div>
+                                <ScrollArea className="h-44 rounded-md border">
+                                    <div className="space-y-2 p-3">
+                                        {subjectSectionOptions.length === 0 ? (
+                                            <div className="text-sm text-muted-foreground">
+                                                No sections available for the current schedule context.
+                                            </div>
+                                        ) : (
+                                            subjectSectionOptions.map((option) => {
+                                                const checked = subjectSectionFilters.includes(option.value)
+                                                return (
+                                                    <label
+                                                        key={option.value}
+                                                        htmlFor={getCheckboxId("section", option.value)}
+                                                        className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                    >
+                                                        <Checkbox
+                                                            id={getCheckboxId("section", option.value)}
+                                                            checked={checked}
+                                                            onCheckedChange={(value) => {
+                                                                const nextChecked = Boolean(value)
+                                                                setSubjectSectionFilters((current) => {
+                                                                    if (nextChecked) {
+                                                                        return current.includes(option.value)
+                                                                            ? current
+                                                                            : [...current, option.value]
+                                                                    }
+                                                                    return current.filter((item) => item !== option.value)
+                                                                })
+                                                            }}
+                                                        />
+                                                        <div className="min-w-0 flex-1 text-sm font-medium wrap-break-word">{option.label}</div>
                                                     </label>
                                                 )
                                             })
@@ -462,12 +526,29 @@ export function SubjectMatchingFiltersCard({
 
                             <div className="grid gap-2">
                                 <Label>Semester</Label>
-                                <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
+                                <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="All semesters" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
+                                        {subjectSemesterOptions.map((option) => (
+                                            <SelectItem key={option} value={option}>
+                                                {option}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label>Academic Term</Label>
+                                <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
+                                    <SelectTrigger className="rounded-xl">
+                                        <SelectValue placeholder="All academic terms" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
                                         {subjectAcademicTermOptions.map((option) => (
                                             <SelectItem key={option} value={option}>
                                                 {option}
@@ -996,69 +1077,6 @@ function normalizePlannerSectionDisplayValue(value?: string | null) {
         .replace(/\s+/g, " ")
 }
 
-function normalizeScopeToken(value?: string | null) {
-    return String(value || "").trim().toLowerCase()
-}
-
-function sectionMatchesPlannerScope({
-    section,
-    subjectCollegeFilter,
-    subjectProgramFilters,
-    subjectYearLevelFilters,
-    subjectSemesterFilter,
-    subjectAcademicTermFilter,
-}: {
-    section: SectionDoc
-    subjectCollegeFilter: string
-    subjectProgramFilters: string[]
-    subjectYearLevelFilters: string[]
-    subjectSemesterFilter: string
-    subjectAcademicTermFilter: string
-}) {
-    const normalizedCollegeFilter = normalizeScopeToken(subjectCollegeFilter)
-    const normalizedProgramFilters = subjectProgramFilters.map(normalizeScopeToken).filter(Boolean)
-    const normalizedYearLevelFilters = subjectYearLevelFilters.map(normalizeScopeToken).filter(Boolean)
-    const normalizedSemesterFilter = normalizeScopeToken(subjectSemesterFilter)
-    const normalizedAcademicTermFilter = normalizeScopeToken(subjectAcademicTermFilter)
-
-    const sectionCollegeTokens = [section.departmentId, section.programCode, section.programName]
-        .map(normalizeScopeToken)
-        .filter(Boolean)
-    const sectionProgramTokens = [section.programId, section.programCode, section.programName]
-        .map(normalizeScopeToken)
-        .filter(Boolean)
-    const sectionYearLevelTokens = [section.yearLevel, section.label, section.name]
-        .map((value) => normalizeScopeToken(String(value ?? "")))
-        .filter(Boolean)
-    const sectionSemesterToken = normalizeScopeToken(section.semester)
-    const sectionAcademicTermToken = normalizeScopeToken(section.academicTermLabel)
-
-    if (normalizedCollegeFilter && normalizedCollegeFilter !== normalizeScopeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (!sectionCollegeTokens.includes(normalizedCollegeFilter)) return false
-    }
-
-    if (normalizedProgramFilters.length > 0) {
-        const hasProgramMatch = normalizedProgramFilters.some((value) => sectionProgramTokens.includes(value))
-        if (!hasProgramMatch) return false
-    }
-
-    if (normalizedYearLevelFilters.length > 0) {
-        const hasYearMatch = normalizedYearLevelFilters.some((value) =>
-            sectionYearLevelTokens.some((token) => token === value || token.includes(value) || value.includes(token))
-        )
-        if (!hasYearMatch) return false
-    }
-
-    if (normalizedSemesterFilter && normalizedSemesterFilter !== normalizeScopeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (sectionSemesterToken !== normalizedSemesterFilter) return false
-    }
-
-    if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeScopeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (sectionAcademicTermToken !== normalizedAcademicTermFilter) return false
-    }
-
-    return true
-}
 
 function getPlannerCourseYearKey(sectionDisplay?: string | null) {
     const normalizedSectionDisplay = normalizePlannerSectionDisplayValue(sectionDisplay)
@@ -1342,6 +1360,7 @@ export function PlannerManagementSection({
     setFormSubjectIds,
     subjectCollegeFilter,
     subjectProgramFilters,
+    subjectSectionFilters,
     subjectYearLevelFilters,
     subjectSemesterFilter,
     subjectAcademicTermFilter,
@@ -1390,10 +1409,11 @@ export function PlannerManagementSection({
 
     const filteredSections = React.useMemo(() => {
         return sections.filter((section) =>
-            sectionMatchesPlannerScope({
+            sectionMatchesSubjectFilters({
                 section,
                 subjectCollegeFilter,
                 subjectProgramFilters,
+                subjectSectionFilters,
                 subjectYearLevelFilters,
                 subjectSemesterFilter,
                 subjectAcademicTermFilter,
@@ -1401,15 +1421,27 @@ export function PlannerManagementSection({
         )
     }, [
         sections,
+        subjectAcademicTermFilter,
         subjectCollegeFilter,
         subjectProgramFilters,
-        subjectYearLevelFilters,
+        subjectSectionFilters,
         subjectSemesterFilter,
-        subjectAcademicTermFilter,
+        subjectYearLevelFilters,
     ])
 
+    React.useEffect(() => {
+        const fallbackSectionId = filteredSections[0]?.$id || ""
+        if (!fallbackSectionId) {
+            if (formSectionId) setFormSectionId("")
+            return
+        }
+
+        if (filteredSections.some((section) => section.$id === formSectionId)) return
+        setFormSectionId(fallbackSectionId)
+    }, [filteredSections, formSectionId, setFormSectionId])
+
     const selectedSection = React.useMemo(
-        () => filteredSections.find((section) => section.$id === formSectionId) ?? null,
+        () => filteredSections.find((section) => section.$id === formSectionId) ?? filteredSections[0] ?? null,
         [filteredSections, formSectionId]
     )
 
@@ -2621,27 +2653,18 @@ export function PlannerManagementSection({
 
                         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
                             <div className="space-y-3">
-                                <div className="space-y-1">
-                                    <Label>Section</Label>
-                                    <Select value={formSectionId} onValueChange={setFormSectionId}>
-                                        <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="Select section" />
-                                        </SelectTrigger>
-                                        <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                            {filteredSections.map((section) => (
-                                                <SelectItem key={section.$id} value={section.$id}>
-                                                    {sectionDisplayLookup[section.$id] || section.$id}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
                                 <div className="rounded-2xl border border-dashed p-4">
                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                        Section Reference Preview
+                                        Resolved Section Reference
                                     </div>
                                     <div className="mt-2 font-medium">{selectedSectionPreviewLabel}</div>
+                                    <div className="mt-2 text-xs text-muted-foreground">
+                                        {filteredSections.length === 0
+                                            ? "No matching section was found for the current subject filters."
+                                            : filteredSections.length === 1
+                                                ? "Create Schedule Entry now uses the section narrowed down from Subject Matching Filters."
+                                                : `Multiple sections match the current filters (${filteredSections.length}). Narrow the Sections filter to one section before saving.`}
+                                    </div>
                                     <div className="mt-3 flex flex-wrap gap-2">
                                         <Badge variant="secondary" className="rounded-full">
                                             {selectedDeptLabel || "Department not set"}
@@ -2688,7 +2711,7 @@ export function PlannerManagementSection({
                                         </SelectTrigger>
                                         <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                             {filteredSections.length === 0 ? (
-                                                <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE} disabled>No linked sections available</SelectItem>
+                                                <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE} disabled>No matching sections available</SelectItem>
                                             ) : filteredSubjectOptions.length === 0 ? (
                                                 <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE}>No subjects available</SelectItem>
                                             ) : (
