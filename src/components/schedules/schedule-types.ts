@@ -1,20 +1,5 @@
-export type ScheduleStatus = "Draft" | "Active" | "Locked" | "Archived" | (string & {})
 export type MeetingType = "LECTURE" | "LAB" | "OTHER" | (string & {})
 
-export type ScheduleVersionDoc = {
-    $id: string
-    $createdAt: string
-    $updatedAt: string
-    termId: string
-    departmentId: string
-    version: number
-    label?: string | null
-    status: ScheduleStatus
-    createdBy: string
-    lockedBy?: string | null
-    lockedAt?: string | null
-    notes?: string | null
-}
 
 export type DepartmentDoc = {
     $id: string

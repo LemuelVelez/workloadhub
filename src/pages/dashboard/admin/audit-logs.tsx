@@ -1081,7 +1081,7 @@ export default function AdminAuditLogsPage() {
                                         <CardContent>
                                             {/* ✅ Reduced height */}
                                             <ScrollArea className="h-48 rounded-xl border p-3">
-                                                <pre className="text-xs whitespace-pre-wrap break-words">
+                                                <pre className="text-xs whitespace-pre-wrap wrap-break-word">
                                                     {prettyJson((selected as any)?.meta ?? "") || "—"}
                                                 </pre>
                                             </ScrollArea>
@@ -1105,7 +1105,7 @@ export default function AdminAuditLogsPage() {
                                             <TabsContent value="before" className="mt-3">
                                                 {/* ✅ Reduced height + still scrollable */}
                                                 <ScrollArea className="h-56 rounded-xl border p-3">
-                                                    <pre className="text-xs whitespace-pre-wrap break-words">
+                                                    <pre className="text-xs whitespace-pre-wrap wrap-break-word">
                                                         {prettyJson((selected as any)?.before ?? "") || "—"}
                                                     </pre>
                                                 </ScrollArea>
@@ -1114,7 +1114,7 @@ export default function AdminAuditLogsPage() {
                                             <TabsContent value="after" className="mt-3">
                                                 {/* ✅ Reduced height + still scrollable */}
                                                 <ScrollArea className="h-56 rounded-xl border p-3">
-                                                    <pre className="text-xs whitespace-pre-wrap break-words">
+                                                    <pre className="text-xs whitespace-pre-wrap wrap-break-word">
                                                         {prettyJson((selected as any)?.after ?? "") || "—"}
                                                     </pre>
                                                 </ScrollArea>

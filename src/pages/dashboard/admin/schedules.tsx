@@ -22,7 +22,6 @@ import type {
     MeetingType,
     RoomDoc,
     ScheduleRow,
-    ScheduleVersionDoc,
     SectionDoc,
     SubjectDoc,
     UserProfileDoc,
@@ -106,6 +105,8 @@ export default function AdminSchedulesPage() {
     const [subjectAcademicTermFilter, setSubjectAcademicTermFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
     const [yearLevelMutating, setYearLevelMutating] = React.useState(false)
 
+    const DEFAULT_YEAR_LEVEL_SECTION_NAME = "Others"
+
     const termMap = React.useMemo(() => {
         const m = new Map<string, AcademicTermDoc>()
         terms.forEach((t) => m.set(t.$id, t))
@@ -155,23 +156,12 @@ export default function AdminSchedulesPage() {
         return deptMap.get(departmentId) ?? null
     }, [deptMap, formSectionId, sections])
 
-    const selectedVersion = React.useMemo<ScheduleVersionDoc | null>(() => {
-        const scopeKey = activeAcademicTermIds.join("|")
-        if (!scopeKey) return null
+    const hasScheduleScope = activeAcademicTermIds.length > 0
 
-        return {
-            $id: `active-scope:${scopeKey}`,
-            $createdAt: "",
-            $updatedAt: "",
-            termId: activeAcademicTermIds[0] || "",
-            departmentId: "",
-            version: 0,
-            label: "Active schedule scope",
-            status: "Active",
-            createdBy: "",
-            notes: null,
-        }
-    }, [activeAcademicTermIds])
+    const activeScheduleScopeKey = React.useMemo(
+        () => activeAcademicTermIds.join("|"),
+        [activeAcademicTermIds]
+    )
 
 
     const selectedTermLabel = React.useMemo(() => {
@@ -503,7 +493,7 @@ const applyScheduleContextSubjectFilters = React.useCallback(() => {
     React.useEffect(() => {
         if (!entryDialogOpen) return
         applyScheduleContextSubjectFilters()
-    }, [entryDialogOpen, formSectionId, selectedVersion?.$id, applyScheduleContextSubjectFilters])
+    }, [activeScheduleScopeKey, applyScheduleContextSubjectFilters, entryDialogOpen, formSectionId])
 
     React.useEffect(() => {
         if (subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectCollegeOptions.includes(subjectCollegeFilter)) {
@@ -771,6 +761,20 @@ const normalizeYearLevelValueForStorage = React.useCallback((value: string, sect
     return numberToken
 }, [inferSectionTrackCode, normalizeDisplayValue])
 
+const getYearLevelSectionName = React.useCallback((section?: SectionDoc | null) => {
+    const rawName = normalizeDisplayValue(section?.name)
+    if (!rawName) return DEFAULT_YEAR_LEVEL_SECTION_NAME
+
+    const normalizedName = rawName.toLowerCase()
+    if (normalizedName === "others") return DEFAULT_YEAR_LEVEL_SECTION_NAME
+
+    if (/^[a-z]$/i.test(rawName)) {
+        return rawName.toUpperCase()
+    }
+
+    return DEFAULT_YEAR_LEVEL_SECTION_NAME
+}, [normalizeDisplayValue])
+
 const createYearLevelSection = React.useCallback(async (value: string) => {
     const scopeSection = selectedFormSection || sections[0] || null
     const nextYearLevel = normalizeYearLevelValueForStorage(value, scopeSection)
@@ -781,15 +785,31 @@ const createYearLevelSection = React.useCallback(async (value: string) => {
         normalizeDisplayValue(activeAcademicTermIds[0])
 
     const scopeDepartmentId = normalizeDisplayValue(scopeSection?.departmentId)
+    const scopeProgramId = normalizeDisplayValue((scopeSection as any)?.programId)
+    const sectionName = getYearLevelSectionName(scopeSection)
 
     if (!scopeTermId || !scopeDepartmentId || !nextYearLevel || !nextLabel) {
         toast.error("Please select a scoped section or ensure there is an active term before adding a year level.")
         return
     }
 
-    const exists = sections.some((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), nextLabel))
+    const exists = sections.some((section) => {
+        if (!subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), nextLabel)) {
+            return false
+        }
+
+        if (normalizeDisplayValue(section.termId) !== scopeTermId) return false
+        if (normalizeDisplayValue(section.departmentId) !== scopeDepartmentId) return false
+
+        const sectionProgramId = normalizeDisplayValue((section as any)?.programId)
+        if (scopeProgramId || sectionProgramId) {
+            return sectionProgramId === scopeProgramId
+        }
+
+        return true
+    })
     if (exists) {
-        toast.error("That year level already exists in sections.")
+        toast.error("That year level already exists in sections for the current scope.")
         return
     }
 
@@ -798,11 +818,10 @@ const createYearLevelSection = React.useCallback(async (value: string) => {
         await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), {
             termId: scopeTermId,
             departmentId: scopeDepartmentId,
-            programId: (scopeSection as any)?.programId || null,
-            programName: getSectionProgramDisplayName(scopeSection) || null,
+            programId: scopeProgramId || null,
             yearLevel: nextYearLevel,
-            name: nextLabel,
-            label: nextLabel,
+            name: sectionName,
+            studentCount: null,
             isActive: true,
         })
         toast.success("Year level added.")
@@ -812,7 +831,7 @@ const createYearLevelSection = React.useCallback(async (value: string) => {
     } finally {
         setYearLevelMutating(false)
     }
-}, [activeAcademicTermIds, fetchScheduleContext, getSectionProgramDisplayName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
+}, [activeAcademicTermIds, fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
 
 const renameYearLevelSections = React.useCallback(async (currentValue: string, nextValue: string) => {
     const currentLabel = normalizeDisplayValue(currentValue)
@@ -821,6 +840,7 @@ const renameYearLevelSections = React.useCallback(async (currentValue: string, n
     const referenceSection = matchingSections[0] || selectedFormSection || null
     const nextYearLevel = normalizeYearLevelValueForStorage(nextValue, referenceSection)
     const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
+    const fallbackSectionName = getYearLevelSectionName(referenceSection)
 
     if (!currentLabel || !nextYearLevel || !nextLabel) {
         toast.error("Please enter a valid year level.")
@@ -835,17 +855,18 @@ const renameYearLevelSections = React.useCallback(async (currentValue: string, n
     setYearLevelMutating(true)
     try {
         await Promise.all(
-            matchingSections.map((section) =>
-                databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id, {
+            matchingSections.map((section) => {
+                const currentSectionName = normalizeDisplayValue((section as any)?.name)
+                const nextSectionName =
+                    !currentSectionName || subjectFilterValuesMatch(currentSectionName, currentLabel)
+                        ? fallbackSectionName
+                        : getYearLevelSectionName(section)
+
+                return databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id, {
                     yearLevel: nextYearLevel,
-                    label: nextLabel,
-                    name:
-                        !normalizeDisplayValue((section as any)?.name) ||
-                        subjectFilterValuesMatch((section as any)?.name, currentLabel)
-                            ? nextLabel
-                            : (section as any)?.name,
+                    name: nextSectionName,
                 })
-            )
+            })
         )
         toast.success("Year level updated.")
         await fetchScheduleContext()
@@ -854,7 +875,7 @@ const renameYearLevelSections = React.useCallback(async (currentValue: string, n
     } finally {
         setYearLevelMutating(false)
     }
-}, [fetchScheduleContext, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
+}, [fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
 
 const deleteYearLevelSections = React.useCallback(async (value: string) => {
     const yearLevelLabel = normalizeDisplayValue(value)
@@ -1375,7 +1396,7 @@ const saveEntry = async () => {
     }, [scheduleRows, conflictedRows, laboratoryRows])
 
 
-const selectedVersionLabel = React.useMemo(() => {
+const scheduleScopeLabel = React.useMemo(() => {
     if (activeAcademicTerms.length === 0) return "—"
 
     const departmentCount = Array.from(
@@ -1441,7 +1462,8 @@ const selectedVersionLabel = React.useMemo(() => {
                 />
 
                 <PlannerManagementSection
-                    selectedVersion={selectedVersion}
+                    hasScheduleScope={hasScheduleScope}
+                    scheduleScopeKey={activeScheduleScopeKey}
                     showConflictsOnly={showConflictsOnly}
                     onShowConflictsOnlyChange={setShowConflictsOnly}
                     entriesLoading={entriesLoading}
@@ -1453,7 +1475,7 @@ const selectedVersionLabel = React.useMemo(() => {
                     visibleRows={visibleRows}
                     laboratoryRows={laboratoryRows}
                     conflictFlagsByMeetingId={conflictFlagsByMeetingId}
-                    selectedVersionLabel={selectedVersionLabel}
+                    scheduleScopeLabel={scheduleScopeLabel}
                     selectedTermLabel={selectedTermLabel}
                     selectedDeptLabel={selectedDeptLabel}
                     entryDialogOpen={entryDialogOpen}

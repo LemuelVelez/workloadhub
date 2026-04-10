@@ -407,37 +407,6 @@ export default function AdminAcademicTermSetupPage() {
                 toast.success("Academic term created.")
             }
 
-            // ✅ Enforce single active term if enabled
-            if (termIsActive) {
-                const updated = await listDocumentsSafe(COLLECTIONS.ACADEMIC_TERMS, [
-                    Query.orderDesc("$createdAt"),
-                    Query.limit(200),
-                ]) as AcademicTermDoc[]
-
-                const activeId = editingTerm?.$id
-
-                const target = updated.find(
-                    (x) => x.schoolYear === sy && x.semester === termSemester
-                )
-
-                const newActiveId = target?.$id ?? activeId
-
-                if (newActiveId) {
-                    await Promise.all(
-                        updated
-                            .filter((x) => x.$id !== newActiveId && x.isActive)
-                            .map((x) =>
-                                databases.updateDocument(
-                                    DATABASE_ID,
-                                    COLLECTIONS.ACADEMIC_TERMS,
-                                    x.$id,
-                                    { isActive: false }
-                                )
-                            )
-                    )
-                }
-            }
-
             setTermDialogOpen(false)
             resetTermForm()
             await loadTerms()
@@ -455,22 +424,11 @@ export default function AdminAcademicTermSetupPage() {
                 isActive: true,
             })
 
-            const others = terms.filter((x) => x.$id !== t.$id && x.isActive)
-            if (others.length > 0) {
-                await Promise.all(
-                    others.map((x) =>
-                        databases.updateDocument(DATABASE_ID, COLLECTIONS.ACADEMIC_TERMS, x.$id, {
-                            isActive: false,
-                        })
-                    )
-                )
-            }
-
-            toast.success(`Active term set to: ${termLabel(t)}`)
+            toast.success(`Term activated: ${termLabel(t)}`)
             setSelectedTermId(t.$id)
             await loadTerms()
         } catch (e: any) {
-            toast.error(e?.message ?? "Failed to set active term.")
+            toast.error(e?.message ?? "Failed to activate term.")
         }
     }
 
@@ -829,7 +787,7 @@ export default function AdminAcademicTermSetupPage() {
                                                                         disabled={t.isActive}
                                                                     >
                                                                         <ShieldCheck className="mr-2 h-4 w-4" />
-                                                                        Set as Active
+                                                                        Mark Active
                                                                     </DropdownMenuItem>
 
                                                                     <DropdownMenuItem
@@ -1168,7 +1126,7 @@ export default function AdminAcademicTermSetupPage() {
                                         <div>
                                             <div className="font-medium">Active Term</div>
                                             <div className="text-xs text-muted-foreground">
-                                                Only one term should be active at a time.
+                                                Multiple academic terms can stay active at the same time.
                                             </div>
                                         </div>
                                         <Switch checked={termIsActive} onCheckedChange={setTermIsActive} />

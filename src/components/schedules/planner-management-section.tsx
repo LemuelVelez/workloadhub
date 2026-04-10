@@ -68,7 +68,6 @@ import type {
     PlannerStats,
     RoomDoc,
     ScheduleRow,
-    ScheduleVersionDoc,
     SectionDoc,
     SubjectDoc,
     UserProfileDoc,
@@ -93,7 +92,8 @@ import {
 } from "./schedule-utils"
 
 type Props = {
-    selectedVersion: ScheduleVersionDoc | null
+    hasScheduleScope: boolean
+    scheduleScopeKey: string
 
     showConflictsOnly: boolean
     onShowConflictsOnlyChange: (v: boolean) => void
@@ -110,7 +110,7 @@ type Props = {
     laboratoryRows: ScheduleRow[]
     conflictFlagsByMeetingId: Map<string, ConflictFlags>
 
-    selectedVersionLabel: string
+    scheduleScopeLabel: string
     selectedTermLabel: string
     selectedDeptLabel: string
 
@@ -1275,7 +1275,8 @@ function SchedulePdfDocument({
 }
 
 export function PlannerManagementSection({
-    selectedVersion,
+    hasScheduleScope,
+    scheduleScopeKey,
     showConflictsOnly,
     onShowConflictsOnlyChange,
     entriesLoading,
@@ -1287,7 +1288,7 @@ export function PlannerManagementSection({
     visibleRows,
     laboratoryRows,
     conflictFlagsByMeetingId,
-    selectedVersionLabel,
+    scheduleScopeLabel,
     selectedTermLabel,
     selectedDeptLabel,
     entryDialogOpen,
@@ -1422,7 +1423,7 @@ export function PlannerManagementSection({
 
     React.useEffect(() => {
         resetPlannerViewControls()
-    }, [selectedVersion?.$id, resetPlannerViewControls])
+    }, [resetPlannerViewControls, scheduleScopeKey])
 
     const renderConflictBadges = React.useCallback((flags?: ConflictFlags) => {
         if (!flags || (!flags.room && !flags.faculty && !flags.section)) {
@@ -1592,7 +1593,7 @@ export function PlannerManagementSection({
 
     const generatedAt = React.useMemo(() => fmtDate(new Date().toISOString()), [
         displayedPlannerRows.length,
-        selectedVersion?.$id,
+        scheduleScopeKey,
         showConflictsOnly,
         plannerSearch,
         plannerDayFilter,
@@ -1648,7 +1649,7 @@ export function PlannerManagementSection({
             fileNameBase: string
             scopeLabel?: string
         }) => {
-            if (!selectedVersion || rows.length === 0) {
+            if (!hasScheduleScope || rows.length === 0) {
                 throw new Error("No schedule entries to export.")
             }
 
@@ -1660,7 +1661,7 @@ export function PlannerManagementSection({
             const documentNode = (
                 <SchedulePdfDocument
                     rows={rows}
-                    versionLabel={selectedVersionLabel}
+                    versionLabel={scheduleScopeLabel}
                     termLabel={selectedTermLabel}
                     deptLabel={selectedDeptLabel}
                     generatedAt={generatedAt}
@@ -1676,19 +1677,19 @@ export function PlannerManagementSection({
 
             return { blob, fileName }
         },
-        [generatedAt, selectedDeptLabel, selectedTermLabel, selectedVersion, selectedVersionLabel, showConflictsOnly]
+        [generatedAt, hasScheduleScope, scheduleScopeLabel, selectedDeptLabel, selectedTermLabel, showConflictsOnly]
     )
 
     const openPdfPreview = React.useCallback(
         (previewState: PdfPreviewState) => {
-            if (!selectedVersion || previewState.rows.length === 0) {
+            if (!hasScheduleScope || previewState.rows.length === 0) {
                 toast.error("No schedule entries to preview.")
                 return
             }
 
             setPdfPreviewState(previewState)
         },
-        [selectedVersion]
+        [hasScheduleScope]
     )
 
     const closePdfPreview = React.useCallback(() => {
@@ -1754,7 +1755,7 @@ export function PlannerManagementSection({
             fileNameBase: string
             scopeLabel?: string
         }) => {
-            if (!selectedVersion || rows.length === 0) {
+            if (!hasScheduleScope || rows.length === 0) {
                 toast.error("No schedule entries to export.")
                 return
             }
@@ -1774,18 +1775,18 @@ export function PlannerManagementSection({
                 setPdfExportBusy(false)
             }
         },
-        [buildRowsPdf, selectedVersion]
+        [buildRowsPdf, hasScheduleScope]
     )
 
     const downloadPdf = async () => {
-        if (!selectedVersion || displayedPlannerRows.length === 0) {
+        if (!hasScheduleScope || displayedPlannerRows.length === 0) {
             toast.error("No schedule entries to export.")
             return
         }
 
         await downloadRowsPdf({
             rows: displayedPlannerRows,
-            fileNameBase: `schedule-report-${selectedVersion.$id}`,
+            fileNameBase: `schedule-report-${sanitizeFileNamePart(scheduleScopeKey || scheduleScopeLabel || selectedTermLabel || "active-scope")}`,
         })
     }
 
@@ -1854,7 +1855,7 @@ export function PlannerManagementSection({
                                 variant="outline"
                                 className="w-full rounded-xl sm:w-auto"
                                 onClick={onReloadEntries}
-                                disabled={!selectedVersion || entriesLoading || entrySaving}
+                                disabled={!hasScheduleScope || entriesLoading || entrySaving}
                             >
                                 <RefreshCcw className="mr-2 size-4" />
                                 Reload Entries
@@ -1868,10 +1869,10 @@ export function PlannerManagementSection({
                                         title: "Schedule PDF Preview",
                                         description: "Preview the generated PDF before export.",
                                         rows: displayedPlannerRows,
-                                        fileNameBase: selectedVersion ? `schedule-report-${selectedVersion.$id}` : "schedule-report",
+                                        fileNameBase: `schedule-report-${sanitizeFileNamePart(scheduleScopeKey || scheduleScopeLabel || selectedTermLabel || "active-scope")}`,
                                     })
                                 }
-                                disabled={!selectedVersion || displayedPlannerRows.length === 0}
+                                disabled={!hasScheduleScope || displayedPlannerRows.length === 0}
                             >
                                 <Eye className="mr-2 size-4" />
                                 Preview PDF
@@ -1881,7 +1882,7 @@ export function PlannerManagementSection({
                                 variant="outline"
                                 className="w-full rounded-xl sm:w-auto"
                                 onClick={() => void downloadPdf()}
-                                disabled={!selectedVersion || displayedPlannerRows.length === 0}
+                                disabled={!hasScheduleScope || displayedPlannerRows.length === 0}
                             >
                                 <Printer className="mr-2 size-4" />
                                 Export PDF
@@ -1890,7 +1891,7 @@ export function PlannerManagementSection({
                             <Button
                                 className="w-full rounded-xl sm:w-auto"
                                 onClick={onOpenCreateEntry}
-                                disabled={!selectedVersion || entriesLoading || entrySaving}
+                                disabled={!hasScheduleScope || entriesLoading || entrySaving}
                             >
                                 <Plus className="mr-2 size-4" />
                                 New Entry
@@ -1898,7 +1899,7 @@ export function PlannerManagementSection({
                         </div>
                     </div>
 
-                    {selectedVersion ? (
+                    {hasScheduleScope ? (
                         <div className="grid gap-4 md:grid-cols-3">
                             <Card className="rounded-2xl">
                                 <CardHeader className="pb-3">
@@ -1926,7 +1927,7 @@ export function PlannerManagementSection({
                         </div>
                     ) : null}
 
-                    {selectedVersion && plannerStats.conflicts > 0 ? (
+                    {hasScheduleScope && plannerStats.conflicts > 0 ? (
                         <Alert variant="destructive">
                             <AlertTitle className="flex items-center gap-2">
                                 <AlertTriangle className="size-4" />
@@ -1935,7 +1936,7 @@ export function PlannerManagementSection({
                             <AlertDescription className="space-y-3">
                                 <div>
                                     There are <span className="font-semibold">{plannerStats.conflicts}</span> conflicting schedule
-                                    entr{plannerStats.conflicts === 1 ? "y" : "ies"} in this version.
+                                    entr{plannerStats.conflicts === 1 ? "y" : "ies"} in the active schedule scope.
                                 </div>
                                 <Button
                                     type="button"
@@ -1952,7 +1953,7 @@ export function PlannerManagementSection({
 
                     <Separator />
 
-                    {selectedVersion ? (
+                    {hasScheduleScope ? (
                         <div className="rounded-2xl border bg-muted/20 p-4">
                             <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
                                 <div className="space-y-1">
@@ -2098,12 +2099,12 @@ export function PlannerManagementSection({
                         </div>
                     ) : null}
 
-                    {!selectedVersion ? (
+                    {!hasScheduleScope ? (
                         <div className="rounded-xl border border-dashed p-8 text-center">
                             <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
                                 <CalendarDays className="size-5" />
                             </div>
-                            <div className="mt-3 font-medium">No active schedule context</div>
+                            <div className="mt-3 font-medium">No active academic term</div>
                             <div className="text-sm text-muted-foreground">
                                 Activate at least one academic term to manage schedule entries and conflict detection.
                             </div>
@@ -2383,9 +2384,9 @@ export function PlannerManagementSection({
                 </CardHeader>
 
                 <CardContent>
-                    {!selectedVersion ? (
+                    {!hasScheduleScope ? (
                         <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                            No active schedule context to view laboratory assignments.
+                            No active academic term to view laboratory assignments.
                         </div>
                     ) : entriesLoading ? (
                         <div className="space-y-3">
@@ -2481,7 +2482,7 @@ export function PlannerManagementSection({
                     </DialogHeader>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary">{selectedVersionLabel || "No schedule scope"}</Badge>
+                        <Badge variant="secondary">{scheduleScopeLabel || "No schedule scope"}</Badge>
                         <Badge variant="secondary">{selectedTermLabel || "No term"}</Badge>
                         <Badge variant="secondary">{selectedDeptLabel || "No college"}</Badge>
                         {pdfPreviewState?.scopeLabel ? (
@@ -2534,7 +2535,7 @@ export function PlannerManagementSection({
                                           })
                                         : undefined
                                 }
-                                disabled={!selectedVersion || activePdfPreviewRows.length === 0 || pdfExportBusy}
+                                disabled={!hasScheduleScope || activePdfPreviewRows.length === 0 || pdfExportBusy}
                             >
                                 {pdfExportBusy ? (
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
