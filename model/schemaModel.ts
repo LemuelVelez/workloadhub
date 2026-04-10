@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "010_delete_schedule_versions_collection" as const;
+export const SCHEMA_MIGRATION_ID = "011_link_sections_scope_fields" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -205,6 +205,8 @@ export const ATTR = {
         departmentId: "departmentId",
         programId: "programId",
         yearLevel: "yearLevel",
+        semester: "semester",
+        academicTermLabel: "academicTermLabel",
         name: "name",
         studentCount: "studentCount",
         isActive: "isActive",
@@ -340,6 +342,8 @@ export const INDEX = {
 
     SECTIONS: {
         termDepartment: "idx_sections_term_department",
+        semester: "idx_sections_semester",
+        academicTermLabel: "idx_sections_academic_term_label",
 
         // ✅ unique key (termId + departmentId + yearLevel + name)
         // yearLevel now stores values like "CS 1" / "IS 1"
@@ -525,6 +529,13 @@ export type Section = {
      * - IS 2
      */
     yearLevel: SectionYearLevelValue;
+
+    /**
+     * ✅ Cached from the linked academic term so section filtering can match
+     * the same Semester and Academic Term controls used by Subjects/Schedules.
+     */
+    semester?: string | null;
+    academicTermLabel?: string | null;
 
     /**
      * ✅ Section name should be A-Z or Others (frontend enforced)

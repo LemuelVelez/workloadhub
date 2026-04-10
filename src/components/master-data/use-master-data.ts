@@ -478,6 +478,8 @@ export function useMasterDataManagement() {
                             ) ||
                                 normalizeSectionYearLevelValue(s.yearLevel) ||
                                 "1") as any,
+                        semester: s.semester ? str(s.semester) : null,
+                        academicTermLabel: s.academicTermLabel ? str(s.academicTermLabel) : termLabel(mappedTerms, str(s.termId)),
                         name: normalizeSectionNameValue(s.name),
                         studentCount: s.studentCount != null ? num(s.studentCount, 0) : null,
                         isActive: toBool(s.isActive),
@@ -1119,6 +1121,8 @@ export function useMasterDataManagement() {
     const [sectionTermId, setSectionTermId] = React.useState("")
     const [sectionCollegeId, setSectionCollegeId] = React.useState("")
     const [sectionProgramId, setSectionProgramId] = React.useState<string>("__none__")
+    const [sectionSemester, setSectionSemester] = React.useState<string>("")
+    const [sectionAcademicTermLabel, setSectionAcademicTermLabel] = React.useState<string>("")
     const [sectionYear, setSectionYear] = React.useState<string>("1")
     const [sectionName, setSectionName] = React.useState<string>(SECTION_NAME_OPTIONS[0] || "A")
     const [sectionStudentCount, setSectionStudentCount] = React.useState<string>("")
@@ -1131,6 +1135,9 @@ export function useMasterDataManagement() {
             setSectionTermId(str(selectedTermId))
             setSectionCollegeId(defaultCollegeId)
             setSectionProgramId("__none__")
+            const selectedTerm = terms.find((term) => str(term.$id) === str(selectedTermId))
+            setSectionSemester(str(selectedTerm?.semester))
+            setSectionAcademicTermLabel(termLabel(terms, str(selectedTermId)))
             setSectionYear("1")
             setSectionName(SECTION_NAME_OPTIONS[0] || "A")
             setSectionStudentCount("")
@@ -1141,11 +1148,13 @@ export function useMasterDataManagement() {
         setSectionTermId(str(sectionEditing.termId))
         setSectionCollegeId(str(sectionEditing.departmentId))
         setSectionProgramId(sectionEditing.programId ? str(sectionEditing.programId) : "__none__")
+        setSectionSemester(str(sectionEditing.semester))
+        setSectionAcademicTermLabel(str(sectionEditing.academicTermLabel) || termLabel(terms, str(sectionEditing.termId)))
         setSectionYear(normalizeSectionYearLevelValue(sectionEditing.yearLevel) || "1")
         setSectionName(normalizeSectionNameValue(sectionEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
         setSectionStudentCount(sectionEditing.studentCount != null ? String(sectionEditing.studentCount) : "")
         setSectionActive(Boolean(sectionEditing.isActive))
-    }, [sectionOpen, sectionEditing, selectedTermId, defaultCollegeId])
+    }, [sectionOpen, sectionEditing, selectedTermId, defaultCollegeId, terms])
 
     const programsForSelectedCollege = React.useMemo(() => {
         const collegeId = str(sectionCollegeId)
@@ -1159,6 +1168,9 @@ export function useMasterDataManagement() {
         const termId = str(sectionTermId)
         const departmentId = str(sectionCollegeId)
         const programId = str(sectionProgramId) === "__none__" ? null : str(sectionProgramId)
+        const selectedTerm = terms.find((term) => str(term.$id) === termId)
+        const semester = str(selectedTerm?.semester)
+        const academicTermLabel = termLabel(terms, termId)
         const yearLevel = buildStoredSectionYearLevel(sectionYear, programId, programs)
         const yearNumber = extractSectionYearNumber(yearLevel)
         const name = normalizeSectionNameValue(sectionName)
@@ -1192,6 +1204,8 @@ export function useMasterDataManagement() {
             departmentId,
             programId,
             yearLevel,
+            semester: semester || null,
+            academicTermLabel: academicTermLabel || null,
             name,
             studentCount,
             isActive: Boolean(sectionActive),
@@ -1373,9 +1387,10 @@ export function useMasterDataManagement() {
         return base.filter((s) => {
             const college = collegeLabel(colleges, s.departmentId)
             const prog = programLabel(programs, s.programId ?? null)
-            const term = termLabel(terms, s.termId)
+            const term = s.academicTermLabel || termLabel(terms, s.termId)
+            const semester = str(s.semester)
             const main = buildSectionDisplayLabel(s.yearLevel, s.name)
-            return `${main} ${college} ${prog} ${term} ${s.studentCount ?? ""}`
+            return `${main} ${college} ${prog} ${semester} ${term} ${s.studentCount ?? ""}`
                 .toLowerCase()
                 .includes(q)
         })
@@ -1693,6 +1708,10 @@ export function useMasterDataManagement() {
         setSectionCollegeId,
         sectionProgramId,
         setSectionProgramId,
+        sectionSemester,
+        setSectionSemester,
+        sectionAcademicTermLabel,
+        setSectionAcademicTermLabel,
         sectionYear,
         setSectionYear,
         sectionName,

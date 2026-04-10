@@ -50,6 +50,8 @@ export type SectionDoc = {
     departmentId: string
     programId?: string | null
     yearLevel: string | number
+    semester?: string | null
+    academicTermLabel?: string | null
     name: string
     studentCount?: number | null
     isActive: boolean

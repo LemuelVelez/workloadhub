@@ -688,7 +688,7 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.sectionEditing ? "Edit Section" : "Add Section"}</DialogTitle>
                         <DialogDescription>
-                            Sections are linked to a Term and College, with year level + name (A-Z / Others).
+                            Sections are linked to College, Program, Year Level, Semester, and Academic Term so schedules only show the correct sections for the active scope.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -703,7 +703,15 @@ export function MasterDataDialogs({ vm }: Props) {
                                     </div>
                                 </div>
                             ) : (
-                                <Select value={vm.sectionTermId} onValueChange={vm.setSectionTermId}>
+                                <Select
+                                    value={vm.sectionTermId}
+                                    onValueChange={(value) => {
+                                        vm.setSectionTermId(value)
+                                        const selectedTerm = vm.terms.find((term) => term.$id === value)
+                                        vm.setSectionSemester(String(selectedTerm?.semester ?? ""))
+                                        vm.setSectionAcademicTermLabel(vm.termLabel(vm.terms, value))
+                                    }}
+                                >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Academic Term" />
                                     </SelectTrigger>
@@ -734,6 +742,20 @@ export function MasterDataDialogs({ vm }: Props) {
                             </Select>
                         </div>
 
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="grid gap-2">
+                                <Label>Semester</Label>
+                                <Input value={vm.sectionSemester || "—"} disabled />
+                                <div className="text-xs text-muted-foreground">
+                                    Filled automatically from the selected academic term.
+                                </div>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label>Academic Term Link Preview</Label>
+                                <Input value={vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
+                            </div>
+                        </div>
                         <div className="grid gap-2">
                             <Label>Program (optional)</Label>
                             <Select

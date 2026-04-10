@@ -1018,6 +1018,70 @@ function normalizePlannerSectionDisplayValue(value?: string | null) {
         .replace(/\s+/g, " ")
 }
 
+function normalizeScopeToken(value?: string | null) {
+    return String(value || "").trim().toLowerCase()
+}
+
+function sectionMatchesPlannerScope({
+    section,
+    subjectCollegeFilter,
+    subjectProgramFilters,
+    subjectYearLevelFilters,
+    subjectSemesterFilter,
+    subjectAcademicTermFilter,
+}: {
+    section: SectionDoc
+    subjectCollegeFilter: string
+    subjectProgramFilters: string[]
+    subjectYearLevelFilters: string[]
+    subjectSemesterFilter: string
+    subjectAcademicTermFilter: string
+}) {
+    const normalizedCollegeFilter = normalizeScopeToken(subjectCollegeFilter)
+    const normalizedProgramFilters = subjectProgramFilters.map(normalizeScopeToken).filter(Boolean)
+    const normalizedYearLevelFilters = subjectYearLevelFilters.map(normalizeScopeToken).filter(Boolean)
+    const normalizedSemesterFilter = normalizeScopeToken(subjectSemesterFilter)
+    const normalizedAcademicTermFilter = normalizeScopeToken(subjectAcademicTermFilter)
+
+    const sectionCollegeTokens = [section.departmentId, section.programCode, section.programName]
+        .map(normalizeScopeToken)
+        .filter(Boolean)
+    const sectionProgramTokens = [section.programId, section.programCode, section.programName]
+        .map(normalizeScopeToken)
+        .filter(Boolean)
+    const sectionYearLevelTokens = [section.yearLevel, section.label, section.name]
+        .map((value) => normalizeScopeToken(String(value ?? "")))
+        .filter(Boolean)
+    const sectionSemesterToken = normalizeScopeToken(section.semester)
+    const sectionAcademicTermToken = normalizeScopeToken(section.academicTermLabel)
+
+    if (normalizedCollegeFilter && normalizedCollegeFilter !== normalizeScopeToken(SUBJECT_FILTER_ALL_VALUE)) {
+        if (!sectionCollegeTokens.includes(normalizedCollegeFilter)) return false
+    }
+
+    if (normalizedProgramFilters.length > 0) {
+        const hasProgramMatch = normalizedProgramFilters.some((value) => sectionProgramTokens.includes(value))
+        if (!hasProgramMatch) return false
+    }
+
+    if (normalizedYearLevelFilters.length > 0) {
+        const hasYearMatch = normalizedYearLevelFilters.some((value) =>
+            sectionYearLevelTokens.some((token) => token === value || token.includes(value) || value.includes(token))
+        )
+        if (!hasYearMatch) return false
+    }
+
+    if (normalizedSemesterFilter && normalizedSemesterFilter !== normalizeScopeToken(SUBJECT_FILTER_ALL_VALUE)) {
+        if (sectionSemesterToken !== normalizedSemesterFilter) return false
+    }
+
+    if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeScopeToken(SUBJECT_FILTER_ALL_VALUE)) {
+        if (sectionAcademicTermToken !== normalizedAcademicTermFilter) return false
+    }
+
+    return true
+}
+
 function getPlannerCourseYearKey(sectionDisplay?: string | null) {
     const normalizedSectionDisplay = normalizePlannerSectionDisplayValue(sectionDisplay)
     if (!normalizedSectionDisplay || normalizedSectionDisplay === "—") {
@@ -1298,6 +1362,11 @@ export function PlannerManagementSection({
     setFormSectionId,
     formSubjectIds,
     setFormSubjectIds,
+    subjectCollegeFilter,
+    subjectProgramFilters,
+    subjectYearLevelFilters,
+    subjectSemesterFilter,
+    subjectAcademicTermFilter,
     formFacultyChoice,
     setFormFacultyChoice,
     formManualFaculty,
@@ -1341,9 +1410,29 @@ export function PlannerManagementSection({
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
+    const filteredSections = React.useMemo(() => {
+        return sections.filter((section) =>
+            sectionMatchesPlannerScope({
+                section,
+                subjectCollegeFilter,
+                subjectProgramFilters,
+                subjectYearLevelFilters,
+                subjectSemesterFilter,
+                subjectAcademicTermFilter,
+            })
+        )
+    }, [
+        sections,
+        subjectCollegeFilter,
+        subjectProgramFilters,
+        subjectYearLevelFilters,
+        subjectSemesterFilter,
+        subjectAcademicTermFilter,
+    ])
+
     const selectedSection = React.useMemo(
-        () => sections.find((section) => section.$id === formSectionId) ?? null,
-        [sections, formSectionId]
+        () => filteredSections.find((section) => section.$id === formSectionId) ?? null,
+        [filteredSections, formSectionId]
     )
 
     const entryDayOptions = React.useMemo(() => {
@@ -2561,7 +2650,7 @@ export function PlannerManagementSection({
                                             <SelectValue placeholder="Select section" />
                                         </SelectTrigger>
                                         <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                            {sections.map((section) => (
+                                            {filteredSections.map((section) => (
                                                 <SelectItem key={section.$id} value={section.$id}>
                                                     {sectionDisplayLookup[section.$id] || section.$id}
                                                 </SelectItem>
@@ -2589,9 +2678,14 @@ export function PlannerManagementSection({
                                                 {formatYearLevelFilterLabel(selectedSection.yearLevel)}
                                             </Badge>
                                         ) : null}
-                                        {selectedTermLabel ? (
+                                        {selectedSection?.semester ? (
                                             <Badge variant="outline" className="rounded-full">
-                                                {selectedTermLabel}
+                                                {selectedSection.semester}
+                                            </Badge>
+                                        ) : null}
+                                        {(selectedSection?.academicTermLabel || selectedTermLabel) ? (
+                                            <Badge variant="outline" className="rounded-full">
+                                                {selectedSection?.academicTermLabel || selectedTermLabel}
                                             </Badge>
                                         ) : null}
                                     </div>
@@ -2601,7 +2695,7 @@ export function PlannerManagementSection({
                             <div className="space-y-3">
                                 <div className="rounded-2xl border p-4">
                                     <div className="text-xs text-muted-foreground">
-                                        Subjects shown here are automatically scoped by the selected section and only include linked college, program, year level, semester, and academic term records.
+                                        Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and academic term records.
                                     </div>
                                 </div>
 
@@ -2615,7 +2709,9 @@ export function PlannerManagementSection({
                                             <SelectValue placeholder="Select subject" />
                                         </SelectTrigger>
                                         <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                            {filteredSubjectOptions.length === 0 ? (
+                                            {filteredSections.length === 0 ? (
+                                                <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE} disabled>No linked sections available</SelectItem>
+                                            ) : filteredSubjectOptions.length === 0 ? (
                                                 <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE}>No subjects available</SelectItem>
                                             ) : (
                                                 filteredSubjectOptions.map((subject) => (
@@ -2630,7 +2726,7 @@ export function PlannerManagementSection({
 
                                 <div className="rounded-2xl border p-4">
                                     <div className="text-xs text-muted-foreground">
-                                        Subjects shown here are automatically scoped by the selected section and only include linked college, program, year level, semester, and academic term records.
+                                        Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and academic term records.
                                     </div>
 
                                     {selectedSubjectDoc ? (
