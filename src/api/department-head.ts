@@ -304,7 +304,7 @@ export const departmentHeadApi = {
     },
 
     classes: {
-        async listByVersion(termId: string, departmentId: string, versionId: string) {
+        async listByVersion(termId: string, departmentId: string, _versionId: string) {
             if (!termId || !departmentId) return []
 
             return listAllRows(
@@ -424,7 +424,7 @@ export const departmentHeadApi = {
     },
 
     classMeetings: {
-        async listByVersion(versionId: string) {
+        async listByVersion(_versionId: string) {
             return listAllRows(
                 COLLECTIONS.CLASS_MEETINGS,
                 [Query.orderDesc("$updatedAt")],
