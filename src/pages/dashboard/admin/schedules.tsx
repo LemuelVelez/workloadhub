@@ -44,13 +44,11 @@ import {
     getSubjectSemesterFilterValues,
     getSubjectYearLevelFilterValues,
     hhmmToMinutes,
-    isActiveScheduleStatus,
     matchesSelectedSubjectFilter,
     meetingTypeLabel,
     normalizeText,
     pickMatchingSubjectFilterOption,
     rangesOverlap,
-    normalizeScheduleStatus,
     roomTypeLabel,
     sortSectionsForDisplay,
     stripManualFacultyTag,
@@ -71,12 +69,9 @@ export default function AdminSchedulesPage() {
     const [loading, setLoading] = React.useState(true)
     const [, setError] = React.useState<string | null>(null)
 
-    const [versions, setVersions] = React.useState<ScheduleVersionDoc[]>([])
     const [terms, setTerms] = React.useState<AcademicTermDoc[]>([])
     const [departments, setDepartments] = React.useState<DepartmentDoc[]>([])
     const [programs, setPrograms] = React.useState<ScheduleProgramDoc[]>([])
-
-    const [selectedVersionId, setSelectedVersionId] = React.useState<string>("")
 
     const [subjects, setSubjects] = React.useState<SubjectDoc[]>([])
     const [rooms, setRooms] = React.useState<RoomDoc[]>([])
@@ -123,36 +118,123 @@ export default function AdminSchedulesPage() {
         return m
     }, [departments])
 
-    const selectedVersion = React.useMemo(
-        () => versions.find((version) => version.$id === selectedVersionId) || null,
-        [versions, selectedVersionId]
+    const activeAcademicTerms = React.useMemo(
+        () =>
+            terms
+                .filter((term) => (term as any).isActive !== false)
+                .slice()
+                .sort((a, b) =>
+                    String(a.schoolYear || "").localeCompare(String(b.schoolYear || ""), undefined, {
+                        numeric: true,
+                        sensitivity: "base",
+                    }) ||
+                    String(a.semester || "").localeCompare(String(b.semester || ""), undefined, {
+                        numeric: true,
+                        sensitivity: "base",
+                    })
+                ),
+        [terms]
     )
 
-    const selectedTermDoc = React.useMemo(() => {
-        if (!selectedVersion) return null
-        return termMap.get(String(selectedVersion.termId)) ?? null
-    }, [selectedVersion, termMap])
+    const activeAcademicTermIds = React.useMemo(
+        () => activeAcademicTerms.map((term) => String(term.$id || "").trim()).filter(Boolean),
+        [activeAcademicTerms]
+    )
+
+    const selectedFormTermDoc = React.useMemo(() => {
+        const selectedSection = sections.find((section) => section.$id === formSectionId) || null
+        const termId = String(selectedSection?.termId || "").trim()
+        if (!termId) return null
+        return termMap.get(termId) ?? null
+    }, [formSectionId, sections, termMap])
+
+    const selectedFormDeptDoc = React.useMemo(() => {
+        const selectedSection = sections.find((section) => section.$id === formSectionId) || null
+        const departmentId = String(selectedSection?.departmentId || "").trim()
+        if (!departmentId) return null
+        return deptMap.get(departmentId) ?? null
+    }, [deptMap, formSectionId, sections])
+
+    const selectedVersion = React.useMemo<ScheduleVersionDoc | null>(() => {
+        const scopeKey = activeAcademicTermIds.join("|")
+        if (!scopeKey) return null
+
+        return {
+            $id: `active-scope:${scopeKey}`,
+            $createdAt: "",
+            $updatedAt: "",
+            termId: activeAcademicTermIds[0] || "",
+            departmentId: "",
+            version: 0,
+            label: "Active schedule scope",
+            status: "Active",
+            createdBy: "",
+            notes: null,
+        }
+    }, [activeAcademicTermIds])
+
 
     const selectedTermLabel = React.useMemo(() => {
-        if (!selectedVersion) return "—"
-        return termLabel(termMap.get(String(selectedVersion.termId)) ?? null)
-    }, [selectedVersion, termMap])
+        if (selectedFormTermDoc) return termLabel(selectedFormTermDoc)
+        if (activeAcademicTerms.length === 1) return termLabel(activeAcademicTerms[0])
+        if (activeAcademicTerms.length > 1) return `${activeAcademicTerms.length} active academic terms`
+        return "—"
+    }, [activeAcademicTerms, selectedFormTermDoc])
 
     const selectedDeptLabel = React.useMemo(() => {
-        if (!selectedVersion) return "—"
-        return deptLabel(deptMap.get(String(selectedVersion.departmentId)) ?? null)
-    }, [selectedVersion, deptMap])
+        if (selectedFormDeptDoc) return deptLabel(selectedFormDeptDoc)
+
+        const uniqueDepartmentIds = Array.from(
+            new Set(
+                sections
+                    .map((section) => String(section.departmentId || "").trim())
+                    .filter(Boolean)
+            )
+        )
+
+        if (uniqueDepartmentIds.length === 1) {
+            return deptLabel(deptMap.get(uniqueDepartmentIds[0]) ?? null)
+        }
+
+        if (uniqueDepartmentIds.length > 1) {
+            return `${uniqueDepartmentIds.length} colleges`
+        }
+
+        return "—"
+    }, [deptMap, sections, selectedFormDeptDoc])
+
+    const selectedDepartmentName = React.useMemo(() => {
+        if (selectedFormDeptDoc) return String(selectedFormDeptDoc.name || "").trim()
+
+        const uniqueDepartmentIds = Array.from(
+            new Set(
+                sections
+                    .map((section) => String(section.departmentId || "").trim())
+                    .filter(Boolean)
+            )
+        )
+
+        if (uniqueDepartmentIds.length === 1) {
+            return String(deptMap.get(uniqueDepartmentIds[0])?.name || "").trim()
+        }
+
+        return ""
+    }, [deptMap, sections, selectedFormDeptDoc])
 
     const selectedSemesterLabel = React.useMemo(() => {
-        return String((selectedTermDoc as any)?.semester || "").trim()
-    }, [selectedTermDoc])
+        if (selectedFormTermDoc) return String(selectedFormTermDoc.semester || "").trim()
+        if (activeAcademicTerms.length === 1) return String(activeAcademicTerms[0]?.semester || "").trim()
+        return ""
+    }, [activeAcademicTerms, selectedFormTermDoc])
 
     const selectedAcademicTermCompositeLabel = React.useMemo(() => {
-        const schoolYear = String((selectedTermDoc as any)?.schoolYear || "").trim()
-        if (!schoolYear && !selectedSemesterLabel) return ""
-        if (schoolYear && selectedSemesterLabel) return `${schoolYear} • ${selectedSemesterLabel}`
-        return schoolYear || selectedSemesterLabel
-    }, [selectedTermDoc, selectedSemesterLabel])
+        const sourceTerm = selectedFormTermDoc || (activeAcademicTerms.length === 1 ? activeAcademicTerms[0] : null)
+        const schoolYear = String(sourceTerm?.schoolYear || "").trim()
+        const semester = String(sourceTerm?.semester || "").trim()
+        if (!schoolYear && !semester) return ""
+        if (schoolYear && semester) return `${schoolYear} • ${semester}`
+        return schoolYear || semester
+    }, [activeAcademicTerms, selectedFormTermDoc])
 
     const subjectMap = React.useMemo(() => {
         const m = new Map<string, SubjectDoc>()
@@ -245,141 +327,140 @@ export default function AdminSchedulesPage() {
         [getProgramNameById, normalizeDisplayValue]
     )
 
-    const departmentScopedPrograms = React.useMemo(() => {
-        const selectedVersionDepartmentId = normalizeDisplayValue(selectedVersion?.departmentId)
 
-        return programs
-            .filter((program) => program.isActive !== false)
-            .filter((program) => {
-                const programDepartmentId = normalizeDisplayValue(program.departmentId)
-                return !selectedVersionDepartmentId || !programDepartmentId || programDepartmentId === selectedVersionDepartmentId
-            })
-            .slice()
-            .sort((a, b) => normalizeDisplayValue(a.name).localeCompare(normalizeDisplayValue(b.name), undefined, { numeric: true, sensitivity: "base" }))
-    }, [normalizeDisplayValue, programs, selectedVersion])
+const departmentScopedPrograms = React.useMemo(() => {
+    const scopedDepartmentId =
+        normalizeDisplayValue(selectedFormSection?.departmentId) ||
+        (departments.length === 1 ? normalizeDisplayValue(departments[0]?.$id) : "")
 
-    const activeAcademicTerms = React.useMemo(
-        () => terms.filter((term) => (term as any).isActive !== false),
-        [terms]
-    )
-
-    const getSubjectCollegeNameValues = React.useCallback(
-        (subject?: SubjectDoc | null) => {
-            if (!subject) return []
-            const anySubject = subject as Record<string, unknown>
-            return buildSubjectFilterOptions([
-                getDepartmentNameById(subject.departmentId),
-                anySubject.departmentName,
-                anySubject.collegeName,
-                anySubject.college,
-            ])
-        },
-        [getDepartmentNameById]
-    )
-
-    const getSubjectProgramNameValues = React.useCallback(
-        (subject?: SubjectDoc | null) => {
-            if (!subject) return []
-            const anySubject = subject as Record<string, unknown>
-            return buildSubjectFilterOptions([
-                subject.programName,
-                getProgramNameById(subject.programId),
-                ...(Array.isArray(subject.programIds) ? (subject.programIds as Array<string | null | undefined>).map((programId) => getProgramNameById(programId)) : []),
-                anySubject.programName,
-            ])
-        },
-        [getProgramNameById]
-    )
-
-    const getSubjectAcademicTermNameValues = React.useCallback(
-        (subject?: SubjectDoc | null) => {
-            if (!subject) return []
-            const anySubject = subject as Record<string, unknown>
-            const subjectTermLabel = buildAcademicTermOptionLabel(termMap.get(normalizeDisplayValue(subject.termId)) ?? null)
-            const inlineSchoolYear = normalizeDisplayValue(anySubject.schoolYear)
-            const inlineSemester = normalizeDisplayValue(anySubject.semester)
-            const inlineLabel = inlineSchoolYear && inlineSemester ? `${inlineSchoolYear} • ${inlineSemester}` : ""
-
-            return buildSubjectFilterOptions([
-                subjectTermLabel,
-                inlineLabel,
-            ])
-        },
-        [buildAcademicTermOptionLabel, normalizeDisplayValue, termMap]
-    )
-
-    const matchesAnySelectedSubjectFilter = React.useCallback(
-        (selectedValues: string[], subjectValues: string[]) => {
-            if (selectedValues.length === 0) return true
-            if (subjectValues.length === 0) return true
-            return selectedValues.some((selectedValue) => matchesSelectedSubjectFilter(selectedValue, subjectValues))
-        },
-        []
-    )
-
-    const subjectCollegeOptions = React.useMemo(
-        () =>
-            buildSubjectFilterOptions([
-                selectedDeptLabel !== "—" ? selectedDeptLabel : "",
-                getDepartmentNameById(selectedVersion?.departmentId),
-                ...subjects.flatMap((subject) => getSubjectCollegeNameValues(subject)),
-            ]),
-        [getDepartmentNameById, getSubjectCollegeNameValues, selectedDeptLabel, selectedVersion?.departmentId, subjects]
-    )
-
-    const subjectProgramOptions = React.useMemo(
-        () =>
-            buildSubjectFilterOptions([
-                getSectionProgramDisplayName(selectedFormSection),
-                ...sections.map((section) => getSectionProgramDisplayName(section)),
-                ...departmentScopedPrograms.map((program) => normalizeDisplayValue(program.name)),
-                ...subjects.flatMap((subject) => getSubjectProgramNameValues(subject)),
-            ]),
-        [departmentScopedPrograms, getSectionProgramDisplayName, getSubjectProgramNameValues, normalizeDisplayValue, sections, selectedFormSection, subjects]
-    )
-
-    const yearLevelTotals = React.useMemo(() => {
-        const totals = new Map<string, number>()
-        sections.forEach((section) => {
-            const label = normalizeDisplayValue(formatYearLevelFilterLabel(section.yearLevel))
-            if (!label) return
-            totals.set(label, (totals.get(label) || 0) + 1)
+    return programs
+        .filter((program) => program.isActive !== false)
+        .filter((program) => {
+            const programDepartmentId = normalizeDisplayValue(program.departmentId)
+            return !scopedDepartmentId || !programDepartmentId || programDepartmentId === scopedDepartmentId
         })
-        return Array.from(totals.entries())
-            .map(([label, count]) => ({ label, count }))
-            .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
-    }, [normalizeDisplayValue, sections])
+        .slice()
+        .sort((a, b) => normalizeDisplayValue(a.name).localeCompare(normalizeDisplayValue(b.name), undefined, { numeric: true, sensitivity: "base" }))
+}, [departments, normalizeDisplayValue, programs, selectedFormSection])
 
-    const subjectYearLevelOptions = React.useMemo(
-        () => yearLevelTotals.map((item) => item.label),
-        [yearLevelTotals]
-    )
+const getSubjectCollegeNameValues = React.useCallback(
+    (subject?: SubjectDoc | null) => {
+        if (!subject) return []
+        const anySubject = subject as Record<string, unknown>
+        return buildSubjectFilterOptions([
+            getDepartmentNameById(subject.departmentId),
+            anySubject.departmentName,
+            anySubject.collegeName,
+            anySubject.college,
+        ])
+    },
+    [getDepartmentNameById]
+)
 
-    const subjectYearLevelCounts = React.useMemo(() => {
-        return yearLevelTotals.reduce<Record<string, number>>((acc, item) => {
-            acc[item.label] = item.count
-            return acc
-        }, {})
-    }, [yearLevelTotals])
+const getSubjectProgramNameValues = React.useCallback(
+    (subject?: SubjectDoc | null) => {
+        if (!subject) return []
+        const anySubject = subject as Record<string, unknown>
+        return buildSubjectFilterOptions([
+            subject.programName,
+            getProgramNameById(subject.programId),
+            ...(Array.isArray(subject.programIds) ? (subject.programIds as Array<string | null | undefined>).map((programId) => getProgramNameById(programId)) : []),
+            anySubject.programName,
+        ])
+    },
+    [getProgramNameById]
+)
 
-    const subjectSemesterOptions = React.useMemo(
-        () =>
-            buildSubjectFilterOptions([
-                selectedSemesterLabel,
-                ...subjects.flatMap((subject) => getSubjectSemesterFilterValues(subject)),
-            ]),
-        [selectedSemesterLabel, subjects]
-    )
+const getSubjectAcademicTermNameValues = React.useCallback(
+    (subject?: SubjectDoc | null) => {
+        if (!subject) return []
+        const anySubject = subject as Record<string, unknown>
+        const subjectTermLabel = buildAcademicTermOptionLabel(termMap.get(normalizeDisplayValue(subject.termId)) ?? null)
+        const inlineSchoolYear = normalizeDisplayValue(anySubject.schoolYear)
+        const inlineSemester = normalizeDisplayValue(anySubject.semester)
+        const inlineLabel = inlineSchoolYear && inlineSemester ? `${inlineSchoolYear} • ${inlineSemester}` : ""
 
-    const subjectAcademicTermOptions = React.useMemo(
-        () =>
-            buildSubjectFilterOptions([
-                selectedAcademicTermCompositeLabel,
-                ...activeAcademicTerms.map((term) => buildAcademicTermOptionLabel(term)),
-                ...subjects.flatMap((subject) => getSubjectAcademicTermNameValues(subject)),
-            ]),
-        [activeAcademicTerms, buildAcademicTermOptionLabel, getSubjectAcademicTermNameValues, selectedAcademicTermCompositeLabel, subjects]
-    )
+        return buildSubjectFilterOptions([
+            subjectTermLabel,
+            inlineLabel,
+        ])
+    },
+    [buildAcademicTermOptionLabel, normalizeDisplayValue, termMap]
+)
+
+const matchesAnySelectedSubjectFilter = React.useCallback(
+    (selectedValues: string[], subjectValues: string[]) => {
+        if (selectedValues.length === 0) return true
+        if (subjectValues.length === 0) return true
+        return selectedValues.some((selectedValue) => matchesSelectedSubjectFilter(selectedValue, subjectValues))
+    },
+    []
+)
+
+const subjectCollegeOptions = React.useMemo(
+    () =>
+        buildSubjectFilterOptions([
+            selectedDepartmentName,
+            ...departments.map((department) => normalizeDisplayValue(department.name)),
+            ...subjects.flatMap((subject) => getSubjectCollegeNameValues(subject)),
+        ]),
+    [departments, getSubjectCollegeNameValues, normalizeDisplayValue, selectedDepartmentName, subjects]
+)
+
+const subjectProgramOptions = React.useMemo(
+    () =>
+        buildSubjectFilterOptions([
+            getSectionProgramDisplayName(selectedFormSection),
+            ...sections.map((section) => getSectionProgramDisplayName(section)),
+            ...departmentScopedPrograms.map((program) => normalizeDisplayValue(program.name)),
+            ...subjects.flatMap((subject) => getSubjectProgramNameValues(subject)),
+        ]),
+    [departmentScopedPrograms, getSectionProgramDisplayName, getSubjectProgramNameValues, normalizeDisplayValue, sections, selectedFormSection, subjects]
+)
+
+const yearLevelTotals = React.useMemo(() => {
+    const totals = new Map<string, number>()
+    sections.forEach((section) => {
+        const label = normalizeDisplayValue(formatYearLevelFilterLabel(section.yearLevel))
+        if (!label) return
+        totals.set(label, (totals.get(label) || 0) + 1)
+    })
+    return Array.from(totals.entries())
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
+}, [normalizeDisplayValue, sections])
+
+const subjectYearLevelOptions = React.useMemo(
+    () => yearLevelTotals.map((item) => item.label),
+    [yearLevelTotals]
+)
+
+const subjectYearLevelCounts = React.useMemo(() => {
+    return yearLevelTotals.reduce<Record<string, number>>((acc, item) => {
+        acc[item.label] = item.count
+        return acc
+    }, {})
+}, [yearLevelTotals])
+
+const subjectSemesterOptions = React.useMemo(
+    () =>
+        buildSubjectFilterOptions([
+            selectedSemesterLabel,
+            ...activeAcademicTerms.map((term) => normalizeDisplayValue(term.semester)),
+            ...subjects.flatMap((subject) => getSubjectSemesterFilterValues(subject)),
+        ]),
+    [activeAcademicTerms, normalizeDisplayValue, selectedSemesterLabel, subjects]
+)
+
+const subjectAcademicTermOptions = React.useMemo(
+    () =>
+        buildSubjectFilterOptions([
+            selectedAcademicTermCompositeLabel,
+            ...activeAcademicTerms.map((term) => buildAcademicTermOptionLabel(term)),
+            ...subjects.flatMap((subject) => getSubjectAcademicTermNameValues(subject)),
+        ]),
+    [activeAcademicTerms, buildAcademicTermOptionLabel, getSubjectAcademicTermNameValues, selectedAcademicTermCompositeLabel, subjects]
+)
 
     const clearSubjectFilters = React.useCallback(() => {
         setSubjectCollegeFilter(SUBJECT_FILTER_ALL_VALUE)
@@ -389,36 +470,35 @@ export default function AdminSchedulesPage() {
         setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
     }, [])
 
-    const applyScheduleContextSubjectFilters = React.useCallback(() => {
-        const matchedProgram = pickMatchingSubjectFilterOption(subjectProgramOptions, [getSectionProgramDisplayName(selectedFormSection)])
-        const matchedYearLevel = pickMatchingSubjectFilterOption(subjectYearLevelOptions, [formatYearLevelFilterLabel(selectedFormSection?.yearLevel)])
 
-        setSubjectCollegeFilter(
-            pickMatchingSubjectFilterOption(subjectCollegeOptions, [selectedDeptLabel, getDepartmentNameById(selectedVersion?.departmentId)])
-        )
-        setSubjectProgramFilters(matchedProgram !== SUBJECT_FILTER_ALL_VALUE ? [matchedProgram] : [])
-        setSubjectYearLevelFilters(matchedYearLevel !== SUBJECT_FILTER_ALL_VALUE ? [matchedYearLevel] : [])
-        setSubjectSemesterFilter(
-            pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedSemesterLabel, selectedTermLabel])
-        )
-        setSubjectAcademicTermFilter(
-            pickMatchingSubjectFilterOption(subjectAcademicTermOptions, [selectedAcademicTermCompositeLabel])
-        )
-    }, [
-        getDepartmentNameById,
-        getSectionProgramDisplayName,
-        selectedAcademicTermCompositeLabel,
-        selectedDeptLabel,
-        selectedFormSection,
-        selectedSemesterLabel,
-        selectedTermLabel,
-        selectedVersion?.departmentId,
-        subjectAcademicTermOptions,
-        subjectCollegeOptions,
-        subjectProgramOptions,
-        subjectSemesterOptions,
-        subjectYearLevelOptions,
-    ])
+const applyScheduleContextSubjectFilters = React.useCallback(() => {
+    const matchedProgram = pickMatchingSubjectFilterOption(subjectProgramOptions, [getSectionProgramDisplayName(selectedFormSection)])
+    const matchedYearLevel = pickMatchingSubjectFilterOption(subjectYearLevelOptions, [formatYearLevelFilterLabel(selectedFormSection?.yearLevel)])
+
+    setSubjectCollegeFilter(
+        pickMatchingSubjectFilterOption(subjectCollegeOptions, [selectedDepartmentName])
+    )
+    setSubjectProgramFilters(matchedProgram !== SUBJECT_FILTER_ALL_VALUE ? [matchedProgram] : [])
+    setSubjectYearLevelFilters(matchedYearLevel !== SUBJECT_FILTER_ALL_VALUE ? [matchedYearLevel] : [])
+    setSubjectSemesterFilter(
+        pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedSemesterLabel, selectedTermLabel])
+    )
+    setSubjectAcademicTermFilter(
+        pickMatchingSubjectFilterOption(subjectAcademicTermOptions, [selectedAcademicTermCompositeLabel])
+    )
+}, [
+    getSectionProgramDisplayName,
+    selectedAcademicTermCompositeLabel,
+    selectedDepartmentName,
+    selectedFormSection,
+    selectedSemesterLabel,
+    selectedTermLabel,
+    subjectAcademicTermOptions,
+    subjectCollegeOptions,
+    subjectProgramOptions,
+    subjectSemesterOptions,
+    subjectYearLevelOptions,
+])
 
     React.useEffect(() => {
         if (!entryDialogOpen) return
@@ -510,11 +590,7 @@ export default function AdminSchedulesPage() {
         setError(null)
 
         try {
-            const [vRes, tRes, dRes, pRes] = await Promise.all([
-                databases.listDocuments(DATABASE_ID, "schedule_versions", [
-                    Query.orderDesc("$createdAt"),
-                    Query.limit(200),
-                ]),
+            const [tRes, dRes, pRes] = await Promise.all([
                 databases.listDocuments(DATABASE_ID, COLLECTIONS.ACADEMIC_TERMS, [
                     Query.orderDesc("$createdAt"),
                     Query.limit(200),
@@ -529,27 +605,25 @@ export default function AdminSchedulesPage() {
                 ]),
             ])
 
-            const vDocs = (vRes?.documents ?? []) as ScheduleVersionDoc[]
             const tDocs = (tRes?.documents ?? []) as AcademicTermDoc[]
-            const dDocs = (dRes?.documents ?? []) as DepartmentDoc[]
-            const pDocs = ((pRes?.documents ?? []) as any[]).map((program) => ({
-                $id: String(program.$id || ""),
-                departmentId: String(program.departmentId || "").trim() || null,
-                code: String(program.code || "").trim() || null,
-                name: String(program.name || "").trim() || null,
-                isActive: program.isActive !== false,
-            })) as ScheduleProgramDoc[]
+            const dDocs = ((dRes?.documents ?? []) as DepartmentDoc[])
+                .filter((department) => department.isActive !== false)
+                .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }))
 
-            setVersions(vDocs)
+            const pDocs = ((pRes?.documents ?? []) as any[])
+                .map((program) => ({
+                    $id: String(program.$id || ""),
+                    departmentId: String(program.departmentId || "").trim() || null,
+                    code: String(program.code || "").trim() || null,
+                    name: String(program.name || "").trim() || null,
+                    isActive: program.isActive !== false,
+                }))
+                .filter((program) => program.isActive !== false)
+                .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })) as ScheduleProgramDoc[]
+
             setTerms(tDocs)
             setDepartments(dDocs)
             setPrograms(pDocs)
-
-            setSelectedVersionId((prev) => {
-                if (prev && vDocs.some((x) => x.$id === prev)) return prev
-                const activeFirst = vDocs.find((x) => isActiveScheduleStatus(x.status))
-                return activeFirst?.$id || vDocs[0]?.$id || ""
-            })
         } catch (e: any) {
             setError(e?.message || "Failed to load schedules.")
         } finally {
@@ -561,205 +635,254 @@ export default function AdminSchedulesPage() {
         void fetchAll()
     }, [fetchAll])
 
-    const fetchScheduleContext = React.useCallback(async () => {
-        if (!selectedVersion) {
-            setSubjects([])
-            setRooms([])
-            setSections([])
-            setFacultyProfiles([])
-            setClasses([])
-            setMeetings([])
-            setEntriesError(null)
-            return
-        }
 
-        setEntriesLoading(true)
+const fetchScheduleContext = React.useCallback(async () => {
+    if (activeAcademicTermIds.length === 0) {
+        setSubjects([])
+        setRooms([])
+        setSections([])
+        setFacultyProfiles([])
+        setClasses([])
+        setMeetings([])
         setEntriesError(null)
+        return
+    }
 
-        try {
-            const [cRes, mRes, subjRes, roomRes, secRes, userRes] = await Promise.all([
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASSES, [
-                    Query.equal("versionId", selectedVersion.$id),
-                    Query.limit(5000),
-                ]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, [
-                    Query.equal("versionId", selectedVersion.$id),
-                    Query.limit(5000),
-                ]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.SUBJECTS, [Query.limit(5000)]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.ROOMS, [Query.limit(2000)]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [
-                    Query.equal("termId", selectedVersion.termId),
-                    Query.equal("departmentId", selectedVersion.departmentId),
-                    Query.limit(2000),
-                ]),
-                databases.listDocuments(DATABASE_ID, COLLECTIONS.USER_PROFILES, [
-                    Query.orderAsc("name"),
-                    Query.limit(5000),
-                ]),
-            ])
+    setEntriesLoading(true)
+    setEntriesError(null)
 
-            const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
-            const selectedVersionDeptId = String(selectedVersion.departmentId || "").trim()
-            const selectedVersionTermId = String(selectedVersion.termId || "").trim()
+    try {
+        const [cRes, mRes, subjRes, roomRes, secRes, userRes] = await Promise.all([
+            databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASSES, [
+                Query.limit(5000),
+            ]),
+            databases.listDocuments(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, [
+                Query.limit(5000),
+            ]),
+            databases.listDocuments(DATABASE_ID, COLLECTIONS.SUBJECTS, [Query.limit(5000)]),
+            databases.listDocuments(DATABASE_ID, COLLECTIONS.ROOMS, [Query.limit(2000)]),
+            databases.listDocuments(DATABASE_ID, COLLECTIONS.SECTIONS, [
+                Query.limit(2000),
+            ]),
+            databases.listDocuments(DATABASE_ID, COLLECTIONS.USER_PROFILES, [
+                Query.orderAsc("name"),
+                Query.limit(5000),
+            ]),
+        ])
 
-            const departmentSubjects = allSubjects
-                .filter((s) => (s as any).isActive !== false)
-                .filter((s) => {
-                    const subjectDeptId = String((s as any).departmentId || "").trim()
-                    return !subjectDeptId || subjectDeptId === selectedVersionDeptId
-                })
-                .sort((a, b) => {
-                    const ac = String((a as any).code || "").toLowerCase()
-                    const bc = String((b as any).code || "").toLowerCase()
-                    if (ac !== bc) return ac.localeCompare(bc)
-                    return String((a as any).title || "").localeCompare(String((b as any).title || ""))
-                })
+        const activeTermIdSet = new Set(activeAcademicTermIds)
 
-            const scopedSubjects = departmentSubjects.filter((s) => {
-                const subjectTermId = String((s as any).termId || "").trim()
-                if (subjectTermId && selectedVersionTermId && subjectTermId !== selectedVersionTermId) {
-                    return false
-                }
-                return true
+        const scopedClasses = ((cRes?.documents ?? []) as ClassDoc[])
+            .filter((classDoc) => activeTermIdSet.has(String(classDoc.termId || "").trim()))
+
+        const scopedClassIds = new Set(scopedClasses.map((classDoc) => String(classDoc.$id || "").trim()).filter(Boolean))
+
+        const scopedMeetings = ((mRes?.documents ?? []) as ClassMeetingDoc[])
+            .filter((meeting) => scopedClassIds.has(String((meeting as any).classId || "").trim()))
+
+        const allSubjects = (subjRes?.documents ?? []) as SubjectDoc[]
+        const scopedSubjects = allSubjects
+            .filter((subject) => (subject as any).isActive !== false)
+            .filter((subject) => {
+                const subjectTermId = String((subject as any).termId || "").trim()
+                return !subjectTermId || activeTermIdSet.has(subjectTermId)
+            })
+            .sort((a, b) => {
+                const ac = String((a as any).code || "").toLowerCase()
+                const bc = String((b as any).code || "").toLowerCase()
+                if (ac !== bc) return ac.localeCompare(bc)
+                return String((a as any).title || "").localeCompare(String((b as any).title || ""))
             })
 
-            const scopedRooms = ((roomRes?.documents ?? []) as RoomDoc[])
-                .filter((r) => (r as any).isActive !== false)
-                .sort((a, b) => String((a as any).code || "").localeCompare(String((b as any).code || "")))
+        const scopedRooms = ((roomRes?.documents ?? []) as RoomDoc[])
+            .filter((room) => (room as any).isActive !== false)
+            .sort((a, b) => String((a as any).code || "").localeCompare(String((b as any).code || "")))
 
-            const scopedSections = ((secRes?.documents ?? []) as SectionDoc[])
-                .filter((s) => (s as any).isActive !== false)
-                .sort(sortSectionsForDisplay)
+        const scopedSections = ((secRes?.documents ?? []) as SectionDoc[])
+            .filter((section) => (section as any).isActive !== false)
+            .filter((section) => activeTermIdSet.has(String(section.termId || "").trim()))
+            .sort(sortSectionsForDisplay)
 
-            const scopedFaculty = ((userRes?.documents ?? []) as UserProfileDoc[])
-                .filter((f) => (f as any).isActive !== false)
-                .sort((a, b) =>
-                    String((a as any).name || (a as any).email || (a as any).userId || "").localeCompare(
-                        String((b as any).name || (b as any).email || (b as any).userId || "")
-                    )
-                )
-
-            setClasses((cRes?.documents ?? []) as ClassDoc[])
-            setMeetings((mRes?.documents ?? []) as ClassMeetingDoc[])
-            setSubjects(scopedSubjects)
-            setRooms(scopedRooms)
-            setSections(scopedSections)
-            setFacultyProfiles(scopedFaculty)
-        } catch (e: any) {
-            setEntriesError(e?.message || "Failed to load schedule entries.")
-        } finally {
-            setEntriesLoading(false)
-        }
-    }, [selectedVersion])
-
-    React.useEffect(() => {
-        void fetchScheduleContext()
-    }, [fetchScheduleContext])
-
-    const normalizeYearLevelValueForStorage = React.useCallback((value: string) => {
-        const raw = normalizeDisplayValue(value)
-        if (!raw) return ""
-        const match = raw.match(/(\d+)/)
-        return match?.[1] ? match[1] : raw
-    }, [normalizeDisplayValue])
-
-    const createYearLevelSection = React.useCallback(async (value: string) => {
-        const nextYearLevel = normalizeYearLevelValueForStorage(value)
-        if (!selectedVersion || !nextYearLevel) {
-            toast.error("Please select a schedule version and enter a year level.")
-            return
-        }
-
-        const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
-        const exists = sections.some((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), nextLabel))
-        if (exists) {
-            toast.error("That year level already exists in sections.")
-            return
-        }
-
-        setYearLevelMutating(true)
-        try {
-            await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), {
-                termId: selectedVersion.termId,
-                departmentId: selectedVersion.departmentId,
-                programId: (selectedFormSection as any)?.programId || null,
-                programName: getSectionProgramDisplayName(selectedFormSection) || null,
-                yearLevel: nextYearLevel,
-                name: nextLabel,
-                label: nextLabel,
-                isActive: true,
-            })
-            toast.success("Year level added.")
-            await fetchScheduleContext()
-        } catch (e: any) {
-            toast.error(e?.message || "Failed to add year level.")
-        } finally {
-            setYearLevelMutating(false)
-        }
-    }, [fetchScheduleContext, getSectionProgramDisplayName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection, selectedVersion])
-
-    const renameYearLevelSections = React.useCallback(async (currentValue: string, nextValue: string) => {
-        const currentLabel = normalizeDisplayValue(currentValue)
-        const nextYearLevel = normalizeYearLevelValueForStorage(nextValue)
-        const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
-        if (!currentLabel || !nextYearLevel || !nextLabel) {
-            toast.error("Please enter a valid year level.")
-            return
-        }
-
-        const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), currentLabel))
-        if (matchingSections.length === 0) {
-            toast.error("No matching sections found for that year level.")
-            return
-        }
-
-        setYearLevelMutating(true)
-        try {
-            await Promise.all(
-                matchingSections.map((section) =>
-                    databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id, {
-                        yearLevel: nextYearLevel,
-                    })
+        const scopedFaculty = ((userRes?.documents ?? []) as UserProfileDoc[])
+            .filter((facultyProfile) => (facultyProfile as any).isActive !== false)
+            .sort((a, b) =>
+                String((a as any).name || (a as any).email || (a as any).userId || "").localeCompare(
+                    String((b as any).name || (b as any).email || (b as any).userId || "")
                 )
             )
-            toast.success("Year level updated.")
-            await fetchScheduleContext()
-        } catch (e: any) {
-            toast.error(e?.message || "Failed to update year level.")
-        } finally {
-            setYearLevelMutating(false)
-        }
-    }, [fetchScheduleContext, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections])
 
-    const deleteYearLevelSections = React.useCallback(async (value: string) => {
-        const yearLevelLabel = normalizeDisplayValue(value)
-        if (!yearLevelLabel) {
-            toast.error("Please choose a year level to delete.")
-            return
-        }
+        setClasses(scopedClasses)
+        setMeetings(scopedMeetings)
+        setSubjects(scopedSubjects)
+        setRooms(scopedRooms)
+        setSections(scopedSections)
+        setFacultyProfiles(scopedFaculty)
+    } catch (e: any) {
+        setEntriesError(e?.message || "Failed to load schedule entries.")
+    } finally {
+        setEntriesLoading(false)
+    }
+}, [activeAcademicTermIds])
 
-        const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), yearLevelLabel))
-        if (matchingSections.length === 0) {
-            toast.error("No matching sections found for that year level.")
-            return
-        }
+React.useEffect(() => {
+    void fetchScheduleContext()
+}, [fetchScheduleContext])
 
-        setYearLevelMutating(true)
-        try {
-            await Promise.all(
-                matchingSections.map((section) => databases.deleteDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id))
+const inferSectionTrackCode = React.useCallback((section?: SectionDoc | null) => {
+    if (!section) return ""
+    const values = [
+        (section as any)?.yearLevel,
+        (section as any)?.programCode,
+        (section as any)?.programName,
+        (section as any)?.label,
+        (section as any)?.name,
+    ]
+
+    for (const value of values) {
+        const normalized = normalizeDisplayValue(value).toUpperCase()
+        if (!normalized) continue
+        if (normalized.startsWith("CS")) return "CS"
+        if (normalized.startsWith("IS")) return "IS"
+        if (normalized.includes("COMPUTER SCIENCE")) return "CS"
+        if (normalized.includes("INFORMATION SYSTEM")) return "IS"
+    }
+
+    return ""
+}, [normalizeDisplayValue])
+
+const normalizeYearLevelValueForStorage = React.useCallback((value: string, section?: SectionDoc | null) => {
+    const raw = normalizeDisplayValue(value)
+    if (!raw) return ""
+
+    const prefixedMatch = raw.match(/^(CS|IS)\s*(\d+)$/i)
+    if (prefixedMatch) {
+        return `${prefixedMatch[1].toUpperCase()} ${prefixedMatch[2]}`
+    }
+
+    const numberMatch = raw.match(/(\d+)/)
+    const numberToken = numberMatch?.[1] || ""
+    if (!numberToken) return raw
+
+    const inferredTrackCode = inferSectionTrackCode(section)
+    if (inferredTrackCode) {
+        return `${inferredTrackCode} ${numberToken}`
+    }
+
+    return numberToken
+}, [inferSectionTrackCode, normalizeDisplayValue])
+
+const createYearLevelSection = React.useCallback(async (value: string) => {
+    const scopeSection = selectedFormSection || sections[0] || null
+    const nextYearLevel = normalizeYearLevelValueForStorage(value, scopeSection)
+    const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
+
+    const scopeTermId =
+        normalizeDisplayValue(scopeSection?.termId) ||
+        normalizeDisplayValue(activeAcademicTermIds[0])
+
+    const scopeDepartmentId = normalizeDisplayValue(scopeSection?.departmentId)
+
+    if (!scopeTermId || !scopeDepartmentId || !nextYearLevel || !nextLabel) {
+        toast.error("Please select a scoped section or ensure there is an active term before adding a year level.")
+        return
+    }
+
+    const exists = sections.some((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), nextLabel))
+    if (exists) {
+        toast.error("That year level already exists in sections.")
+        return
+    }
+
+    setYearLevelMutating(true)
+    try {
+        await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), {
+            termId: scopeTermId,
+            departmentId: scopeDepartmentId,
+            programId: (scopeSection as any)?.programId || null,
+            programName: getSectionProgramDisplayName(scopeSection) || null,
+            yearLevel: nextYearLevel,
+            name: nextLabel,
+            label: nextLabel,
+            isActive: true,
+        })
+        toast.success("Year level added.")
+        await fetchScheduleContext()
+    } catch (e: any) {
+        toast.error(e?.message || "Failed to add year level.")
+    } finally {
+        setYearLevelMutating(false)
+    }
+}, [activeAcademicTermIds, fetchScheduleContext, getSectionProgramDisplayName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
+
+const renameYearLevelSections = React.useCallback(async (currentValue: string, nextValue: string) => {
+    const currentLabel = normalizeDisplayValue(currentValue)
+    const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), currentLabel))
+
+    const referenceSection = matchingSections[0] || selectedFormSection || null
+    const nextYearLevel = normalizeYearLevelValueForStorage(nextValue, referenceSection)
+    const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
+
+    if (!currentLabel || !nextYearLevel || !nextLabel) {
+        toast.error("Please enter a valid year level.")
+        return
+    }
+
+    if (matchingSections.length === 0) {
+        toast.error("No matching sections found for that year level.")
+        return
+    }
+
+    setYearLevelMutating(true)
+    try {
+        await Promise.all(
+            matchingSections.map((section) =>
+                databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id, {
+                    yearLevel: nextYearLevel,
+                    label: nextLabel,
+                    name:
+                        !normalizeDisplayValue((section as any)?.name) ||
+                        subjectFilterValuesMatch((section as any)?.name, currentLabel)
+                            ? nextLabel
+                            : (section as any)?.name,
+                })
             )
-            setSubjectYearLevelFilters((current) => current.filter((item) => item !== yearLevelLabel))
-            toast.success("Year level deleted.")
-            await fetchScheduleContext()
-        } catch (e: any) {
-            toast.error(e?.message || "Failed to delete year level.")
-        } finally {
-            setYearLevelMutating(false)
-        }
-    }, [fetchScheduleContext, normalizeDisplayValue, sections])
+        )
+        toast.success("Year level updated.")
+        await fetchScheduleContext()
+    } catch (e: any) {
+        toast.error(e?.message || "Failed to update year level.")
+    } finally {
+        setYearLevelMutating(false)
+    }
+}, [fetchScheduleContext, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
 
+const deleteYearLevelSections = React.useCallback(async (value: string) => {
+    const yearLevelLabel = normalizeDisplayValue(value)
+    if (!yearLevelLabel) {
+        toast.error("Please choose a year level to delete.")
+        return
+    }
+
+    const matchingSections = sections.filter((section) => subjectFilterValuesMatch(formatYearLevelFilterLabel(section.yearLevel), yearLevelLabel))
+    if (matchingSections.length === 0) {
+        toast.error("No matching sections found for that year level.")
+        return
+    }
+
+    setYearLevelMutating(true)
+    try {
+        await Promise.all(
+            matchingSections.map((section) => databases.deleteDocument(DATABASE_ID, COLLECTIONS.SECTIONS, section.$id))
+        )
+        setSubjectYearLevelFilters((current) => current.filter((item) => item !== yearLevelLabel))
+        toast.success("Year level deleted.")
+        await fetchScheduleContext()
+    } catch (e: any) {
+        toast.error(e?.message || "Failed to delete year level.")
+    } finally {
+        setYearLevelMutating(false)
+    }
+}, [fetchScheduleContext, normalizeDisplayValue, sections])
 
     React.useEffect(() => {
         setFormSubjectIds((prev) => {
@@ -1007,7 +1130,6 @@ export default function AdminSchedulesPage() {
 
     const candidateConflicts = React.useMemo<CandidateConflict[]>(() => {
         if (!entryDialogOpen) return []
-        if (!selectedVersion) return []
         if (!formDayOfWeek || !formStartTime || !formEndTime) return []
 
         const candidateFacultyKey =
@@ -1044,7 +1166,6 @@ export default function AdminSchedulesPage() {
         return out
     }, [
         entryDialogOpen,
-        selectedVersion,
         formDayOfWeek,
         formStartTime,
         formEndTime,
@@ -1064,137 +1185,149 @@ export default function AdminSchedulesPage() {
         return counts
     }, [candidateConflicts])
 
-    const saveEntry = async () => {
-        if (!selectedVersion) {
-            toast.error("Please select a schedule semester first.")
+
+const saveEntry = async () => {
+    if (!formSectionId) {
+        toast.error("Please select a section.")
+        return
+    }
+
+    const selectedSubjectId = String(formSubjectIds[0] || "").trim()
+
+    if (!selectedSubjectId) {
+        toast.error("Please select a subject.")
+        return
+    }
+
+    if (!formRoomId) {
+        toast.error("Please select a room.")
+        return
+    }
+
+    if (!formDayOfWeek) {
+        toast.error("Please select a day.")
+        return
+    }
+
+    if (!formStartTime || !formEndTime) {
+        toast.error("Please select both start and end time.")
+        return
+    }
+
+    const startMin = hhmmToMinutes(formStartTime)
+    const endMin = hhmmToMinutes(formEndTime)
+
+    if (startMin >= endMin) {
+        toast.error("End time must be later than start time.")
+        return
+    }
+
+    if (formFacultyChoice === FACULTY_OPTION_MANUAL && !formManualFaculty.trim()) {
+        toast.error("Please enter manual faculty name.")
+        return
+    }
+
+    if (candidateConflicts.length > 0 && !formAllowConflictSave) {
+        toast.error("Conflict detected. Resolve conflicts or enable override.")
+        return
+    }
+
+    setEntrySaving(true)
+    try {
+        const manualFaculty = formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
+        const facultyUserId =
+            formFacultyChoice === FACULTY_OPTION_NONE || formFacultyChoice === FACULTY_OPTION_MANUAL
+                ? null
+                : formFacultyChoice
+
+        const selectedSectionForPayload =
+            sections.find((section) => section.$id === formSectionId) || null
+        const selectedSubjectForPayload =
+            subjects.find((subject) => subject.$id === selectedSubjectId) || null
+
+        const resolvedTermId =
+            normalizeDisplayValue((selectedSectionForPayload as any)?.termId) ||
+            normalizeDisplayValue((selectedSubjectForPayload as any)?.termId) ||
+            normalizeDisplayValue(activeAcademicTermIds[0])
+
+        const resolvedDepartmentId =
+            normalizeDisplayValue((selectedSectionForPayload as any)?.departmentId) ||
+            normalizeDisplayValue((selectedSubjectForPayload as any)?.departmentId)
+
+        if (!resolvedTermId || !resolvedDepartmentId) {
+            toast.error("Unable to resolve the academic term or college for this schedule entry.")
             return
         }
 
-        if (!formSectionId) {
-            toast.error("Please select a section.")
-            return
+        const classPayload: any = {
+            termId: resolvedTermId,
+            departmentId: resolvedDepartmentId,
+            programId: (selectedSectionForPayload as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
+            sectionId: formSectionId,
+            facultyUserId,
+            classCode: null,
+            deliveryMode: null,
+            remarks: composeRemarks("", manualFaculty),
         }
 
-        const selectedSubjectId = String(formSubjectIds[0] || "").trim()
+        if (editingEntry) {
+            await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.CLASSES,
+                editingEntry.classId,
+                {
+                    ...classPayload,
+                    subjectId: selectedSubjectId,
+                }
+            )
 
-        if (!selectedSubjectId) {
-            toast.error("Please select a subject.")
-            return
-        }
-
-        if (!formRoomId) {
-            toast.error("Please select a room.")
-            return
-        }
-
-        if (!formDayOfWeek) {
-            toast.error("Please select a day.")
-            return
-        }
-
-        if (!formStartTime || !formEndTime) {
-            toast.error("Please select both start and end time.")
-            return
-        }
-
-        const startMin = hhmmToMinutes(formStartTime)
-        const endMin = hhmmToMinutes(formEndTime)
-
-        if (startMin >= endMin) {
-            toast.error("End time must be later than start time.")
-            return
-        }
-
-        if (formFacultyChoice === FACULTY_OPTION_MANUAL && !formManualFaculty.trim()) {
-            toast.error("Please enter manual faculty name.")
-            return
-        }
-
-        if (candidateConflicts.length > 0 && !formAllowConflictSave) {
-            toast.error("Conflict detected. Resolve conflicts or enable override.")
-            return
-        }
-
-        setEntrySaving(true)
-        try {
-            const manualFaculty = formFacultyChoice === FACULTY_OPTION_MANUAL ? formManualFaculty.trim() : ""
-            const facultyUserId =
-                formFacultyChoice === FACULTY_OPTION_NONE || formFacultyChoice === FACULTY_OPTION_MANUAL
-                    ? null
-                    : formFacultyChoice
-            const selectedSectionForPayload =
-                sections.find((section) => section.$id === formSectionId) || null
-
-            const classPayload: any = {
-                versionId: selectedVersion.$id,
-                termId: (selectedVersion as any).termId,
-                departmentId: (selectedVersion as any).departmentId,
-                programId: (selectedSectionForPayload as any)?.programId || null,
-                sectionId: formSectionId,
-                facultyUserId,
-                classCode: null,
-                deliveryMode: null,
-                remarks: composeRemarks("", manualFaculty),
-            }
-
-            if (editingEntry) {
-                await databases.updateDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASSES,
-                    editingEntry.classId,
-                    {
-                        ...classPayload,
-                        subjectId: selectedSubjectId,
-                    }
-                )
-
-                await databases.updateDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASS_MEETINGS,
-                    editingEntry.meetingId,
-                    {
-                        dayOfWeek: getCanonicalDayValue(formDayOfWeek),
-                        startTime: formStartTime,
-                        endTime: formEndTime,
-                        roomId: formRoomId || null,
-                        meetingType: formMeetingType,
-                    }
-                )
-
-                toast.success("Schedule entry updated.")
-            } else {
-                const createdClass = await databases.createDocument(
-                    DATABASE_ID,
-                    COLLECTIONS.CLASSES,
-                    ID.unique(),
-                    {
-                        ...classPayload,
-                        subjectId: selectedSubjectId,
-                        status: "Planned",
-                    }
-                )
-
-                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                    versionId: selectedVersion.$id,
-                    classId: (createdClass as any).$id,
+            await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.CLASS_MEETINGS,
+                editingEntry.meetingId,
+                {
+                    classId: editingEntry.classId,
                     dayOfWeek: getCanonicalDayValue(formDayOfWeek),
                     startTime: formStartTime,
                     endTime: formEndTime,
                     roomId: formRoomId || null,
                     meetingType: formMeetingType,
-                })
+                }
+            )
 
-                toast.success("Schedule entry created.")
-            }
+            toast.success("Schedule entry updated.")
+        } else {
+            const createdClass = await databases.createDocument(
+                DATABASE_ID,
+                COLLECTIONS.CLASSES,
+                ID.unique(),
+                {
+                    ...classPayload,
+                    subjectId: selectedSubjectId,
+                    status: "Planned",
+                }
+            )
 
-            handleEntryDialogOpenChange(false)
-            await fetchScheduleContext()
-        } catch (e: any) {
-            toast.error(e?.message || "Failed to save schedule entry.")
-        } finally {
-            setEntrySaving(false)
+            await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
+                classId: (createdClass as any).$id,
+                dayOfWeek: getCanonicalDayValue(formDayOfWeek),
+                startTime: formStartTime,
+                endTime: formEndTime,
+                roomId: formRoomId || null,
+                meetingType: formMeetingType,
+            })
+
+            toast.success("Schedule entry created.")
         }
+
+        handleEntryDialogOpenChange(false)
+        await fetchScheduleContext()
+    } catch (e: any) {
+        toast.error(e?.message || "Failed to save schedule entry.")
+    } finally {
+        setEntrySaving(false)
     }
+}
 
     const deleteEntry = async () => {
         if (!editingEntry) {
@@ -1241,12 +1374,29 @@ export default function AdminSchedulesPage() {
         return { total, conflicts, labs }
     }, [scheduleRows, conflictedRows, laboratoryRows])
 
-    const selectedVersionLabel = React.useMemo(() => {
-        if (!selectedVersion) return "—"
-        return `Semester ${Number((selectedVersion as any).version || 0)} • ${(selectedVersion as any).label || "Untitled"} (${normalizeScheduleStatus(
-            (selectedVersion as any).status
-        )})`
-    }, [selectedVersion])
+
+const selectedVersionLabel = React.useMemo(() => {
+    if (activeAcademicTerms.length === 0) return "—"
+
+    const departmentCount = Array.from(
+        new Set(
+            sections
+                .map((section) => normalizeDisplayValue(section.departmentId))
+                .filter(Boolean)
+        )
+    ).length
+
+    const termLabelText =
+        activeAcademicTerms.length === 1
+            ? buildAcademicTermOptionLabel(activeAcademicTerms[0]) || "Active academic term"
+            : `${activeAcademicTerms.length} active academic terms`
+
+    const departmentLabelText =
+        selectedDepartmentName ||
+        (departmentCount > 1 ? `${departmentCount} colleges` : "All colleges")
+
+    return [termLabelText, departmentLabelText].filter(Boolean).join(" • ")
+}, [activeAcademicTerms, buildAcademicTermOptionLabel, normalizeDisplayValue, sections, selectedDepartmentName])
 
     const HeaderActions = (
         <div className="flex items-center gap-2">

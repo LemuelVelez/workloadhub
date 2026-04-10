@@ -1159,7 +1159,7 @@ function SchedulePdfDocument({
 
                 <Text style={pdfStyles.documentTitle}>{HEADER_DOCUMENT}</Text>
                 <Text style={pdfStyles.metaCenter}>
-                    Version: {versionLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
+                    Schedule Scope: {versionLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
                 </Text>
                 <Text style={pdfStyles.metaCenter}>
                     Filter: {filteredByConflict ? "Conflicts only" : "All entries"}
@@ -2103,9 +2103,9 @@ export function PlannerManagementSection({
                             <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
                                 <CalendarDays className="size-5" />
                             </div>
-                            <div className="mt-3 font-medium">Select a schedule version</div>
+                            <div className="mt-3 font-medium">No active schedule context</div>
                             <div className="text-sm text-muted-foreground">
-                                Choose a version above to manage schedule entries and conflict detection.
+                                Activate at least one academic term to manage schedule entries and conflict detection.
                             </div>
                         </div>
                     ) : entriesLoading ? (
@@ -2126,7 +2126,7 @@ export function PlannerManagementSection({
                             </div>
                             <div className="mt-3 font-medium">No schedule entries found</div>
                             <div className="text-sm text-muted-foreground">
-                                {showConflictsOnly ? "No conflicts detected for this version." : "Create your first schedule entry to begin."}
+                                {showConflictsOnly ? "No conflicts detected for the active schedule scope." : "Create your first schedule entry to begin."}
                             </div>
                         </div>
                     ) : displayedPlannerRows.length === 0 ? (
@@ -2385,7 +2385,7 @@ export function PlannerManagementSection({
                 <CardContent>
                     {!selectedVersion ? (
                         <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                            Select a schedule version to view laboratory assignments.
+                            No active schedule context to view laboratory assignments.
                         </div>
                     ) : entriesLoading ? (
                         <div className="space-y-3">
@@ -2394,7 +2394,7 @@ export function PlannerManagementSection({
                         </div>
                     ) : displayedLaboratoryRows.length === 0 ? (
                         <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                            No laboratory assignments found for this version.
+                            No laboratory assignments found for the active schedule scope.
                         </div>
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
@@ -2481,7 +2481,7 @@ export function PlannerManagementSection({
                     </DialogHeader>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary">{selectedVersionLabel || "No version"}</Badge>
+                        <Badge variant="secondary">{selectedVersionLabel || "No schedule scope"}</Badge>
                         <Badge variant="secondary">{selectedTermLabel || "No term"}</Badge>
                         <Badge variant="secondary">{selectedDeptLabel || "No college"}</Badge>
                         {pdfPreviewState?.scopeLabel ? (

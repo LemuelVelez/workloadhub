@@ -635,16 +635,13 @@ export function termLabel(t?: AcademicTermDoc | null) {
     if (!t) return "—"
     const sy = (t.schoolYear || "").trim()
     const sem = (t.semester || "").trim()
-    const base = [sy, sem].filter(Boolean).join(" • ")
-    const suffix = t.isActive ? " (Active)" : ""
-    return (base || t.$id) + suffix
+    return [sy, sem].filter(Boolean).join(" • ") || t.$id
 }
 
 export function deptLabel(d?: DepartmentDoc | null) {
     if (!d) return "—"
-    const code = (d.code || "").trim()
     const name = (d.name || "").trim()
-    if (code && name) return `${code} • ${name}`
+    const code = (d.code || "").trim()
     return name || code || d.$id
 }
 
