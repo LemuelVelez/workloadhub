@@ -167,6 +167,35 @@ function getScheduleSaveErrorMessage(error: unknown) {
     return message || "Failed to save schedule entry."
 }
 
+function buildScheduleDuplicateKey({
+    termId,
+    sectionId,
+    subjectId,
+    dayOfWeek,
+    startTime,
+    endTime,
+    meetingType,
+}: {
+    termId?: string | null
+    sectionId?: string | null
+    subjectId?: string | null
+    dayOfWeek?: string | null
+    startTime?: string | null
+    endTime?: string | null
+    meetingType?: MeetingType | string | null
+}) {
+    return [
+        String(termId || "").trim(),
+        String(sectionId || "").trim(),
+        String(subjectId || "").trim(),
+        getCanonicalDayValue(String(dayOfWeek || "").trim()),
+        String(startTime || "").trim(),
+        String(endTime || "").trim(),
+        String(meetingType || "").trim().toUpperCase(),
+    ].join("::")
+}
+
+
 function normalizeSectionYearLevelLabel(value?: string | number | null) {
     const normalized = String(value ?? "")
         .trim()
@@ -743,6 +772,59 @@ React.useEffect(() => {
 const selectedFormSection = React.useMemo(
     () => filteredScopedSections.find((section) => section.$id === formSectionId) || filteredScopedSections[0] || null,
     [filteredScopedSections, formSectionId]
+)
+
+const normalizedSubjectSectionFilters = React.useMemo(
+    () => subjectSectionFilters.map((value) => normalizeDisplayValue(value)).filter(Boolean),
+    [normalizeDisplayValue, subjectSectionFilters]
+)
+
+const targetSectionsForSave = React.useMemo(() => {
+    if (editingEntry) {
+        const editingSectionId = normalizeDisplayValue(editingEntry.sectionId)
+        const selectedSectionId = normalizeDisplayValue(formSectionId)
+        const resolvedSection =
+            (selectedSectionId
+                ? filteredScopedSections.find((section) => normalizeDisplayValue(section.$id) === selectedSectionId) || null
+                : null) ||
+            (editingSectionId
+                ? sections.find((section) => normalizeDisplayValue(section.$id) === editingSectionId) || null
+                : null) ||
+            selectedFormSection
+
+        return resolvedSection ? [resolvedSection] : []
+    }
+
+    if (normalizedSubjectSectionFilters.length > 0) {
+        return filteredScopedSections.filter((section) =>
+            normalizedSubjectSectionFilters.includes(normalizeDisplayValue(section.$id))
+        )
+    }
+
+    const selectedSectionId = normalizeDisplayValue(formSectionId)
+    if (selectedSectionId) {
+        const resolvedSection = filteredScopedSections.find(
+            (section) => normalizeDisplayValue(section.$id) === selectedSectionId
+        )
+        if (resolvedSection) {
+            return [resolvedSection]
+        }
+    }
+
+    return filteredScopedSections.length === 1 ? filteredScopedSections : []
+}, [
+    editingEntry,
+    filteredScopedSections,
+    formSectionId,
+    normalizeDisplayValue,
+    normalizedSubjectSectionFilters,
+    sections,
+    selectedFormSection,
+])
+
+const targetSectionIdsForConflict = React.useMemo(
+    () => new Set(targetSectionsForSave.map((section) => normalizeDisplayValue(section.$id)).filter(Boolean)),
+    [normalizeDisplayValue, targetSectionsForSave]
 )
 
 const sectionScopedSubjects = React.useMemo(
@@ -1767,7 +1849,11 @@ const sectionScopedSubjects = React.useMemo(
                 out.push({ type: "faculty", row: r })
             }
 
-            if (formSectionId && r.sectionId && formSectionId === r.sectionId) {
+            if (
+                targetSectionIdsForConflict.size > 0 &&
+                r.sectionId &&
+                targetSectionIdsForConflict.has(normalizeDisplayValue(r.sectionId))
+            ) {
                 out.push({ type: "section", row: r })
             }
         }
@@ -1781,9 +1867,10 @@ const sectionScopedSubjects = React.useMemo(
         formRoomId,
         formFacultyChoice,
         formManualFaculty,
-        formSectionId,
+        normalizeDisplayValue,
         scheduleRows,
         editingEntry,
+        targetSectionIdsForConflict,
     ])
 
     const candidateConflictCounts = React.useMemo(() => {
@@ -1796,29 +1883,11 @@ const sectionScopedSubjects = React.useMemo(
 
 
     const saveEntry = async () => {
-        const normalizedFormSectionId = normalizeDisplayValue(formSectionId)
-        const normalizedSectionFilters = subjectSectionFilters
-            .map((value) => normalizeDisplayValue(value))
-            .filter(Boolean)
-
-        const selectedSectionForPayload =
-            (normalizedFormSectionId
-                ? filteredScopedSections.find((section) => normalizeDisplayValue(section.$id) === normalizedFormSectionId) || null
-                : null) ||
-            (normalizedSectionFilters.length === 1
-                ? sections.find((section) => normalizeDisplayValue(section.$id) === normalizedSectionFilters[0]) || null
-                : null) ||
-            (filteredScopedSections.length === 1 ? filteredScopedSections[0] : null)
+        const sectionsToSave = targetSectionsForSave
+        const selectedSectionForPayload = sectionsToSave[0] || null
 
         if (!selectedSectionForPayload) {
-            toast.error("Please narrow the Sections filter to one section before saving.")
-            return
-        }
-
-        const selectedSectionId = normalizeDisplayValue(selectedSectionForPayload.$id)
-
-        if (!selectedSectionId) {
-            toast.error("Please narrow the Sections filter to one section before saving.")
+            toast.error(editingEntry ? "Unable to resolve the section for this schedule entry." : "Select at least one section before saving.")
             return
         }
 
@@ -1873,32 +1942,39 @@ const sectionScopedSubjects = React.useMemo(
             const selectedSubjectForPayload =
                 subjects.find((subject) => subject.$id === selectedSubjectId) || null
 
-            const resolvedTermId =
-                normalizeDisplayValue((selectedSectionForPayload as any)?.termId) ||
-                normalizeDisplayValue((selectedSubjectForPayload as any)?.termId) ||
-                normalizeDisplayValue(activeAcademicTermIds[0])
-
-            const resolvedDepartmentId =
-                normalizeDisplayValue((selectedSectionForPayload as any)?.departmentId) ||
-                normalizeDisplayValue((selectedSubjectForPayload as any)?.departmentId)
-
-            if (!resolvedTermId || !resolvedDepartmentId) {
-                toast.error("Unable to resolve the semester or college for this schedule entry.")
-                return
-            }
-
-            const classPayload = buildScheduleClassWritePayload({
-                termId: resolvedTermId,
-                departmentId: resolvedDepartmentId,
-                programId: (selectedSectionForPayload as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
-                sectionId: selectedSectionId,
-                subjectId: selectedSubjectId,
-                facultyUserId,
-                manualFaculty,
-                status: editingEntry ? editingEntry.classStatus || null : "Planned",
-            })
-
             if (editingEntry) {
+                const selectedSectionId = normalizeDisplayValue(selectedSectionForPayload.$id)
+
+                if (!selectedSectionId) {
+                    toast.error("Unable to resolve the section for this schedule entry.")
+                    return
+                }
+
+                const resolvedTermId =
+                    normalizeDisplayValue((selectedSectionForPayload as any)?.termId) ||
+                    normalizeDisplayValue((selectedSubjectForPayload as any)?.termId) ||
+                    normalizeDisplayValue(activeAcademicTermIds[0])
+
+                const resolvedDepartmentId =
+                    normalizeDisplayValue((selectedSectionForPayload as any)?.departmentId) ||
+                    normalizeDisplayValue((selectedSubjectForPayload as any)?.departmentId)
+
+                if (!resolvedTermId || !resolvedDepartmentId) {
+                    toast.error("Unable to resolve the semester or college for this schedule entry.")
+                    return
+                }
+
+                const classPayload = buildScheduleClassWritePayload({
+                    termId: resolvedTermId,
+                    departmentId: resolvedDepartmentId,
+                    programId: (selectedSectionForPayload as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
+                    sectionId: selectedSectionId,
+                    subjectId: selectedSubjectId,
+                    facultyUserId,
+                    manualFaculty,
+                    status: editingEntry.classStatus || null,
+                })
+
                 await databases.updateDocument(
                     DATABASE_ID,
                     COLLECTIONS.CLASSES,
@@ -1921,7 +1997,73 @@ const sectionScopedSubjects = React.useMemo(
                 )
 
                 toast.success("Schedule entry updated.")
-            } else {
+                handleEntryDialogOpenChange(false)
+                await fetchScheduleContext()
+                return
+            }
+
+            const existingDuplicateKeys = new Set(
+                scheduleRows.map((row) =>
+                    buildScheduleDuplicateKey({
+                        termId: row.termId,
+                        sectionId: row.sectionId,
+                        subjectId: row.subjectId,
+                        dayOfWeek: row.dayOfWeek,
+                        startTime: row.startTime,
+                        endTime: row.endTime,
+                        meetingType: row.meetingType,
+                    })
+                )
+            )
+
+            let createdCount = 0
+            const skippedDuplicateSections: string[] = []
+            const skippedInvalidSections: string[] = []
+
+            for (const section of sectionsToSave) {
+                const sectionId = normalizeDisplayValue(section.$id)
+                if (!sectionId) continue
+
+                const resolvedTermId =
+                    normalizeDisplayValue((section as any)?.termId) ||
+                    normalizeDisplayValue((selectedSubjectForPayload as any)?.termId) ||
+                    normalizeDisplayValue(activeAcademicTermIds[0])
+
+                const resolvedDepartmentId =
+                    normalizeDisplayValue((section as any)?.departmentId) ||
+                    normalizeDisplayValue((selectedSubjectForPayload as any)?.departmentId)
+
+                if (!resolvedTermId || !resolvedDepartmentId) {
+                    skippedInvalidSections.push(buildSectionDisplayLabel(section) || sectionId)
+                    continue
+                }
+
+                const duplicateKey = buildScheduleDuplicateKey({
+                    termId: resolvedTermId,
+                    sectionId,
+                    subjectId: selectedSubjectId,
+                    dayOfWeek: formDayOfWeek,
+                    startTime: formStartTime,
+                    endTime: formEndTime,
+                    meetingType: formMeetingType,
+                })
+
+                if (existingDuplicateKeys.has(duplicateKey)) {
+                    skippedDuplicateSections.push(buildSectionDisplayLabel(section) || sectionId)
+                    continue
+                }
+
+                const classPayload = buildScheduleClassWritePayload({
+                    termId: resolvedTermId,
+                    departmentId: resolvedDepartmentId,
+                    programId: (section as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
+                    sectionId,
+                    subjectId: selectedSubjectId,
+                    facultyUserId,
+                    manualFaculty,
+                    status: "Planned",
+                })
+
                 const createdClass = await databases.createDocument(
                     DATABASE_ID,
                     COLLECTIONS.CLASSES,
@@ -1943,7 +2085,48 @@ const sectionScopedSubjects = React.useMemo(
                     })
                 )
 
-                toast.success("Schedule entry created.")
+                existingDuplicateKeys.add(duplicateKey)
+                createdCount += 1
+            }
+
+            if (createdCount === 0) {
+                if (skippedDuplicateSections.length > 0) {
+                    toast.error(
+                        skippedDuplicateSections.length === 1
+                            ? `Skipped duplicate entry for ${skippedDuplicateSections[0]}.`
+                            : `Skipped ${skippedDuplicateSections.length} duplicate schedule entries.`
+                    )
+                    return
+                }
+
+                if (skippedInvalidSections.length > 0) {
+                    toast.error("Unable to resolve the semester or college for the selected sections.")
+                    return
+                }
+
+                toast.error("No schedule entries were created.")
+                return
+            }
+
+            if (skippedDuplicateSections.length > 0 || skippedInvalidSections.length > 0) {
+                const details = [
+                    skippedDuplicateSections.length > 0
+                        ? `Skipped ${skippedDuplicateSections.length} duplicate${skippedDuplicateSections.length === 1 ? "" : "s"}`
+                        : "",
+                    skippedInvalidSections.length > 0
+                        ? `Skipped ${skippedInvalidSections.length} invalid section${skippedInvalidSections.length === 1 ? "" : "s"}`
+                        : "",
+                ]
+                    .filter(Boolean)
+                    .join(" • ")
+
+                toast.success(
+                    `Created ${createdCount} schedule entr${createdCount === 1 ? "y" : "ies"}${details ? ` • ${details}` : ""}.`
+                )
+            } else {
+                toast.success(
+                    `Created ${createdCount} schedule entr${createdCount === 1 ? "y" : "ies"}.`
+                )
             }
 
             handleEntryDialogOpenChange(false)

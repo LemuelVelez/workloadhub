@@ -1506,6 +1506,57 @@ export function PlannerManagementSection({
         return sectionDisplayLookup[selectedSection.$id] || "—"
     }, [selectedSection, sectionDisplayLookup])
 
+    const normalizedSubjectSectionFilters = React.useMemo(
+        () => Array.from(new Set(subjectSectionFilters.map((value) => String(value || "").trim()).filter(Boolean))),
+        [subjectSectionFilters]
+    )
+
+    const selectedSectionsForSave = React.useMemo(() => {
+        if (editingEntry) {
+            return selectedSection ? [selectedSection] : []
+        }
+
+        if (normalizedSubjectSectionFilters.length > 0) {
+            const explicitSections = filteredSections.filter((section) =>
+                normalizedSubjectSectionFilters.includes(String(section.$id || "").trim())
+            )
+
+            if (explicitSections.length > 0) {
+                return explicitSections
+            }
+        }
+
+        if (formSectionId) {
+            const matchedSection = filteredSections.find((section) => String(section.$id || "").trim() === String(formSectionId || "").trim())
+            if (matchedSection) {
+                return [matchedSection]
+            }
+        }
+
+        return filteredSections.length === 1 ? filteredSections : []
+    }, [editingEntry, filteredSections, formSectionId, normalizedSubjectSectionFilters, selectedSection])
+
+    const selectedSectionsPreviewBadges = React.useMemo(
+        () =>
+            selectedSectionsForSave.map((section) => ({
+                id: section.$id,
+                label:
+                    sectionDisplayLookup[section.$id] ||
+                    formatSectionDisplayLabel({
+                        label: section.label,
+                        yearLevel: section.yearLevel,
+                        name: section.name,
+                    }),
+            })),
+        [sectionDisplayLookup, selectedSectionsForSave]
+    )
+
+    const selectedSectionsSummaryLabel = React.useMemo(() => {
+        if (selectedSectionsForSave.length === 0) return "—"
+        if (selectedSectionsForSave.length === 1) return selectedSectionsPreviewBadges[0]?.label || selectedSectionPreviewLabel
+        return `${selectedSectionsForSave.length} sections selected`
+    }, [selectedSectionPreviewLabel, selectedSectionsForSave.length, selectedSectionsPreviewBadges])
+
     const selectedSubjectIds = React.useMemo(
         () => Array.from(new Set(formSubjectIds.map((subjectId) => String(subjectId || "").trim()).filter(Boolean))).slice(0, 1),
         [formSubjectIds]
@@ -2701,16 +2752,34 @@ export function PlannerManagementSection({
                             <div className="space-y-3">
                                 <div className="rounded-2xl border border-dashed p-4">
                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                        Resolved Section Reference
+                                        {editingEntry ? "Resolved Section Reference" : "Selected Section Scope"}
                                     </div>
-                                    <div className="mt-2 font-medium">{selectedSectionPreviewLabel}</div>
+                                    <div className="mt-2 font-medium">{selectedSectionsSummaryLabel}</div>
                                     <div className="mt-2 text-xs text-muted-foreground">
                                         {filteredSections.length === 0
                                             ? "No matching section was found for the current subject filters."
-                                            : filteredSections.length === 1
-                                                ? "Create Schedule Entry now uses the section narrowed down from Subject Matching Filters."
-                                                : `Multiple sections match the current filters (${filteredSections.length}). Narrow the Sections filter to one section before saving.`}
+                                            : editingEntry
+                                                ? "Editing updates the currently selected schedule entry only."
+                                                : selectedSectionsForSave.length > 1
+                                                    ? `This will create one schedule entry for each selected section (${selectedSectionsForSave.length}) and automatically skip existing duplicates.`
+                                                    : selectedSectionsForSave.length === 1
+                                                        ? "Create Schedule Entry now uses the selected section from Subject Matching Filters."
+                                                        : "Select at least one section to continue."}
                                     </div>
+                                    {selectedSectionsPreviewBadges.length > 0 ? (
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {selectedSectionsPreviewBadges.slice(0, 8).map((section) => (
+                                                <Badge key={section.id} variant="outline" className="rounded-full">
+                                                    {section.label}
+                                                </Badge>
+                                            ))}
+                                            {selectedSectionsPreviewBadges.length > 8 ? (
+                                                <Badge variant="outline" className="rounded-full">
+                                                    +{selectedSectionsPreviewBadges.length - 8} more
+                                                </Badge>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                     <div className="mt-3 flex flex-wrap gap-2">
                                         <Badge variant="secondary" className="rounded-full">
                                             {selectedDeptLabel || "Department not set"}
@@ -2787,7 +2856,7 @@ export function PlannerManagementSection({
                                         </div>
                                     ) : filteredSubjectOptions.length === 0 ? (
                                         <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                                            No linked subjects are available for the selected section and active academic term scope.
+                                            No linked subjects are available for the selected section scope and active academic term scope.
                                         </div>
                                     ) : (
                                         <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
@@ -3071,7 +3140,7 @@ export function PlannerManagementSection({
                             ) : (
                                 <>
                                     <Plus className="mr-2 size-4" />
-                                    Create Entry
+                                    {selectedSectionsForSave.length > 1 ? `Create ${selectedSectionsForSave.length} Entries` : "Create Entry"}
                                 </>
                             )}
                         </Button>
