@@ -226,6 +226,16 @@ function buildSectionSubjectSummary(
     return labels.length > 0 ? labels.join(", ") : "—"
 }
 
+function formatSectionBulkEditError(error: any) {
+    const message = String(error?.message ?? "").trim()
+
+    if (message && /subjectids/i.test(message) && /(attribute|column|schema|unknown|invalid)/i.test(message)) {
+        return "Backend is missing sections.subjectIds. Run migration 013_add_section_subject_ids."
+    }
+
+    return message || "Update failed."
+}
+
 export function MasterDataSectionsTab({ vm }: Props) {
     const [bulkEditOpen, setBulkEditOpen] = React.useState(false)
     const [bulkEditProgramId, setBulkEditProgramId] = React.useState("__keep__")
@@ -402,17 +412,16 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         payload
                     )
                     updated += 1
-                } catch {
-                    failed.push(
-                        buildSectionDisplayLabel(vm, {
-                            ...section,
-                            programId: hasProgramChange ? nextProgramId : section.programId ?? null,
-                            yearLevel:
-                                hasProgramChange
-                                    ? (payload.yearLevel as string | number | null | undefined)
-                                    : section.yearLevel,
-                        })
-                    )
+                } catch (error: any) {
+                    const label = buildSectionDisplayLabel(vm, {
+                        ...section,
+                        programId: hasProgramChange ? nextProgramId : section.programId ?? null,
+                        yearLevel:
+                            hasProgramChange
+                                ? (payload.yearLevel as string | number | null | undefined)
+                                : section.yearLevel,
+                    })
+                    failed.push(`${label} (${formatSectionBulkEditError(error)})`)
                 }
             }
 
@@ -432,6 +441,11 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 toast.error(
                     `Updated ${updated} section${updated === 1 ? "" : "s"}, but failed for: ${failed.join(", ")}`
                 )
+                return
+            }
+
+            if (failed.length > 0) {
+                toast.error(`Failed to update selected sections: ${failed.join(", ")}`)
                 return
             }
 

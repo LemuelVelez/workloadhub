@@ -361,6 +361,16 @@ function buildSectionDisplayLabel(
     return `${normalizedYearLevel} - ${normalizedName}`
 }
 
+function formatSectionSubjectPersistenceError(error: any) {
+    const message = str(error?.message)
+
+    if (message && /subjectids/i.test(message) && /(attribute|column|schema|unknown|invalid)/i.test(message)) {
+        return "Backend is missing sections.subjectIds. Run migration 013_add_section_subject_ids, then try again."
+    }
+
+    return message || "Failed to save section."
+}
+
 export function useMasterDataManagement() {
     const [tab, setTab] = React.useState<MasterTab>("colleges")
     const [loading, setLoading] = React.useState(true)
@@ -1351,7 +1361,7 @@ export function useMasterDataManagement() {
             setSectionEditing(null)
             await refreshAll()
         } catch (e: any) {
-            toast.error(e?.message || "Failed to save section.")
+            toast.error(formatSectionSubjectPersistenceError(e))
         }
     }
 

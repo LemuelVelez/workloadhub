@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "012_link_sections_subject_scope" as const;
+export const SCHEMA_MIGRATION_ID = "013_add_section_subject_ids" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -205,6 +205,7 @@ export const ATTR = {
         departmentId: "departmentId",
         programId: "programId",
         subjectId: "subjectId",
+        subjectIds: "subjectIds",
         yearLevel: "yearLevel",
         semester: "semester",
         academicTermLabel: "academicTermLabel",
@@ -523,6 +524,7 @@ export type Section = {
     departmentId: string;
     programId?: string | null;
     subjectId?: string | null;
+    subjectIds?: string[] | null;
 
     /**
      * ✅ Stored as prefixed string:
