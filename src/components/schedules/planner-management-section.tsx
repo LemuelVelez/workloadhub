@@ -330,7 +330,7 @@ export function SubjectMatchingFiltersCard({
         <div className="grid gap-2">
             <Label>College</Label>
             <Select value={subjectCollegeFilter} onValueChange={setSubjectCollegeFilter}>
-                <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                <SelectTrigger className="overflow-hidden rounded-xl text-left [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                     <SelectValue placeholder="All colleges" />
                 </SelectTrigger>
                 <SelectContent>
@@ -347,7 +347,7 @@ export function SubjectMatchingFiltersCard({
         <div className="grid gap-2">
             <Label>Semester</Label>
             <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
-                <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                <SelectTrigger className="overflow-hidden rounded-xl text-left [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                     <SelectValue placeholder={hasSelectedCollege ? "Select semester" : "Select college first"} />
                 </SelectTrigger>
                 <SelectContent>
@@ -704,6 +704,14 @@ type PlannerCourseAccordionGroupAccumulator = PlannerCourseAccordionGroup & {
     sectionDisplays: Set<string>
 }
 
+type LaboratoryAccordionGroup = {
+    key: string
+    label: string
+    rowCount: number
+    conflictedCount: number
+    rows: PlannerDisplayRow[]
+}
+
 type PdfPreviewState = {
     title: string
     description: string
@@ -713,7 +721,13 @@ type PdfPreviewState = {
 }
 
 const ROOMS_AND_FACILITIES_ROUTE = "/dashboard/admin/rooms-and-facilities"
-const ENTRY_DIALOG_SELECT_CONTENT_CLASS = "z-[200]"
+const ENTRY_DIALOG_CONTENT_CLASS = "z-120 flex h-[calc(100svh-1rem)] max-h-[calc(100svh-1rem)] min-w-0 w-[calc(100vw-1rem)] max-w-[36rem] flex-col overflow-hidden px-3 py-4 sm:h-auto sm:max-h-[95svh] sm:w-full sm:max-w-4xl sm:px-6"
+const ENTRY_DIALOG_BODY_CLASS = "min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 sm:space-y-4"
+const ENTRY_DIALOG_SELECT_TRIGGER_CLASS = "min-w-0 w-full overflow-hidden rounded-xl text-left [&>span]:block [&>span]:min-w-0 [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate"
+const ENTRY_DIALOG_SELECT_CONTENT_CLASS = "z-[200] w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)] sm:max-w-[36rem]"
+const ENTRY_DIALOG_CARD_CLASS = "min-w-0 rounded-2xl border p-3 text-left sm:p-4"
+const ENTRY_DIALOG_BADGE_CLASS = "max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left"
+const ENTRY_DIALOG_ACTION_BUTTON_CLASS = "h-auto min-h-10 whitespace-normal wrap-anywhere"
 const EMPTY_SUBJECT_SELECT_VALUE = "__no_subject__"
 
 const PLANNER_SORT_OPTIONS: Array<{ value: PlannerSortKey; label: string }> = [
@@ -1441,6 +1455,138 @@ function ExtraSmallPlannerCardShell({
     )
 }
 
+function renderPlannerMobileRowCard({
+    row,
+    onFixConflict,
+    renderConflictBadges,
+    renderGroupedEditButtons,
+}: {
+    row: PlannerDisplayRow
+    onFixConflict: () => void
+    renderConflictBadges: (flags: ConflictFlags) => React.ReactNode
+    renderGroupedEditButtons: (row: PlannerDisplayRow, alignment?: "start" | "end") => React.ReactNode
+}) {
+    return (
+        <div className="rounded-xl border bg-background p-3 shadow-sm">
+            <div className="space-y-2">
+                <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</div>
+                    <div className="font-semibold wrap-anywhere">{row.subjectCodeDisplay || "—"}</div>
+                </div>
+                <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Descriptive Title</div>
+                    <div className="max-w-full text-sm leading-relaxed wrap-anywhere">{row.descriptiveTitleDisplay || "—"}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Section</div>
+                        <div className="wrap-anywhere">{row.sectionDisplay || "—"}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</div>
+                        <div className="wrap-anywhere">{row.meetingTypeDisplay}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day</div>
+                        <div className="wrap-anywhere">{row.dayDisplay}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Time</div>
+                        <div className="wrap-anywhere">{row.timeDisplay}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Room</div>
+                        <div className="wrap-anywhere">{row.roomDisplay || "—"}</div>
+                    </div>
+                    <div className="col-span-2">
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Instructor</div>
+                        <div className="wrap-anywhere">{row.facultyDisplay || "—"}</div>
+                    </div>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                    {renderConflictBadges(row.conflictFlags)}
+                    {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
+                        <Badge variant="secondary" className="rounded-lg">
+                            Manual
+                        </Badge>
+                    ) : null}
+                </div>
+                <div className="space-y-2 pt-1">
+                    {row.hasConflict ? (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="rounded-lg"
+                            onClick={onFixConflict}
+                        >
+                            <ArrowRight className="mr-2 size-4" />
+                            Fix Conflict
+                        </Button>
+                    ) : null}
+                    {renderGroupedEditButtons(row)}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function renderLaboratoryMobileRowCard({
+    row,
+    renderConflictBadges,
+    renderGroupedEditButtons,
+}: {
+    row: PlannerDisplayRow
+    renderConflictBadges: (flags: ConflictFlags) => React.ReactNode
+    renderGroupedEditButtons: (row: PlannerDisplayRow, alignment?: "start" | "end") => React.ReactNode
+}) {
+    const baseRow = row.primaryRow
+
+    return (
+        <div className="rounded-xl border bg-background p-3 shadow-sm">
+            <div className="space-y-2">
+                <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Laboratory Room</div>
+                    <div className="font-semibold wrap-anywhere">{row.roomDisplay || "—"}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day</div>
+                        <div className="wrap-anywhere">{row.dayDisplay}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Time</div>
+                        <div className="wrap-anywhere">{row.timeDisplay}</div>
+                    </div>
+                    <div className="col-span-2">
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Assigned Faculty</div>
+                        <div className="wrap-anywhere">{row.facultyDisplay || "—"}</div>
+                    </div>
+                    <div className="col-span-2">
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Subject</div>
+                        <div className="wrap-anywhere">{baseRow.subjectLabel || "—"}</div>
+                    </div>
+                    <div className="col-span-2">
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Section</div>
+                        <div className="wrap-anywhere">{row.sectionDisplay || "—"}</div>
+                    </div>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                    {renderConflictBadges(row.conflictFlags)}
+                    {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
+                        <Badge variant="secondary" className="rounded-lg">
+                            Manual
+                        </Badge>
+                    ) : null}
+                </div>
+                <div className="space-y-2 pt-1">
+                    {renderGroupedEditButtons(row)}
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function PlannerManagementSection({
     hasScheduleScope,
     scheduleScopeKey,
@@ -1841,6 +1987,35 @@ export function PlannerManagementSection({
         })
     }, [laboratoryRows, conflictFlagsByMeetingId, sectionDisplayLookup])
 
+    const laboratoryAccordionGroups = React.useMemo<LaboratoryAccordionGroup[]>(() => {
+        const roomMap = new Map<string, LaboratoryAccordionGroup>()
+
+        displayedLaboratoryRows.forEach((row) => {
+            const roomLabel = String(row.roomDisplay || "").trim() || "Unassigned laboratory room"
+            const key = roomLabel.toLowerCase()
+            const existing = roomMap.get(key)
+
+            if (existing) {
+                existing.rowCount += 1
+                existing.rows.push(row)
+                if (row.hasConflict) existing.conflictedCount += 1
+                return
+            }
+
+            roomMap.set(key, {
+                key,
+                label: roomLabel,
+                rowCount: 1,
+                conflictedCount: row.hasConflict ? 1 : 0,
+                rows: [row],
+            })
+        })
+
+        return Array.from(roomMap.values()).sort((a, b) =>
+            a.label.localeCompare(b.label, undefined, { sensitivity: "base", numeric: true })
+        )
+    }, [displayedLaboratoryRows])
+
     const plannerCourseAccordionGroups = React.useMemo<PlannerCourseAccordionGroup[]>(() => {
         const courseMap = new Map<string, PlannerCourseAccordionGroupAccumulator>()
 
@@ -2240,7 +2415,7 @@ export function PlannerManagementSection({
                     {hasScheduleScope ? (
                         <div className="rounded-2xl border bg-muted/20 p-4">
                             <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-                                <div className="mx-auto w-full max-w-sm space-y-1 sm:max-w-none">
+                                <div className="min-w-0 w-full space-y-1">
                                     <div className="flex items-center gap-2 text-sm font-semibold">
                                         <SlidersHorizontal className="size-4" />
                                         Table filters & sorting
@@ -2275,7 +2450,7 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Day</Label>
                                     <Select value={plannerDayFilter} onValueChange={setPlannerDayFilter}>
-                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                        <SelectTrigger className="overflow-hidden rounded-xl text-left [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                                             <SelectValue placeholder="All days" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2292,7 +2467,7 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Meeting Type</Label>
                                     <Select value={plannerMeetingTypeFilter} onValueChange={setPlannerMeetingTypeFilter}>
-                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                        <SelectTrigger className="overflow-hidden rounded-xl text-left [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                                             <SelectValue placeholder="All meeting types" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2309,7 +2484,7 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Room Type</Label>
                                     <Select value={plannerRoomTypeFilter} onValueChange={setPlannerRoomTypeFilter}>
-                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                        <SelectTrigger className="overflow-hidden rounded-xl text-left [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                                             <SelectValue placeholder="All room types" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2326,7 +2501,7 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Faculty Mode</Label>
                                     <Select value={plannerFacultyFilter} onValueChange={setPlannerFacultyFilter}>
-                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                        <SelectTrigger className="overflow-hidden rounded-xl text-left [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                                             <SelectValue placeholder="All faculty modes" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2341,7 +2516,7 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Sort By</Label>
                                     <Select value={plannerSortKey} onValueChange={(value) => setPlannerSortKey(value as PlannerSortKey)}>
-                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                        <SelectTrigger className="overflow-hidden rounded-xl text-left [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                                             <SelectValue placeholder="Sort planner rows" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2365,7 +2540,7 @@ export function PlannerManagementSection({
                                         value={plannerSortDirection}
                                         onValueChange={(value) => setPlannerSortDirection(value as PlannerSortDirection)}
                                     >
-                                        <SelectTrigger className="h-8 min-w-0 w-full rounded-xl sm:w-35 [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                        <SelectTrigger className="h-8 min-w-0 w-full overflow-hidden rounded-xl text-left sm:w-35 [&>span]:block [&>span]:w-full [&>span]:overflow-hidden [&>span]:truncate">
                                             <SelectValue placeholder="Order" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -2446,11 +2621,11 @@ export function PlannerManagementSection({
                                                     {courseGroup.label}
                                                 </div>
                                                 {courseGroup.subtitle ? (
-                                                    <div className="mt-1 text-xs text-muted-foreground">
+                                                    <div className="mt-1 hidden text-xs text-muted-foreground sm:block">
                                                         {courseGroup.subtitle}
                                                     </div>
                                                 ) : null}
-                                                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground">
+                                                <div className="mt-2 hidden min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground sm:flex">
                                                     <span>{courseGroup.rowCount} grouped entries</span>
                                                     <span>•</span>
                                                     <span>{courseGroup.instructorCount} instructors</span>
@@ -2461,108 +2636,87 @@ export function PlannerManagementSection({
                                         </AccordionTrigger>
 
                                         <AccordionContent className="space-y-4 pb-4">
-                                            <div className="flex flex-wrap items-center justify-end gap-2">
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-auto min-h-8 justify-center rounded-lg whitespace-normal wrap-anywhere"
-                                                    onClick={() =>
-                                                        openPdfPreview({
-                                                            title: `${courseGroup.label} PDF Preview`,
-                                                            description: "Preview the generated PDF for this course group before export.",
-                                                            rows: courseGroup.rows,
-                                                            fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
-                                                            scopeLabel: courseGroup.label,
-                                                        })
-                                                    }
-                                                >
-                                                    <Eye className="mr-2 size-4" />
-                                                    Preview PDF
-                                                </Button>
+                                            <div className="sm:hidden">
+                                                <Dialog>
+                                                    <DialogTrigger asChild>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            className="w-full rounded-xl whitespace-normal wrap-anywhere"
+                                                        >
+                                                            Details
+                                                        </Button>
+                                                    </DialogTrigger>
+                                                    <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
+                                                        <DialogHeader>
+                                                            <DialogTitle className="wrap-anywhere">{courseGroup.label}</DialogTitle>
+                                                            <DialogDescription className="wrap-anywhere">
+                                                                {courseGroup.subtitle}
+                                                            </DialogDescription>
+                                                        </DialogHeader>
 
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-auto min-h-8 justify-center rounded-lg whitespace-normal wrap-anywhere"
-                                                    onClick={() =>
-                                                        void downloadRowsPdf({
-                                                            rows: courseGroup.rows,
-                                                            fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
-                                                            scopeLabel: courseGroup.label,
-                                                        })
-                                                    }
-                                                >
-                                                    <Printer className="mr-2 size-4" />
-                                                    Export PDF
-                                                </Button>
-                                            </div>
-
-                                            <div className="space-y-3 sm:hidden">
-                                                {courseGroup.rows.map((row) => (
-                                                    <div key={`mobile-${courseGroup.key}-${row.key}`} className="rounded-xl border bg-background p-3 shadow-sm">
-                                                        <div className="space-y-2">
-                                                            <div>
-                                                                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</div>
-                                                                <div className="font-semibold wrap-anywhere">{row.subjectCodeDisplay || "—"}</div>
-                                                            </div>
-                                                            <div>
-                                                                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Descriptive Title</div>
-                                                                <div className="max-w-full text-sm leading-relaxed wrap-anywhere">{row.descriptiveTitleDisplay || "—"}</div>
-                                                            </div>
-                                                            <div className="grid grid-cols-2 gap-3 text-sm">
-                                                                <div>
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Section</div>
-                                                                    <div>{row.sectionDisplay || "—"}</div>
-                                                                </div>
-                                                                <div>
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</div>
-                                                                    <div>{row.meetingTypeDisplay}</div>
-                                                                </div>
-                                                                <div>
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day</div>
-                                                                    <div>{row.dayDisplay}</div>
-                                                                </div>
-                                                                <div>
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Time</div>
-                                                                    <div>{row.timeDisplay}</div>
-                                                                </div>
-                                                                <div>
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Room</div>
-                                                                    <div>{row.roomDisplay || "—"}</div>
-                                                                </div>
-                                                                <div className="col-span-2">
-                                                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Instructor</div>
-                                                                    <div>{row.facultyDisplay || "—"}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-                                                                {renderConflictBadges(row.conflictFlags)}
-                                                                {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
-                                                                    <Badge variant="secondary" className="rounded-lg">
-                                                                        Manual
-                                                                    </Badge>
-                                                                ) : null}
-                                                            </div>
-                                                            <div className="space-y-2 pt-1">
-                                                                {row.hasConflict ? (
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="rounded-lg"
-                                                                        onClick={goToRoomsAndFacilities}
-                                                                    >
-                                                                        <ArrowRight className="mr-2 size-4" />
-                                                                        Fix Conflict
-                                                                    </Button>
-                                                                ) : null}
-                                                                {renderGroupedEditButtons(row)}
-                                                            </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                {courseGroup.rowCount} grouped entr{courseGroup.rowCount === 1 ? "y" : "ies"}
+                                                            </Badge>
+                                                            <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                {courseGroup.instructorCount} instructor{courseGroup.instructorCount === 1 ? "" : "s"}
+                                                            </Badge>
+                                                            <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                {courseGroup.conflictedCount} conflict{courseGroup.conflictedCount === 1 ? "" : "s"}
+                                                            </Badge>
                                                         </div>
-                                                    </div>
-                                                ))}
+
+                                                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto"
+                                                                onClick={() =>
+                                                                    openPdfPreview({
+                                                                        title: `${courseGroup.label} PDF Preview`,
+                                                                        description: "Preview the generated PDF for this course group before export.",
+                                                                        rows: courseGroup.rows,
+                                                                        fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
+                                                                        scopeLabel: courseGroup.label,
+                                                                    })
+                                                                }
+                                                            >
+                                                                <Eye className="mr-2 size-4" />
+                                                                Preview PDF
+                                                            </Button>
+
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto"
+                                                                onClick={() =>
+                                                                    void downloadRowsPdf({
+                                                                        rows: courseGroup.rows,
+                                                                        fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
+                                                                        scopeLabel: courseGroup.label,
+                                                                    })
+                                                                }
+                                                            >
+                                                                <Printer className="mr-2 size-4" />
+                                                                Export PDF
+                                                            </Button>
+                                                        </div>
+
+                                                        <div className="space-y-3">
+                                                            {courseGroup.rows.map((row) => (
+                                                                <React.Fragment key={`mobile-dialog-${courseGroup.key}-${row.key}`}>
+                                                                    {renderPlannerMobileRowCard({
+                                                                        row,
+                                                                        onFixConflict: goToRoomsAndFacilities,
+                                                                        renderConflictBadges,
+                                                                        renderGroupedEditButtons,
+                                                                    })}
+                                                                </React.Fragment>
+                                                            ))}
+                                                        </div>
+                                                    </DialogContent>
+                                                </Dialog>
                                             </div>
 
                                             <div className="hidden overflow-x-auto rounded-xl border sm:block">
@@ -2589,7 +2743,7 @@ export function PlannerManagementSection({
                                                                 <TableCell className="whitespace-normal wrap-anywhere align-top">
                                                                     <div className="min-w-0 space-y-1 leading-relaxed">
                                                                         <div className="wrap-anywhere font-medium">{row.descriptiveTitleDisplay || "—"}</div>
-                                                                        <div className="text-xs text-muted-foreground">
+                                                                        <div className="text-xs text-muted-foreground wrap-anywhere">
                                                                             Units: {row.primaryRow.subjectUnits ?? "—"}
                                                                         </div>
                                                                     </div>
@@ -2634,7 +2788,7 @@ export function PlannerManagementSection({
                                                                                 type="button"
                                                                                 variant="outline"
                                                                                 size="sm"
-                                                                                className="rounded-lg"
+                                                                                className="rounded-lg whitespace-normal wrap-anywhere text-left"
                                                                                 onClick={goToRoomsAndFacilities}
                                                                             >
                                                                                 <ArrowRight className="mr-2 size-4" />
@@ -2684,71 +2838,123 @@ export function PlannerManagementSection({
                             No laboratory assignments found for the active schedule scope.
                         </div>
                     ) : (
-                        <div className="overflow-hidden rounded-xl border">
-                            <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                                Drag left or right anywhere in the table to scroll horizontally.
+                        <>
+                            <div className="sm:hidden">
+                                <Accordion type="multiple" className="overflow-hidden rounded-xl border">
+                                    {laboratoryAccordionGroups.map((group, groupIndex) => (
+                                        <AccordionItem key={`${group.key}-${groupIndex}`} value={`${group.key}-${groupIndex}`} className="px-3">
+                                            <AccordionTrigger className="min-w-0 py-4 text-left hover:no-underline">
+                                                <div className="min-w-0 flex-1 wrap-anywhere text-sm font-semibold">{group.label}</div>
+                                            </AccordionTrigger>
+                                            <AccordionContent className="pb-4">
+                                                <Dialog>
+                                                    <DialogTrigger asChild>
+                                                        <Button type="button" variant="outline" className="w-full rounded-xl whitespace-normal wrap-anywhere">
+                                                            Details
+                                                        </Button>
+                                                    </DialogTrigger>
+                                                    <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
+                                                        <DialogHeader>
+                                                            <DialogTitle className="wrap-anywhere">{group.label}</DialogTitle>
+                                                            <DialogDescription className="wrap-anywhere">
+                                                                Review laboratory assignments for this room on extra small screens inside a clean dialog view.
+                                                            </DialogDescription>
+                                                        </DialogHeader>
+
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                {group.rowCount} assignment{group.rowCount === 1 ? "" : "s"}
+                                                            </Badge>
+                                                            <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                {group.conflictedCount} conflict{group.conflictedCount === 1 ? "" : "s"}
+                                                            </Badge>
+                                                        </div>
+
+                                                        <div className="space-y-3">
+                                                            {group.rows.map((row) => (
+                                                                <React.Fragment key={`lab-mobile-dialog-${group.key}-${row.key}`}>
+                                                                    {renderLaboratoryMobileRowCard({
+                                                                        row,
+                                                                        renderConflictBadges,
+                                                                        renderGroupedEditButtons,
+                                                                    })}
+                                                                </React.Fragment>
+                                                            ))}
+                                                        </div>
+                                                    </DialogContent>
+                                                </Dialog>
+                                            </AccordionContent>
+                                        </AccordionItem>
+                                    ))}
+                                </Accordion>
                             </div>
 
-                            <Table className="min-w-245 w-full table-fixed">
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-40 whitespace-normal wrap-anywhere align-top">Laboratory Room</TableHead>
-                                        <TableHead className="w-24 whitespace-normal wrap-anywhere align-top">Day</TableHead>
-                                        <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Time</TableHead>
-                                        <TableHead className="w-56 whitespace-normal wrap-anywhere align-top">Assigned Faculty</TableHead>
-                                        <TableHead className="w-52 whitespace-normal wrap-anywhere align-top">Subject</TableHead>
-                                        <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Section</TableHead>
-                                        <TableHead className="w-40 whitespace-normal wrap-anywhere align-top">Conflicts</TableHead>
-                                        <TableHead className="w-36 whitespace-normal wrap-anywhere align-top">Actions</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {displayedLaboratoryRows.map((row) => {
-                                        const baseRow = row.primaryRow
-                                        return (
-                                            <TableRow key={`lab-${row.key}`}>
-                                                <TableCell className="font-medium whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                    {row.roomDisplay}
-                                                </TableCell>
-                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                    {row.dayDisplay}
-                                                </TableCell>
-                                                <TableCell className="whitespace-normal wrap-anywhere align-top text-sm">
-                                                    <div className="space-y-1 leading-snug">
-                                                        <div className="font-medium wrap-anywhere">{row.timeDisplay}</div>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
-                                                    <div className="flex items-start gap-2">
-                                                        <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                                                        <div className="min-w-0 space-y-1 leading-relaxed">
-                                                            <span className="block wrap-anywhere">{row.facultyDisplay}</span>
-                                                            {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
-                                                                <Badge variant="secondary" className="rounded-lg">
-                                                                    Manual
-                                                                </Badge>
-                                                            ) : null}
+                            <div className="hidden overflow-hidden rounded-xl border sm:block">
+                                <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                    Drag left or right anywhere in the table to scroll horizontally.
+                                </div>
+
+                                <Table className="min-w-245 w-full table-fixed">
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-40 whitespace-normal wrap-anywhere align-top">Laboratory Room</TableHead>
+                                            <TableHead className="w-24 whitespace-normal wrap-anywhere align-top">Day</TableHead>
+                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Time</TableHead>
+                                            <TableHead className="w-56 whitespace-normal wrap-anywhere align-top">Assigned Faculty</TableHead>
+                                            <TableHead className="w-52 whitespace-normal wrap-anywhere align-top">Subject</TableHead>
+                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Section</TableHead>
+                                            <TableHead className="w-40 whitespace-normal wrap-anywhere align-top">Conflicts</TableHead>
+                                            <TableHead className="w-36 whitespace-normal wrap-anywhere align-top">Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {displayedLaboratoryRows.map((row) => {
+                                            const baseRow = row.primaryRow
+                                            return (
+                                                <TableRow key={`lab-${row.key}`}>
+                                                    <TableCell className="font-medium whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                        {row.roomDisplay}
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                        {row.dayDisplay}
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-normal wrap-anywhere align-top text-sm">
+                                                        <div className="space-y-1 leading-snug">
+                                                            <div className="font-medium wrap-anywhere">{row.timeDisplay}</div>
                                                         </div>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                    {baseRow.subjectLabel}
-                                                </TableCell>
-                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                    {row.sectionDisplay}
-                                                </TableCell>
-                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
-                                                    {renderConflictBadges(row.conflictFlags)}
-                                                </TableCell>
-                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
-                                                    {renderGroupedEditButtons(row)}
-                                                </TableCell>
-                                            </TableRow>
-                                        )
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                        <div className="flex items-start gap-2">
+                                                            <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                                                            <div className="min-w-0 space-y-1 leading-relaxed">
+                                                                <span className="block wrap-anywhere">{row.facultyDisplay}</span>
+                                                                {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
+                                                                    <Badge variant="secondary" className="rounded-lg">
+                                                                        Manual
+                                                                    </Badge>
+                                                                ) : null}
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                        {baseRow.subjectLabel}
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                        {row.sectionDisplay}
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                        {renderConflictBadges(row.conflictFlags)}
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                        {renderGroupedEditButtons(row)}
+                                                    </TableCell>
+                                                </TableRow>
+                                            )
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </>
                     )}
                 </CardContent>
             </Card>
@@ -2794,16 +3000,16 @@ export function PlannerManagementSection({
                     </DialogHeader>
 
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-                        <Badge variant="secondary">{scheduleScopeLabel || "No schedule scope"}</Badge>
-                        <Badge variant="secondary">{selectedTermLabel || "No term"}</Badge>
-                        <Badge variant="secondary">{selectedDeptLabel || "No college"}</Badge>
+                        <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{scheduleScopeLabel || "No schedule scope"}</Badge>
+                        <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{selectedTermLabel || "No term"}</Badge>
+                        <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{selectedDeptLabel || "No college"}</Badge>
                         {pdfPreviewState?.scopeLabel ? (
-                            <Badge variant="secondary">{pdfPreviewState.scopeLabel}</Badge>
+                            <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{pdfPreviewState.scopeLabel}</Badge>
                         ) : null}
-                        <Badge variant="outline">
+                        <Badge variant="outline" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">
                             {activePdfPreviewRows.length} grouped entr{activePdfPreviewRows.length === 1 ? "y" : "ies"}
                         </Badge>
-                        <Badge variant="outline">
+                        <Badge variant="outline" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">
                             {activePdfPreviewStats.conflicts} conflict{activePdfPreviewStats.conflicts === 1 ? "" : "s"}
                         </Badge>
                     </div>
@@ -2827,7 +3033,7 @@ export function PlannerManagementSection({
                         )}
                     </div>
 
-                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <DialogFooter className="shrink-0 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-xs text-muted-foreground">
                             PDF export now includes the JRMSU and CCS logos, official institutional header,
                             branded title area, footer rules, and conflict highlighting.
@@ -2868,14 +3074,19 @@ export function PlannerManagementSection({
                     if (!v) setFormAllowConflictSave(false)
                 }}
             >
-                <DialogContent className="z-120 max-h-[85svh] w-full max-w-[min(calc(100vw-1rem),36rem)] overflow-y-auto px-4 sm:max-w-4xl sm:px-6">
-                    <DialogHeader>
-                        <DialogTitle>{editingEntry ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
+                <DialogContent className={ENTRY_DIALOG_CONTENT_CLASS}>
+                    <DialogHeader className="shrink-0 space-y-1 pr-6 text-left">
+                        <DialogTitle className="wrap-anywhere pr-6 text-left">
+                            {editingEntry ? "Edit Schedule Entry" : "Create Schedule Entry"}
+                        </DialogTitle>
+                        <DialogDescription className="wrap-anywhere text-left">
+                            Review the selected scope, then assign the subject, instructor, room, meeting day, time, and type.
+                        </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4">
+                    <div className={ENTRY_DIALOG_BODY_CLASS}>
                         {editingEntry ? (
-                            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground [&>span]:wrap-anywhere">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground [&>span]:wrap-anywhere">
                                 <Badge variant="secondary" className="rounded-lg">
                                     Editing entry
                                 </Badge>
@@ -2887,9 +3098,9 @@ export function PlannerManagementSection({
                             </div>
                         ) : null}
 
-                        <div className="flex flex-col items-center gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:items-start">
-                            <div className="w-full max-w-sm space-y-3 self-center sm:max-w-md lg:max-w-none lg:self-auto">
-                                <div className="rounded-2xl border border-dashed p-4 text-center sm:text-left">
+                        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:items-start lg:gap-4">
+                            <div className="min-w-0 space-y-3">
+                                <div className="min-w-0 rounded-2xl border border-dashed p-3 text-left sm:p-4">
                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                                         {editingEntry ? "Resolved Section Reference" : "Selected Section Scope"}
                                     </div>
@@ -2906,46 +3117,46 @@ export function PlannerManagementSection({
                                                         : "Select at least one section to continue."}
                                     </div>
                                     {selectedSectionsPreviewBadges.length > 0 ? (
-                                        <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
+                                        <div className="mt-3 flex min-w-0 flex-wrap gap-2">
                                             {selectedSectionsPreviewBadges.slice(0, 8).map((section) => (
-                                                <Badge key={section.id} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                                <Badge key={section.id} variant="outline" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                     {section.label}
                                                 </Badge>
                                             ))}
                                             {selectedSectionsPreviewBadges.length > 8 ? (
-                                                <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                                <Badge variant="outline" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                     +{selectedSectionsPreviewBadges.length - 8} more
                                                 </Badge>
                                             ) : null}
                                         </div>
                                     ) : null}
-                                    <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
-                                        <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                    <div className="mt-3 flex min-w-0 flex-wrap gap-2">
+                                        <Badge variant="secondary" className={ENTRY_DIALOG_BADGE_CLASS}>
                                             {selectedDeptLabel || "Department not set"}
                                         </Badge>
                                         {selectedSectionProgramBadges.map((program) => (
-                                            <Badge key={`program-${program}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                            <Badge key={`program-${program}`} variant="outline" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                 {program}
                                             </Badge>
                                         ))}
                                         {selectedSectionYearLevelBadges.map((yearLevel) => (
-                                            <Badge key={`year-level-${yearLevel}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                            <Badge key={`year-level-${yearLevel}`} variant="outline" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                 {yearLevel}
                                             </Badge>
                                         ))}
                                         {selectedSectionSemesterBadges.map((semester) => (
-                                            <Badge key={`semester-${semester}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                            <Badge key={`semester-${semester}`} variant="outline" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                 {semester}
                                             </Badge>
                                         ))}
                                         {selectedSectionAcademicTermBadges.length > 0
                                             ? selectedSectionAcademicTermBadges.map((academicTermLabel) => (
-                                                <Badge key={`academic-term-${academicTermLabel}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                                <Badge key={`academic-term-${academicTermLabel}`} variant="outline" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                     {academicTermLabel}
                                                 </Badge>
                                             ))
                                             : selectedTermLabel ? (
-                                                <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                                <Badge variant="outline" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                     {selectedTermLabel}
                                                 </Badge>
                                             ) : null}
@@ -2953,20 +3164,20 @@ export function PlannerManagementSection({
                                 </div>
                             </div>
 
-                            <div className="w-full max-w-sm space-y-3 self-center sm:max-w-md lg:max-w-none lg:self-auto">
-                                <div className="rounded-2xl border p-4 text-center sm:text-left">
+                            <div className="min-w-0 space-y-3">
+                                <div className={ENTRY_DIALOG_CARD_CLASS}>
                                     <div className="text-xs text-muted-foreground wrap-anywhere">
                                         Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and linked semester records.
                                     </div>
                                 </div>
 
-                                <div className="mx-auto w-full max-w-sm space-y-1 sm:max-w-none">
+                                <div className="min-w-0 w-full space-y-1">
                                     <Label>Subject</Label>
                                     <Select
                                         value={selectedSubjectId || EMPTY_SUBJECT_SELECT_VALUE}
                                         onValueChange={handleSubjectChange}
                                     >
-                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                        <SelectTrigger className={ENTRY_DIALOG_SELECT_TRIGGER_CLASS}>
                                             <SelectValue placeholder="Select subject" />
                                         </SelectTrigger>
                                         <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -2985,14 +3196,14 @@ export function PlannerManagementSection({
                                     </Select>
                                 </div>
 
-                                <div className="rounded-2xl border p-4 text-center sm:text-left">
+                                <div className={ENTRY_DIALOG_CARD_CLASS}>
                                     <div className="text-xs text-muted-foreground wrap-anywhere">
                                         Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and linked semester records.
                                     </div>
 
                                     {selectedSubjectDoc ? (
-                                        <div className="mt-3 space-y-2">
-                                            <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                                        <div className="mt-3 min-w-0 space-y-2">
+                                            <Badge variant="secondary" className={ENTRY_DIALOG_BADGE_CLASS}>
                                                 {String(selectedSubjectDoc.code || selectedSubjectDoc.title || selectedSubjectDoc.$id)}
                                             </Badge>
                                             <div className="max-w-full text-sm leading-relaxed wrap-anywhere">
@@ -3012,11 +3223,11 @@ export function PlannerManagementSection({
                             </div>
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-2">
+                        <div className="grid min-w-0 gap-3 md:grid-cols-2">
                             <div className="space-y-1">
                                 <Label>Faculty / Instructor</Label>
                                 <Select value={formFacultyChoice} onValueChange={setFormFacultyChoice}>
-                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                    <SelectTrigger className={ENTRY_DIALOG_SELECT_TRIGGER_CLASS}>
                                         <SelectValue placeholder="Select faculty" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -3042,7 +3253,7 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Room</Label>
                                 <Select value={formRoomId} onValueChange={setFormRoomId}>
-                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                    <SelectTrigger className={ENTRY_DIALOG_SELECT_TRIGGER_CLASS}>
                                         <SelectValue placeholder="Select room" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -3064,7 +3275,7 @@ export function PlannerManagementSection({
                         </div>
 
                         {formFacultyChoice === FACULTY_OPTION_MANUAL ? (
-                            <div className="space-y-2 rounded-xl border p-3">
+                            <div className="min-w-0 space-y-2 rounded-xl border p-3">
                                 <div className="space-y-1">
                                     <Label>Manual Faculty Name</Label>
                                     <Input
@@ -3086,7 +3297,7 @@ export function PlannerManagementSection({
                                                     type="button"
                                                     variant="outline"
                                                     size="sm"
-                                                    className="rounded-lg"
+                                                    className="rounded-lg whitespace-normal wrap-anywhere text-left"
                                                     onClick={() => setFormManualFaculty(name)}
                                                 >
                                                     {name}
@@ -3098,11 +3309,11 @@ export function PlannerManagementSection({
                             </div>
                         ) : null}
 
-                        <div className="grid gap-3 md:grid-cols-4">
+                        <div className="grid min-w-0 gap-3 md:grid-cols-4">
                             <div className="space-y-1">
                                 <Label>Day</Label>
                                 <Select value={formDayOfWeek} onValueChange={setFormDayOfWeek}>
-                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                    <SelectTrigger className={ENTRY_DIALOG_SELECT_TRIGGER_CLASS}>
                                         <SelectValue placeholder="Select day" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -3118,7 +3329,7 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Start Time</Label>
                                 <Select value={formStartTime} onValueChange={setFormStartTime}>
-                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                    <SelectTrigger className={ENTRY_DIALOG_SELECT_TRIGGER_CLASS}>
                                         <SelectValue placeholder="Select start time" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -3134,7 +3345,7 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>End Time</Label>
                                 <Select value={formEndTime} onValueChange={setFormEndTime}>
-                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                    <SelectTrigger className={ENTRY_DIALOG_SELECT_TRIGGER_CLASS}>
                                         <SelectValue placeholder="Select end time" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -3150,7 +3361,7 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Meeting Type</Label>
                                 <Select value={formMeetingType} onValueChange={(value) => setFormMeetingType(value as MeetingType)}>
-                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
+                                    <SelectTrigger className={ENTRY_DIALOG_SELECT_TRIGGER_CLASS}>
                                         <SelectValue placeholder="Select type" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -3168,8 +3379,8 @@ export function PlannerManagementSection({
                                     <AlertTriangle className="size-4" />
                                     Conflict detected
                                 </AlertTitle>
-                                <AlertDescription className="space-y-2">
-                                    <div className="text-sm">
+                                <AlertDescription className="space-y-2 [&_*]:wrap-anywhere">
+                                    <div className="text-sm wrap-anywhere">
                                         Room: <span className="font-medium">{candidateConflictCounts.room}</span> • Faculty:{" "}
                                         <span className="font-medium">{candidateConflictCounts.faculty}</span> • Section:{" "}
                                         <span className="font-medium">{candidateConflictCounts.section}</span>
@@ -3184,7 +3395,7 @@ export function PlannerManagementSection({
                                         ))}
                                     </ul>
 
-                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                    <div className="flex flex-wrap items-start gap-2 pt-1">
                                         <Checkbox
                                             id="allowConflictSave"
                                             checked={formAllowConflictSave}
@@ -3198,7 +3409,7 @@ export function PlannerManagementSection({
                                             type="button"
                                             variant="outline"
                                             size="sm"
-                                            className="rounded-lg"
+                                            className="rounded-lg whitespace-normal wrap-anywhere text-left"
                                             onClick={goToRoomsAndFacilities}
                                         >
                                             <ArrowRight className="mr-2 size-4" />
@@ -3210,19 +3421,19 @@ export function PlannerManagementSection({
                         ) : (
                             <Alert>
                                 <AlertTitle>No conflict detected</AlertTitle>
-                                <AlertDescription>
+                                <AlertDescription className="wrap-anywhere">
                                     Current entry does not overlap with existing room, faculty, or section schedule.
                                 </AlertDescription>
                             </Alert>
                         )}
                     </div>
 
-                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <DialogFooter className="shrink-0 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             {editingEntry ? (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                        <Button type="button" variant="destructive" disabled={entrySaving}>
+                                        <Button type="button" variant="destructive" disabled={entrySaving} className={ENTRY_DIALOG_ACTION_BUTTON_CLASS}>
                                             <Trash2 className="mr-2 size-4" />
                                             Delete Entry
                                         </Button>
@@ -3242,7 +3453,7 @@ export function PlannerManagementSection({
                                                     void onDeleteEntry()
                                                 }}
                                                 disabled={entrySaving}
-                                                className={cn(entrySaving && "pointer-events-none opacity-90")}
+                                                className={cn(ENTRY_DIALOG_ACTION_BUTTON_CLASS, entrySaving && "pointer-events-none opacity-90")}
                                             >
                                                 {entrySaving ? (
                                                     <>
@@ -3261,7 +3472,7 @@ export function PlannerManagementSection({
                                 </AlertDialog>
                             ) : null}
 
-                            <Button type="button" variant="outline" onClick={() => setEntryDialogOpen(false)} disabled={entrySaving}>
+                            <Button type="button" variant="outline" onClick={() => setEntryDialogOpen(false)} disabled={entrySaving} className={ENTRY_DIALOG_ACTION_BUTTON_CLASS}>
                                 Cancel
                             </Button>
                         </div>
@@ -3270,7 +3481,7 @@ export function PlannerManagementSection({
                             type="button"
                             onClick={() => void onSaveEntry()}
                             disabled={entrySaving}
-                            className={cn(entrySaving && "opacity-90")}
+                            className={cn(ENTRY_DIALOG_ACTION_BUTTON_CLASS, entrySaving && "opacity-90")}
                         >
                             {entrySaving ? (
                                 <>
