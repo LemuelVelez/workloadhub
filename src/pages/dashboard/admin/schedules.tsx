@@ -192,6 +192,7 @@ export default function AdminSchedulesPage() {
     const [subjectSectionFilters, setSubjectSectionFilters] = React.useState<string[]>([])
     const [subjectYearLevelFilters, setSubjectYearLevelFilters] = React.useState<string[]>([])
     const [subjectAcademicTermFilter, setSubjectAcademicTermFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
+    const [sectionMutating, setSectionMutating] = React.useState(false)
     const [yearLevelMutating, setYearLevelMutating] = React.useState(false)
 
     const [termScopePopoverOpen, setTermScopePopoverOpen] = React.useState(false)
@@ -1038,6 +1039,35 @@ export default function AdminSchedulesPage() {
         }
     }, [fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
 
+    const deleteSection = React.useCallback(async (value: string) => {
+        const sectionId = normalizeDisplayValue(value)
+        if (!sectionId) {
+            toast.error("Please choose a section to delete.")
+            return
+        }
+
+        const matchingSection = sections.find((section) => normalizeDisplayValue(section.$id) === sectionId)
+        if (!matchingSection) {
+            toast.error("No matching section found.")
+            return
+        }
+
+        setSectionMutating(true)
+        try {
+            await databases.deleteDocument(DATABASE_ID, COLLECTIONS.SECTIONS, matchingSection.$id)
+            setSubjectSectionFilters((current) => current.filter((item) => item !== sectionId))
+            if (normalizeDisplayValue(formSectionId) === sectionId) {
+                setFormSectionId("")
+            }
+            toast.success("Section deleted.")
+            await fetchScheduleContext()
+        } catch (e: any) {
+            toast.error(e?.message || "Failed to delete section.")
+        } finally {
+            setSectionMutating(false)
+        }
+    }, [fetchScheduleContext, formSectionId, normalizeDisplayValue, sections])
+
     const deleteYearLevelSections = React.useCallback(async (value: string) => {
         const yearLevelLabel = normalizeDisplayValue(value)
         if (!yearLevelLabel) {
@@ -1741,9 +1771,11 @@ export default function AdminSchedulesPage() {
                     subjectSectionOptions={subjectSectionOptions}
                     subjectYearLevelOptions={subjectYearLevelOptions}
                     subjectYearLevelCounts={subjectYearLevelCounts}
+                    sectionMutating={sectionMutating}
                     yearLevelMutating={yearLevelMutating}
                     onCreateYearLevel={createYearLevelSection}
                     onRenameYearLevel={renameYearLevelSections}
+                    onDeleteSection={deleteSection}
                     onDeleteYearLevel={deleteYearLevelSections}
                     subjectAcademicTermOptions={subjectAcademicTermOptions}
                     filteredSubjectCount={filteredFormSubjects.length}

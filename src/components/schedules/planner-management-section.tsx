@@ -196,9 +196,11 @@ export type SubjectMatchingFiltersCardProps = {
     subjectSectionOptions: SubjectSectionFilterOption[]
     subjectYearLevelOptions: string[]
     subjectYearLevelCounts: Record<string, number>
+    sectionMutating: boolean
     yearLevelMutating: boolean
     onCreateYearLevel: (value: string) => Promise<void> | void
     onRenameYearLevel: (currentValue: string, nextValue: string) => Promise<void> | void
+    onDeleteSection: (value: string) => Promise<void> | void
     onDeleteYearLevel: (value: string) => Promise<void> | void
     subjectAcademicTermOptions: string[]
     filteredSubjectCount: number
@@ -225,9 +227,11 @@ export function SubjectMatchingFiltersCard({
     subjectSectionOptions,
     subjectYearLevelOptions,
     subjectYearLevelCounts,
+    sectionMutating,
     yearLevelMutating,
     onCreateYearLevel,
     onRenameYearLevel,
+    onDeleteSection,
     onDeleteYearLevel,
     subjectAcademicTermOptions,
     filteredSubjectCount,
@@ -243,11 +247,23 @@ export function SubjectMatchingFiltersCard({
     const [yearLevelDraft, setYearLevelDraft] = React.useState("")
     const [editingYearLevel, setEditingYearLevel] = React.useState<string | null>(null)
     const [editingYearLevelDraft, setEditingYearLevelDraft] = React.useState("")
+    const [deletingSection, setDeletingSection] = React.useState<SubjectSectionFilterOption | null>(null)
     const [deletingYearLevel, setDeletingYearLevel] = React.useState<string | null>(null)
 
     const getCheckboxId = React.useCallback(
         (group: string, value: string) => `${idPrefix}-${group}-${String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
         [idPrefix]
+    )
+
+    const sortedSubjectSectionOptions = React.useMemo(
+        () =>
+            [...subjectSectionOptions].sort((a, b) =>
+                String(a.label || "").localeCompare(String(b.label || ""), undefined, {
+                    numeric: true,
+                    sensitivity: "base",
+                })
+            ),
+        [subjectSectionOptions]
     )
 
     const handleCreateYearLevel = React.useCallback(async () => {
@@ -265,6 +281,12 @@ export function SubjectMatchingFiltersCard({
         setEditingYearLevel(null)
         setEditingYearLevelDraft("")
     }, [editingYearLevel, editingYearLevelDraft, onRenameYearLevel])
+
+    const handleDeleteSection = React.useCallback(async () => {
+        if (!deletingSection) return
+        await onDeleteSection(deletingSection.value)
+        setDeletingSection(null)
+    }, [deletingSection, onDeleteSection])
 
     const handleDeleteYearLevel = React.useCallback(async () => {
         if (!deletingYearLevel) return
@@ -373,36 +395,51 @@ export function SubjectMatchingFiltersCard({
                                 </div>
                                 <ScrollArea className="h-44 rounded-md border">
                                     <div className="space-y-2 p-3">
-                                        {subjectSectionOptions.length === 0 ? (
+                                        {sortedSubjectSectionOptions.length === 0 ? (
                                             <div className="text-sm text-muted-foreground">
                                                 No sections available for the current schedule context.
                                             </div>
                                         ) : (
-                                            subjectSectionOptions.map((option) => {
+                                            sortedSubjectSectionOptions.map((option) => {
                                                 const checked = subjectSectionFilters.includes(option.value)
                                                 return (
-                                                    <label
+                                                    <div
                                                         key={option.value}
-                                                        htmlFor={getCheckboxId("section", option.value)}
-                                                        className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                        className="flex items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
                                                     >
-                                                        <Checkbox
-                                                            id={getCheckboxId("section", option.value)}
-                                                            checked={checked}
-                                                            onCheckedChange={(value) => {
-                                                                const nextChecked = Boolean(value)
-                                                                setSubjectSectionFilters((current) => {
-                                                                    if (nextChecked) {
-                                                                        return current.includes(option.value)
-                                                                            ? current
-                                                                            : [...current, option.value]
-                                                                    }
-                                                                    return current.filter((item) => item !== option.value)
-                                                                })
-                                                            }}
-                                                        />
-                                                        <div className="min-w-0 flex-1 text-sm font-medium wrap-break-word">{option.label}</div>
-                                                    </label>
+                                                        <label
+                                                            htmlFor={getCheckboxId("section", option.value)}
+                                                            className="flex min-w-0 flex-1 cursor-pointer items-start gap-3"
+                                                        >
+                                                            <Checkbox
+                                                                id={getCheckboxId("section", option.value)}
+                                                                checked={checked}
+                                                                onCheckedChange={(value) => {
+                                                                    const nextChecked = Boolean(value)
+                                                                    setSubjectSectionFilters((current) => {
+                                                                        if (nextChecked) {
+                                                                            return current.includes(option.value)
+                                                                                ? current
+                                                                                : [...current, option.value]
+                                                                        }
+                                                                        return current.filter((item) => item !== option.value)
+                                                                    })
+                                                                }}
+                                                            />
+                                                            <div className="min-w-0 flex-1 text-sm font-medium wrap-break-word">{option.label}</div>
+                                                        </label>
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 rounded-lg px-2 text-destructive hover:text-destructive"
+                                                            onClick={() => setDeletingSection(option)}
+                                                            disabled={sectionMutating}
+                                                        >
+                                                            <Trash2 className="mr-1 size-3.5" />
+                                                            Delete
+                                                        </Button>
+                                                    </div>
                                                 )
                                             })
                                         )}
@@ -541,6 +578,23 @@ export function SubjectMatchingFiltersCard({
                     </div>
                 </CardContent>
             </Card>
+
+            <AlertDialog open={Boolean(deletingSection)} onOpenChange={(open) => !open && setDeletingSection(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Section</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will delete the selected section record for {deletingSection?.label || "this section"}.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={sectionMutating}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => void handleDeleteSection()} disabled={sectionMutating}>
+                            {sectionMutating ? "Deleting..." : "Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <Dialog open={Boolean(editingYearLevel)} onOpenChange={(open) => !open && setEditingYearLevel(null)}>
                 <DialogContent>
