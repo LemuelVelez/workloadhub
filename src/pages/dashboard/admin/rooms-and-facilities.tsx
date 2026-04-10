@@ -95,18 +95,8 @@ type AcademicTermDocLite = {
     isLocked: boolean
 }
 
-type ScheduleVersionLite = {
-    $id: string
-    termId: string
-    departmentId: string
-    version: number
-    label?: string | null
-    status: string
-}
-
 type ClassMeetingLite = {
     $id: string
-    versionId: string
     classId: string
     dayOfWeek: string
     startTime: string
@@ -118,6 +108,7 @@ type ClassMeetingLite = {
 
 type ClassLite = {
     $id: string
+    termId?: string | null
     sectionId: string
     subjectId: string
     facultyUserId?: string | null
@@ -722,43 +713,6 @@ function analyzePrintableScheduleConflicts(items: RoomSchedulePrintItem[]) {
     }
 }
 
-function choosePreferredVersions(versions: ScheduleVersionLite[]) {
-    const byDepartment = new Map<string, ScheduleVersionLite[]>()
-
-    for (const version of versions) {
-        const departmentId = str(version.departmentId) || "__unknown__"
-        if (!byDepartment.has(departmentId)) {
-            byDepartment.set(departmentId, [])
-        }
-        byDepartment.get(departmentId)?.push(version)
-    }
-
-    const statusRank = (status: string) => {
-        const value = str(status).toLowerCase()
-        if (value === "active") return 0
-        if (value === "locked") return 1
-        if (value === "draft") return 2
-        if (value === "archived") return 3
-        return 9
-    }
-
-    const selected: ScheduleVersionLite[] = []
-
-    for (const entry of byDepartment.values()) {
-        entry.sort((a, b) => {
-            const statusDiff = statusRank(a.status) - statusRank(b.status)
-            if (statusDiff !== 0) return statusDiff
-            return num(b.version, 0) - num(a.version, 0)
-        })
-
-        if (entry[0]) {
-            selected.push(entry[0])
-        }
-    }
-
-    return selected
-}
-
 function chunkValues<T>(values: T[], size = 100) {
     const chunks: T[][] = []
     for (let i = 0; i < values.length; i += size) {
@@ -796,46 +750,48 @@ async function listDocsByField(
     return results
 }
 
-async function fetchPreferredTermVersionIds(termId: string) {
-    const versionDocs = (await listDocs(COLLECTIONS.SCHEDULE_VERSIONS, [
-        Query.equal("termId", termId),
+function mapClassMeeting(meeting: any) {
+    return {
+        $id: meeting.$id,
+        classId: str(meeting.classId),
+        dayOfWeek: normalizeDayLabel(meeting.dayOfWeek),
+        startTime: str(meeting.startTime),
+        endTime: str(meeting.endTime),
+        roomId: meeting.roomId ? str(meeting.roomId) : null,
+        meetingType: meeting.meetingType ? str(meeting.meetingType) : null,
+        notes: meeting.notes ? str(meeting.notes) : null,
+    } as ClassMeetingLite
+}
+
+function mapClass(klass: any) {
+    return {
+        $id: klass.$id,
+        termId: klass.termId ? str(klass.termId) : null,
+        sectionId: str(klass.sectionId),
+        subjectId: str(klass.subjectId),
+        facultyUserId: klass.facultyUserId ? str(klass.facultyUserId) : null,
+        classCode: klass.classCode ? str(klass.classCode) : null,
+        deliveryMode: klass.deliveryMode ? str(klass.deliveryMode) : null,
+        status: klass.status ? str(klass.status) : null,
+        remarks: klass.remarks ? str(klass.remarks) : null,
+    } as ClassLite
+}
+
+async function fetchClassesForTerm(termId: string) {
+    const normalizedTermId = str(termId)
+    if (!normalizedTermId) return [] as ClassLite[]
+
+    const classDocs = (await listDocs(COLLECTIONS.CLASSES, [
+        Query.equal("termId", normalizedTermId),
         Query.limit(5000),
     ])) as any[]
 
-    const preferredVersions = choosePreferredVersions(
-        versionDocs.map(
-            (version: any) =>
-                ({
-                    $id: version.$id,
-                    termId: str(version.termId),
-                    departmentId: str(version.departmentId),
-                    version: num(version.version, 0),
-                    label: version.label ?? null,
-                    status: str(version.status),
-                }) as ScheduleVersionLite
-        )
-    )
-
-    return preferredVersions.map((version) => version.$id).filter(Boolean)
+    return classDocs.map(mapClass)
 }
 
-async function fetchMeetingsForVersionIds(versionIds: string[]) {
-    const meetingDocs = (await listDocsByField(COLLECTIONS.CLASS_MEETINGS, "versionId", versionIds)) as any[]
-
-    return meetingDocs.map(
-        (meeting: any) =>
-            ({
-                $id: meeting.$id,
-                versionId: str(meeting.versionId),
-                classId: str(meeting.classId),
-                dayOfWeek: normalizeDayLabel(meeting.dayOfWeek),
-                startTime: str(meeting.startTime),
-                endTime: str(meeting.endTime),
-                roomId: meeting.roomId ? str(meeting.roomId) : null,
-                meetingType: meeting.meetingType ? str(meeting.meetingType) : null,
-                notes: meeting.notes ? str(meeting.notes) : null,
-            }) as ClassMeetingLite
-    )
+async function fetchMeetingsForClassIds(classIds: string[]) {
+    const meetingDocs = (await listDocsByField(COLLECTIONS.CLASS_MEETINGS, "classId", classIds)) as any[]
+    return meetingDocs.map(mapClassMeeting)
 }
 
 async function findAvailableRoomsForMeeting(params: {
@@ -849,9 +805,9 @@ async function findAvailableRoomsForMeeting(params: {
     const termId = str(params.termId)
     if (!termId) return [] as RoomDoc[]
 
-    const [allRoomsDocs, versionIds] = await Promise.all([
+    const [allRoomsDocs, classes] = await Promise.all([
         listDocs(COLLECTIONS.ROOMS, [Query.orderAsc("code"), Query.limit(5000)]),
-        fetchPreferredTermVersionIds(termId),
+        fetchClassesForTerm(termId),
     ])
 
     const rooms = allRoomsDocs
@@ -870,7 +826,8 @@ async function findAvailableRoomsForMeeting(params: {
         )
         .filter((room) => room.isActive)
 
-    const allMeetings = versionIds.length > 0 ? await fetchMeetingsForVersionIds(versionIds) : []
+    const classIds = classes.map((klass) => klass.$id).filter(Boolean)
+    const allMeetings = classIds.length > 0 ? await fetchMeetingsForClassIds(classIds) : []
 
     const normalizedDay = normalizeDayLabel(params.dayOfWeek)
     const candidateStart = parseClockMinutes(params.startTime)
@@ -913,48 +870,24 @@ async function fetchRoomPrintableSchedule(params: {
 
     if (!roomId || !termId) return [] as RoomSchedulePrintItem[]
 
-    const versionIds = await fetchPreferredTermVersionIds(termId)
-    if (versionIds.length === 0) {
+    const classes = await fetchClassesForTerm(termId)
+    if (classes.length === 0) {
+        return [] as RoomSchedulePrintItem[]
+    }
+
+    const classIds = classes.map((klass) => klass.$id).filter(Boolean)
+    if (classIds.length === 0) {
         return [] as RoomSchedulePrintItem[]
     }
 
     const meetingDocs = (await listDocsByField(
         COLLECTIONS.CLASS_MEETINGS,
-        "versionId",
-        versionIds,
+        "classId",
+        classIds,
         [Query.equal("roomId", roomId)]
     )) as any[]
 
-    const meetings = meetingDocs.map(
-        (meeting: any) =>
-            ({
-                $id: meeting.$id,
-                versionId: str(meeting.versionId),
-                classId: str(meeting.classId),
-                dayOfWeek: normalizeDayLabel(meeting.dayOfWeek),
-                startTime: str(meeting.startTime),
-                endTime: str(meeting.endTime),
-                roomId: meeting.roomId ? str(meeting.roomId) : null,
-                meetingType: meeting.meetingType ? str(meeting.meetingType) : null,
-                notes: meeting.notes ? str(meeting.notes) : null,
-            }) as ClassMeetingLite
-    )
-
-    const classIds = meetings.map((meeting) => meeting.classId).filter(Boolean)
-    const classDocs = (await listDocsByField(COLLECTIONS.CLASSES, "$id", classIds)) as any[]
-    const classes = classDocs.map(
-        (klass: any) =>
-            ({
-                $id: klass.$id,
-                sectionId: str(klass.sectionId),
-                subjectId: str(klass.subjectId),
-                facultyUserId: klass.facultyUserId ? str(klass.facultyUserId) : null,
-                classCode: klass.classCode ? str(klass.classCode) : null,
-                deliveryMode: klass.deliveryMode ? str(klass.deliveryMode) : null,
-                status: klass.status ? str(klass.status) : null,
-                remarks: klass.remarks ? str(klass.remarks) : null,
-            }) as ClassLite
-    )
+    const meetings = meetingDocs.map(mapClassMeeting)
 
     const classById = new Map(classes.map((klass) => [klass.$id, klass]))
 
