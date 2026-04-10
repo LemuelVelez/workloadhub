@@ -144,6 +144,73 @@ function getSectionYearAliases(section?: SectionDoc | null) {
     return aliases
 }
 
+function getSectionAliases(section?: SectionDoc | null) {
+    if (!section) return new Set<string>()
+
+    const aliases = new Set<string>()
+    const rawValues = [
+        section.$id,
+        section.name,
+        section.label,
+        section.yearLevel,
+        [section.yearLevel, section.name].filter(Boolean).join(" - "),
+        [section.yearLevel, section.label].filter(Boolean).join(" - "),
+    ]
+
+    for (const rawValue of rawValues) {
+        for (const value of toValueList(rawValue)) {
+            const normalized = normalizeToken(value)
+            if (normalized) aliases.add(normalized)
+
+            const yearToken = extractYearLevelToken(value)
+            if (yearToken) aliases.add(yearToken)
+        }
+    }
+
+    return aliases
+}
+
+function getSectionSubjectAliases(section?: SectionDoc | null) {
+    if (!section) return new Set<string>()
+
+    const aliases = new Set<string>()
+    const anySection = section as Record<string, unknown>
+
+    const rawValues = [
+        section.subjectId,
+        section.subjectIds,
+        anySection.linkedSubjectId,
+        anySection.linkedSubjectIds,
+        anySection.sectionSubjectId,
+        anySection.sectionSubjectIds,
+    ]
+
+    for (const rawValue of rawValues) {
+        for (const value of toValueList(rawValue)) {
+            const normalized = normalizeToken(value)
+            if (normalized) aliases.add(normalized)
+        }
+    }
+
+    return aliases
+}
+
+function getSubjectIdentityAliases(subject?: SubjectDoc | null) {
+    if (!subject) return new Set<string>()
+
+    const aliases = new Set<string>()
+    const rawValues = [subject.$id, subject.code]
+
+    for (const rawValue of rawValues) {
+        for (const value of toValueList(rawValue)) {
+            const normalized = normalizeToken(value)
+            if (normalized) aliases.add(normalized)
+        }
+    }
+
+    return aliases
+}
+
 function getSubjectSectionAliases(subject?: SubjectDoc | null) {
     if (!subject) return new Set<string>()
 
@@ -255,10 +322,16 @@ export function sortSectionsForDisplay(a?: SectionDoc | null, b?: SectionDoc | n
 export function doesSubjectBelongToSection(subject?: SubjectDoc | null, section?: SectionDoc | null) {
     if (!subject || !section) return true
 
-    const normalizedSectionId = normalizeToken(section.$id)
+    const sectionSubjectAliases = getSectionSubjectAliases(section)
+    const subjectIdentityAliases = getSubjectIdentityAliases(subject)
+    if (sectionSubjectAliases.size > 0 && subjectIdentityAliases.size > 0) {
+        return setsIntersect(sectionSubjectAliases, subjectIdentityAliases)
+    }
+
     const subjectSectionAliases = getSubjectSectionAliases(subject)
-    if (normalizedSectionId && subjectSectionAliases.size > 0) {
-        return subjectSectionAliases.has(normalizedSectionId)
+    const sectionAliases = getSectionAliases(section)
+    if (subjectSectionAliases.size > 0) {
+        return sectionAliases.size > 0 && setsIntersect(subjectSectionAliases, sectionAliases)
     }
 
     const subjectProgramAliases = getSubjectProgramAliases(subject)
@@ -336,35 +409,43 @@ export function sectionMatchesSubjectFilters({
     const sectionProgramTokens = [section.$id, section.programId, section.programCode, section.programName]
         .map(normalizeToken)
         .filter(Boolean)
-    const sectionYearLevelTokens = [section.yearLevel, section.label, section.name]
+    const sectionYearLevelTokens = [section.yearLevel, section.label, section.name, [section.yearLevel, section.name].filter(Boolean).join(" - ")]
         .map((value) => normalizeToken(String(value ?? "")))
         .filter(Boolean)
-    const sectionAcademicTermToken = normalizeToken(section.academicTermLabel)
-    const sectionIdToken = normalizeToken(section.$id)
+    const sectionAcademicTermTokens = [section.academicTermLabel, section.semester]
+        .map(normalizeToken)
+        .filter(Boolean)
+    const sectionAliases = Array.from(getSectionAliases(section))
 
     if (normalizedCollegeFilter && normalizedCollegeFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (!sectionCollegeTokens.includes(normalizedCollegeFilter)) return false
+        if (!sectionCollegeTokens.some((token) => subjectFilterValuesMatch(token, normalizedCollegeFilter))) return false
     }
 
     if (normalizedProgramFilters.length > 0) {
-        const hasProgramMatch = normalizedProgramFilters.some((value) => sectionProgramTokens.includes(value))
+        const hasProgramMatch = normalizedProgramFilters.some((value) =>
+            sectionProgramTokens.some((token) => subjectFilterValuesMatch(token, value))
+        )
         if (!hasProgramMatch) return false
     }
 
     if (normalizedYearLevelFilters.length > 0) {
         const hasYearMatch = normalizedYearLevelFilters.some((value) =>
-            sectionYearLevelTokens.some((token) => token === value || token.includes(value) || value.includes(token))
+            sectionYearLevelTokens.some((token) => subjectFilterValuesMatch(token, value))
         )
         if (!hasYearMatch) return false
     }
 
-
     if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (sectionAcademicTermToken !== normalizedAcademicTermFilter) return false
+        if (!sectionAcademicTermTokens.some((token) => subjectFilterValuesMatch(token, normalizedAcademicTermFilter))) {
+            return false
+        }
     }
 
     if (normalizedSectionFilters.length > 0) {
-        if (!sectionIdToken || !normalizedSectionFilters.includes(sectionIdToken)) return false
+        const hasSectionMatch = normalizedSectionFilters.some((value) =>
+            sectionAliases.some((token) => subjectFilterValuesMatch(token, value))
+        )
+        if (!hasSectionMatch) return false
     }
 
     return true

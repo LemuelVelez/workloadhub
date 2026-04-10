@@ -126,11 +126,16 @@ function buildSectionDisplayLabel(section?: SectionDoc | null) {
 function hasLinkedSectionMetadata(section?: SectionDoc | null) {
     if (!section) return false
 
+    const sectionName = String((section as any).name || (section as any).label || "").trim()
+    const sectionSubjectIds = Array.isArray((section as any).subjectIds)
+        ? ((section as any).subjectIds as Array<unknown>).map((value) => String(value || "").trim()).filter(Boolean)
+        : []
+
     return Boolean(
         String((section as any).termId || "").trim() &&
         String((section as any).departmentId || "").trim() &&
-        String((section as any).programId || "").trim() &&
-        String((section as any).yearLevel || "").trim()
+        (String((section as any).programId || "").trim() || sectionName || String((section as any).subjectId || "").trim() || sectionSubjectIds.length > 0) &&
+        (String((section as any).yearLevel || "").trim() || sectionName)
     )
 }
 
@@ -143,13 +148,27 @@ function hasLinkedSubjectMetadata(subject?: SubjectDoc | null) {
     const subjectYearLevels = Array.isArray((subject as any).yearLevels)
         ? ((subject as any).yearLevels as Array<unknown>).map((value) => String(value || "").trim()).filter(Boolean)
         : []
+    const subjectSectionIds = [
+        (subject as any).sectionId,
+        (subject as any).sectionIds,
+        (subject as any).linkedSectionId,
+        (subject as any).linkedSectionIds,
+        (subject as any).subjectSectionId,
+        (subject as any).subjectSectionIds,
+    ]
+        .flatMap((value) => Array.isArray(value) ? value : [value])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+
+    const hasProgramScope = Boolean(String((subject as any).programId || "").trim() || subjectProgramIds.length > 0)
+    const hasYearScope = Boolean(String((subject as any).yearLevel || "").trim() || subjectYearLevels.length > 0)
+    const hasSectionScope = subjectSectionIds.length > 0
+    const hasTermScope = Boolean(String((subject as any).termId || "").trim() || String((subject as any).semester || "").trim())
 
     return Boolean(
-        String((subject as any).termId || "").trim() &&
         String((subject as any).departmentId || "").trim() &&
-        (String((subject as any).programId || "").trim() || subjectProgramIds.length > 0) &&
-        (String((subject as any).yearLevel || "").trim() || subjectYearLevels.length > 0) &&
-        String((subject as any).semester || "").trim()
+        hasTermScope &&
+        ((hasProgramScope && hasYearScope) || hasSectionScope)
     )
 }
 

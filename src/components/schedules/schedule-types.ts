@@ -31,6 +31,7 @@ export type SubjectDoc = {
     programCode?: string | null
     programCodes?: string[] | string | null
     programName?: string | null
+    semester?: string | null
     yearLevel?: string | number | null
     yearLevels?: Array<string | number> | string | null
     sectionId?: string | null
@@ -55,6 +56,8 @@ export type SectionDoc = {
     termId: string
     departmentId: string
     programId?: string | null
+    subjectId?: string | null
+    subjectIds?: string[] | string | null
     yearLevel?: string | number | null
     semester?: string | null
     academicTermLabel?: string | null
