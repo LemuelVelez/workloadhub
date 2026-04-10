@@ -79,7 +79,6 @@ export type UserProfileDoc = {
 
 export type ClassDoc = {
     $id: string
-    versionId?: string | null
     termId: string
     departmentId: string
     programId?: string | null
@@ -94,7 +93,6 @@ export type ClassDoc = {
 
 export type ClassMeetingDoc = {
     $id: string
-    versionId?: string | null
     classId: string
     dayOfWeek: string
     startTime: string
@@ -117,7 +115,6 @@ export type ScheduleRow = {
     meetingId: string
     classId: string
 
-    versionId?: string | null
     termId: string
     departmentId: string
 

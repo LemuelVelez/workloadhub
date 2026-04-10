@@ -1465,7 +1465,6 @@ const sectionScopedSubjects = React.useMemo(
                 meetingId: String((m as any).$id || ""),
                 classId: String((c as any).$id || ""),
 
-                versionId: String((c as any).versionId || (m as any).versionId || ""),
                 termId: String((c as any).termId || ""),
                 departmentId: String((c as any).departmentId || ""),
 

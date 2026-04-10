@@ -1215,7 +1215,7 @@ function buildPlannerDisplayRows({
 
 function SchedulePdfDocument({
     rows,
-    versionLabel,
+    scheduleScopeLabel,
     termLabel,
     deptLabel,
     generatedAt,
@@ -1225,7 +1225,7 @@ function SchedulePdfDocument({
     rightLogoSrc,
 }: {
     rows: PlannerDisplayRow[]
-    versionLabel: string
+    scheduleScopeLabel: string
     termLabel: string
     deptLabel: string
     generatedAt: string
@@ -1268,7 +1268,7 @@ function SchedulePdfDocument({
 
                 <Text style={pdfStyles.documentTitle}>{HEADER_DOCUMENT}</Text>
                 <Text style={pdfStyles.metaCenter}>
-                    Schedule Scope: {versionLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
+                    Schedule Scope: {scheduleScopeLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
                 </Text>
                 <Text style={pdfStyles.metaCenter}>
                     Filter: {filteredByConflict ? "Conflicts only" : "All entries"}
@@ -1783,7 +1783,7 @@ export function PlannerManagementSection({
             const documentNode = (
                 <SchedulePdfDocument
                     rows={rows}
-                    versionLabel={scheduleScopeLabel}
+                    scheduleScopeLabel={scheduleScopeLabel}
                     termLabel={selectedTermLabel}
                     deptLabel={selectedDeptLabel}
                     generatedAt={generatedAt}
