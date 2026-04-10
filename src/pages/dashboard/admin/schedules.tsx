@@ -9,10 +9,19 @@ import DashboardLayout from "@/components/dashboard-layout"
 
 import { databases, DATABASE_ID, COLLECTIONS, ID, Query } from "@/lib/db"
 
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
@@ -294,6 +303,68 @@ function hasLinkedSubjectMetadata(subject?: SubjectDoc | null) {
     return true
 }
 
+
+
+type ExtraSmallScheduleCardShellProps = {
+    value: string
+    title: string
+    description?: string
+    dialogTitle?: string
+    dialogDescription?: string
+    children: React.ReactNode
+}
+
+function ExtraSmallScheduleCardShell({
+    value,
+    title,
+    description,
+    dialogTitle,
+    dialogDescription,
+    children,
+}: ExtraSmallScheduleCardShellProps) {
+    return (
+        <div className="sm:hidden">
+            <Accordion type="single" collapsible className="rounded-2xl border bg-background">
+                <AccordionItem value={value} className="border-b-0">
+                    <AccordionTrigger className="px-4 py-3 text-left hover:no-underline">
+                        <span className="min-w-0 flex-1 wrap-anywhere text-sm font-semibold">{title}</span>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                        <div className="space-y-3">
+                            {description ? (
+                                <p className="text-sm text-muted-foreground wrap-anywhere">{description}</p>
+                            ) : null}
+
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="flex-col-1 flex w-full flex-col items-center justify-center gap-1 rounded-xl whitespace-normal wrap-anywhere"
+                                    >
+                                        Details
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
+                                    <DialogHeader>
+                                        <DialogTitle className="wrap-anywhere">{dialogTitle || title}</DialogTitle>
+                                        {dialogDescription || description ? (
+                                            <DialogDescription className="wrap-anywhere">
+                                                {dialogDescription || description}
+                                            </DialogDescription>
+                                        ) : null}
+                                    </DialogHeader>
+
+                                    <div className="min-w-0">{children}</div>
+                                </DialogContent>
+                            </Dialog>
+                        </div>
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+        </div>
+    )
+}
 export default function AdminSchedulesPage() {
     const [loading, setLoading] = React.useState(true)
     const [, setError] = React.useState<string | null>(null)
@@ -2287,24 +2358,136 @@ const sectionScopedSubjects = React.useMemo(
             actions={HeaderActions}
         >
             <div className="space-y-6 p-6">
-                <Card className="rounded-2xl">
+                <ExtraSmallScheduleCardShell
+                    value="semester-scope"
+                    title="Semester Scope"
+                    description="Set the active semesters directly from this page. Schedule sections, subjects, and entries only load from the selected active semester records."
+                >
+                    <Card className="rounded-2xl border-0 shadow-none">
+                        <CardHeader className="pb-4">
+                            <CardTitle className="text-base wrap-anywhere">Semester Scope</CardTitle>
+                        </CardHeader>
+                        <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground wrap-anywhere">
+                                    Set the active semesters directly from this page. Schedule sections, subjects, and entries only load from the selected active semester records.
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {activeAcademicTerms.length > 0 ? (
+                                        activeAcademicTerms.map((term) => (
+                                            <Badge key={term.$id} variant="secondary" className="max-w-full rounded-lg whitespace-normal wrap-anywhere">
+                                                {termLabel(term)}
+                                            </Badge>
+                                        ))
+                                    ) : (
+                                        <Badge variant="outline" className="max-w-full rounded-lg whitespace-normal wrap-anywhere">No active semester</Badge>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <Popover open={termScopePopoverOpen} onOpenChange={setTermScopePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button type="button" variant="outline" className="min-w-0 w-full justify-between rounded-xl sm:min-w-65 sm:w-auto">
+                                            <span className="block min-w-0 flex-1 truncate text-left">{selectedAcademicTermScopeLabel}</span>
+                                            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent align="end" className="w-[320px] max-h-75 overflow-auto p-0">
+                                        <div className="border-b px-4 py-3">
+                                            <div className="text-sm font-medium wrap-anywhere">Select active semesters</div>
+                                            <div className="text-xs text-muted-foreground wrap-anywhere">
+                                                Multiple semesters can stay active at the same time.
+                                            </div>
+                                        </div>
+                                        <ScrollArea className="max-h-72">
+                                            <div className="space-y-2 p-3">
+                                                {academicTermScopeOptions.length === 0 ? (
+                                                    <div className="text-sm text-muted-foreground wrap-anywhere">No semesters available.</div>
+                                                ) : (
+                                                    academicTermScopeOptions.map((term) => {
+                                                        const checked = termScopeSelection.includes(term.$id)
+                                                        return (
+                                                            <label
+                                                                key={term.$id}
+                                                                htmlFor={`term-scope-${term.$id}`}
+                                                                className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition hover:bg-muted/40"
+                                                            >
+                                                                <Checkbox
+                                                                    id={`term-scope-${term.$id}`}
+                                                                    checked={checked}
+                                                                    onCheckedChange={(value) => {
+                                                                        const nextChecked = Boolean(value)
+                                                                        setTermScopeSelection((current) => {
+                                                                            if (nextChecked) {
+                                                                                return current.includes(term.$id) ? current : [...current, term.$id]
+                                                                            }
+                                                                            return current.filter((item) => item !== term.$id)
+                                                                        })
+                                                                    }}
+                                                                />
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="flex items-center gap-2 font-medium">
+                                                                        <span className="block min-w-0 flex-1 truncate">{term.label}</span>
+                                                                        {term.isActive ? <Check className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-anywhere">
+                                                                        {term.isActive ? "Currently active" : "Currently inactive"}
+                                                                    </div>
+                                                                </div>
+                                                            </label>
+                                                        )
+                                                    })
+                                                )}
+                                            </div>
+                                        </ScrollArea>
+
+                                    </PopoverContent>
+                                    <div className="flex-col-1 flex flex-col items-stretch justify-end gap-2 px-3 py-3 sm:flex-row sm:items-center">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setTermScopeSelection(activeAcademicTermIds)}
+                                            disabled={termScopeSaving}
+                                            className="w-full text-primary whitespace-normal wrap-anywhere sm:w-auto"
+                                        >
+                                            Reset
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => void applySelectedAcademicTerms()}
+                                            disabled={termScopeSaving}
+                                            className="w-full whitespace-normal wrap-anywhere sm:w-auto"
+                                        >
+                                            {termScopeSaving ? "Saving..." : "Apply Active Terms"}
+                                        </Button>
+                                    </div>
+                                </Popover>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </ExtraSmallScheduleCardShell>
+
+                <Card className="hidden rounded-2xl sm:block">
                     <CardHeader className="pb-4">
-                        <CardTitle className="text-base">Semester Scope</CardTitle>
+                        <CardTitle className="text-base wrap-anywhere">Semester Scope</CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div className="space-y-1">
-                            <div className="text-sm text-muted-foreground">
+                            <div className="text-sm text-muted-foreground wrap-anywhere">
                                 Set the active semesters directly from this page. Schedule sections, subjects, and entries only load from the selected active semester records.
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 {activeAcademicTerms.length > 0 ? (
                                     activeAcademicTerms.map((term) => (
-                                        <Badge key={term.$id} variant="secondary" className="rounded-lg">
+                                        <Badge key={term.$id} variant="secondary" className="max-w-full rounded-lg whitespace-normal wrap-anywhere">
                                             {termLabel(term)}
                                         </Badge>
                                     ))
                                 ) : (
-                                    <Badge variant="outline" className="rounded-lg">No active semester</Badge>
+                                    <Badge variant="outline" className="max-w-full rounded-lg whitespace-normal wrap-anywhere">No active semester</Badge>
                                 )}
                             </div>
                         </div>
@@ -2312,22 +2495,22 @@ const sectionScopedSubjects = React.useMemo(
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <Popover open={termScopePopoverOpen} onOpenChange={setTermScopePopoverOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button type="button" variant="outline" className="min-w-65 justify-between rounded-xl">
-                                        <span className="truncate">{selectedAcademicTermScopeLabel}</span>
+                                    <Button type="button" variant="outline" className="min-w-0 w-full justify-between rounded-xl sm:min-w-65 sm:w-auto">
+                                        <span className="block min-w-0 flex-1 truncate text-left">{selectedAcademicTermScopeLabel}</span>
                                         <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent align="end" className="w-[320px] max-h-75 overflow-auto p-0">
                                     <div className="border-b px-4 py-3">
-                                        <div className="text-sm font-medium">Select active semesters</div>
-                                        <div className="text-xs text-muted-foreground">
+                                        <div className="text-sm font-medium wrap-anywhere">Select active semesters</div>
+                                        <div className="text-xs text-muted-foreground wrap-anywhere">
                                             Multiple semesters can stay active at the same time.
                                         </div>
                                     </div>
                                     <ScrollArea className="max-h-72">
                                         <div className="space-y-2 p-3">
                                             {academicTermScopeOptions.length === 0 ? (
-                                                <div className="text-sm text-muted-foreground">No semesters available.</div>
+                                                <div className="text-sm text-muted-foreground wrap-anywhere">No semesters available.</div>
                                             ) : (
                                                 academicTermScopeOptions.map((term) => {
                                                     const checked = termScopeSelection.includes(term.$id)
@@ -2352,10 +2535,10 @@ const sectionScopedSubjects = React.useMemo(
                                                             />
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="flex items-center gap-2 font-medium">
-                                                                    <span className="truncate">{term.label}</span>
-                                                                    {term.isActive ? <Check className="size-3.5 text-muted-foreground" /> : null}
+                                                                    <span className="block min-w-0 flex-1 truncate">{term.label}</span>
+                                                                    {term.isActive ? <Check className="size-3.5 shrink-0 text-muted-foreground" /> : null}
                                                                 </div>
-                                                                <div className="text-xs text-muted-foreground">
+                                                                <div className="text-xs text-muted-foreground wrap-anywhere">
                                                                     {term.isActive ? "Currently active" : "Currently inactive"}
                                                                 </div>
                                                             </div>
@@ -2367,18 +2550,24 @@ const sectionScopedSubjects = React.useMemo(
                                     </ScrollArea>
 
                                 </PopoverContent>
-                                <div className="flex-col-1 items-center justify-end gap-2 px-3 py-3">
+                                <div className="flex-col-1 flex flex-col items-stretch justify-end gap-2 px-3 py-3 sm:flex-row sm:items-center">
                                     <Button
                                         type="button"
                                         variant="outline"
                                         size="sm"
                                         onClick={() => setTermScopeSelection(activeAcademicTermIds)}
                                         disabled={termScopeSaving}
-                                        className="text-primary"
+                                        className="w-full text-primary whitespace-normal wrap-anywhere sm:w-auto"
                                     >
                                         Reset
                                     </Button>
-                                    <Button type="button" size="sm" onClick={() => void applySelectedAcademicTerms()} disabled={termScopeSaving} className="mt-2">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => void applySelectedAcademicTerms()}
+                                        disabled={termScopeSaving}
+                                        className="w-full whitespace-normal wrap-anywhere sm:w-auto"
+                                    >
                                         {termScopeSaving ? "Saving..." : "Apply Active Terms"}
                                     </Button>
                                 </div>
@@ -2386,6 +2575,43 @@ const sectionScopedSubjects = React.useMemo(
                         </div>
                     </CardContent>
                 </Card>
+
+                <ExtraSmallScheduleCardShell
+                    value="subject-matching-filters"
+                    title="Subject Matching Filters"
+                    description="Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, sections, year levels, and linked semester record."
+                >
+                    <SubjectMatchingFiltersCard
+                        subjectCollegeFilter={subjectCollegeFilter}
+                        setSubjectCollegeFilter={setSubjectCollegeFilterCascade}
+                        subjectProgramFilters={subjectProgramFilters}
+                        setSubjectProgramFilters={setSubjectProgramFiltersCascade}
+                        subjectSectionFilters={subjectSectionFilters}
+                        setSubjectSectionFilters={setSubjectSectionFilters}
+                        subjectYearLevelFilters={subjectYearLevelFilters}
+                        setSubjectYearLevelFilters={setSubjectYearLevelFiltersCascade}
+                        subjectAcademicTermFilter={subjectAcademicTermFilter}
+                        setSubjectAcademicTermFilter={setSubjectAcademicTermFilterCascade}
+                        subjectCollegeOptions={subjectCollegeOptions}
+                        subjectProgramOptions={subjectProgramOptions}
+                        subjectSectionOptions={subjectSectionOptions}
+                        subjectYearLevelOptions={subjectYearLevelOptions}
+                        subjectYearLevelCounts={subjectYearLevelCounts}
+                        sectionMutating={sectionMutating}
+                        yearLevelMutating={yearLevelMutating}
+                        onCreateYearLevel={createYearLevelSection}
+                        onRenameYearLevel={renameYearLevelSections}
+                        onDeleteSection={deleteSection}
+                        onDeleteYearLevel={deleteYearLevelSections}
+                        subjectAcademicTermOptions={subjectAcademicTermOptions}
+                        filteredSubjectCount={filteredFormSubjects.length}
+                        activeSubjectFilterBadges={activeSubjectFilterBadges}
+                        onClearSubjectFilters={clearSubjectFilters}
+                        onApplyScheduleContextSubjectFilters={applyScheduleContextSubjectFilters}
+                        className="border-0 shadow-none"
+                        idPrefix="subject-matching-filters-mobile"
+                    />
+                </ExtraSmallScheduleCardShell>
 
                 <SubjectMatchingFiltersCard
                     subjectCollegeFilter={subjectCollegeFilter}
@@ -2414,6 +2640,7 @@ const sectionScopedSubjects = React.useMemo(
                     activeSubjectFilterBadges={activeSubjectFilterBadges}
                     onClearSubjectFilters={clearSubjectFilters}
                     onApplyScheduleContextSubjectFilters={applyScheduleContextSubjectFilters}
+                    className="hidden sm:block"
                 />
 
                 <PlannerManagementSection

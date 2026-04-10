@@ -311,14 +311,14 @@ export function SubjectMatchingFiltersCard({
                             </CardDescription>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                             <Badge variant="secondary" className="rounded-lg">
                                 {filteredSubjectCount} match{filteredSubjectCount === 1 ? "" : "es"}
                             </Badge>
-                            <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={onApplyScheduleContextSubjectFilters}>
+                            <Button type="button" variant="outline" size="sm" className="w-full justify-center rounded-xl whitespace-normal wrap-anywhere sm:w-auto" onClick={onApplyScheduleContextSubjectFilters}>
                                 Use schedule context
                             </Button>
-                            <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={onClearSubjectFilters}>
+                            <Button type="button" variant="ghost" size="sm" className="w-full justify-center rounded-xl whitespace-normal wrap-anywhere sm:w-auto" onClick={onClearSubjectFilters}>
                                 Clear filters
                             </Button>
                         </div>
@@ -330,14 +330,14 @@ export function SubjectMatchingFiltersCard({
         <div className="grid gap-2">
             <Label>College</Label>
             <Select value={subjectCollegeFilter} onValueChange={setSubjectCollegeFilter}>
-                <SelectTrigger className="rounded-xl">
+                <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                     <SelectValue placeholder="All colleges" />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All colleges</SelectItem>
+                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}><span className="block max-w-full truncate">All colleges</span></SelectItem>
                     {subjectCollegeOptions.map((option) => (
                         <SelectItem key={option} value={option}>
-                            {option}
+                            <span className="block max-w-full truncate">{option}</span>
                         </SelectItem>
                     ))}
                 </SelectContent>
@@ -347,14 +347,14 @@ export function SubjectMatchingFiltersCard({
         <div className="grid gap-2">
             <Label>Semester</Label>
             <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
-                <SelectTrigger className="rounded-xl">
+                <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                     <SelectValue placeholder={hasSelectedCollege ? "Select semester" : "Select college first"} />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
+                    <SelectItem value={SUBJECT_FILTER_ALL_VALUE}><span className="block max-w-full truncate">All semesters</span></SelectItem>
                     {subjectAcademicTermOptions.map((option) => (
                         <SelectItem key={option} value={option}>
-                            {option}
+                            <span className="block max-w-full truncate">{option}</span>
                         </SelectItem>
                     ))}
                 </SelectContent>
@@ -411,7 +411,7 @@ export function SubjectMatchingFiltersCard({
                                             })
                                         }}
                                     />
-                                    <div className="min-w-0 flex-1 text-sm font-medium">{option}</div>
+                                    <div className="min-w-0 flex-1 text-sm font-medium wrap-anywhere">{option}</div>
                                 </label>
                             )
                         })
@@ -429,7 +429,7 @@ export function SubjectMatchingFiltersCard({
                     </span>
                 </div>
                 <Dialog>
-                    <Button type="button" variant="outline" size="sm" className="rounded-xl" asChild>
+                    <Button type="button" variant="outline" size="sm" className="w-full justify-center rounded-xl whitespace-normal wrap-anywhere sm:w-auto" asChild>
                         <DialogTrigger>Add Year Level</DialogTrigger>
                     </Button>
                     <DialogContent>
@@ -499,7 +499,7 @@ export function SubjectMatchingFiltersCard({
                                         type="button"
                                         variant="ghost"
                                         size="sm"
-                                        className="h-8 rounded-lg px-2"
+                                        className="h-auto min-h-8 justify-center rounded-lg px-2 whitespace-normal wrap-anywhere"
                                         onClick={() => {
                                             setEditingYearLevel(option)
                                             setEditingYearLevelDraft(option)
@@ -512,7 +512,7 @@ export function SubjectMatchingFiltersCard({
                                         type="button"
                                         variant="ghost"
                                         size="sm"
-                                        className="h-8 rounded-lg px-2 text-destructive hover:text-destructive"
+                                        className="h-auto min-h-8 justify-center rounded-lg px-2 whitespace-normal wrap-anywhere text-destructive hover:text-destructive"
                                         onClick={() => setDeletingYearLevel(option)}
                                     >
                                         <Trash2 className="mr-1 size-3.5" />
@@ -570,13 +570,13 @@ export function SubjectMatchingFiltersCard({
                                                 })
                                             }}
                                         />
-                                        <div className="min-w-0 flex-1 text-sm font-medium wrap-break-word">{option.label}</div>
+                                        <div className="min-w-0 flex-1 text-sm font-medium wrap-anywhere">{option.label}</div>
                                     </label>
                                     <Button
                                         type="button"
                                         variant="ghost"
                                         size="sm"
-                                        className="h-8 rounded-lg px-2 text-destructive hover:text-destructive"
+                                        className="h-auto min-h-8 justify-center rounded-lg px-2 whitespace-normal wrap-anywhere text-destructive hover:text-destructive"
                                         onClick={() => setDeletingSection(option)}
                                         disabled={sectionMutating}
                                     >
@@ -1383,6 +1383,64 @@ function SchedulePdfDocument({
     )
 }
 
+
+type ExtraSmallPlannerCardShellProps = {
+    value: string
+    title: string
+    description?: string
+    dialogTitle?: string
+    dialogDescription?: string
+    children: React.ReactNode
+}
+
+function ExtraSmallPlannerCardShell({
+    value,
+    title,
+    description,
+    dialogTitle,
+    dialogDescription,
+    children,
+}: ExtraSmallPlannerCardShellProps) {
+    return (
+        <div className="sm:hidden">
+            <Accordion type="single" collapsible className="rounded-2xl border bg-background">
+                <AccordionItem value={value} className="border-b-0">
+                    <AccordionTrigger className="px-4 py-3 text-left hover:no-underline">
+                        <span className="min-w-0 flex-1 wrap-anywhere text-sm font-semibold">{title}</span>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                        <div className="space-y-3">
+                            {description ? <p className="text-sm text-muted-foreground wrap-anywhere">{description}</p> : null}
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="flex-col-1 flex w-full flex-col items-center justify-center gap-1 rounded-xl whitespace-normal wrap-anywhere"
+                                    >
+                                        Details
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-6xl overflow-y-auto px-4 sm:px-6">
+                                    <DialogHeader>
+                                        <DialogTitle className="wrap-anywhere">{dialogTitle || title}</DialogTitle>
+                                        {dialogDescription || description ? (
+                                            <DialogDescription className="wrap-anywhere">
+                                                {dialogDescription || description}
+                                            </DialogDescription>
+                                        ) : null}
+                                    </DialogHeader>
+                                    <div className="min-w-0">{children}</div>
+                                </DialogContent>
+                            </Dialog>
+                        </div>
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+        </div>
+    )
+}
+
 export function PlannerManagementSection({
     hasScheduleScope,
     scheduleScopeKey,
@@ -2051,8 +2109,7 @@ export function PlannerManagementSection({
     const activePdfPreviewRows = pdfPreviewState?.rows ?? displayedPlannerRows
     const activePdfPreviewStats = buildPlannerStatsForRows(activePdfPreviewRows)
 
-    return (
-        <>
+    const plannerCard = (
             <Card className="rounded-2xl">
                 <CardHeader className="pb-4">
                     <CardTitle>Schedule Planner & Conflict Manager</CardTitle>
@@ -2168,7 +2225,7 @@ export function PlannerManagementSection({
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="rounded-xl"
+                                    className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto"
                                     onClick={goToRoomsAndFacilities}
                                 >
                                     <ArrowRight className="mr-2 size-4" />
@@ -2183,7 +2240,7 @@ export function PlannerManagementSection({
                     {hasScheduleScope ? (
                         <div className="rounded-2xl border bg-muted/20 p-4">
                             <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-                                <div className="space-y-1">
+                                <div className="mx-auto w-full max-w-sm space-y-1 sm:max-w-none">
                                     <div className="flex items-center gap-2 text-sm font-semibold">
                                         <SlidersHorizontal className="size-4" />
                                         Table filters & sorting
@@ -2218,14 +2275,14 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Day</Label>
                                     <Select value={plannerDayFilter} onValueChange={setPlannerDayFilter}>
-                                        <SelectTrigger className="rounded-xl">
+                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                             <SelectValue placeholder="All days" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="all">All days</SelectItem>
+                                            <SelectItem value="all"><span className="block max-w-full truncate">All days</span></SelectItem>
                                             {DAY_OPTIONS.map((day) => (
                                                 <SelectItem key={day} value={day}>
-                                                    {formatDayDisplayLabel(day)}
+                                                    <span className="block max-w-full truncate">{formatDayDisplayLabel(day)}</span>
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -2235,11 +2292,11 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Meeting Type</Label>
                                     <Select value={plannerMeetingTypeFilter} onValueChange={setPlannerMeetingTypeFilter}>
-                                        <SelectTrigger className="rounded-xl">
+                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                             <SelectValue placeholder="All meeting types" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="all">All meeting types</SelectItem>
+                                            <SelectItem value="all"><span className="block max-w-full truncate">All meeting types</span></SelectItem>
                                             {plannerMeetingTypeOptions.map((option) => (
                                                 <SelectItem key={option} value={option}>
                                                     {option}
@@ -2252,11 +2309,11 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Room Type</Label>
                                     <Select value={plannerRoomTypeFilter} onValueChange={setPlannerRoomTypeFilter}>
-                                        <SelectTrigger className="rounded-xl">
+                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                             <SelectValue placeholder="All room types" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="all">All room types</SelectItem>
+                                            <SelectItem value="all"><span className="block max-w-full truncate">All room types</span></SelectItem>
                                             {plannerRoomTypeOptions.map((option) => (
                                                 <SelectItem key={option} value={option}>
                                                     {option}
@@ -2269,14 +2326,14 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Faculty Mode</Label>
                                     <Select value={plannerFacultyFilter} onValueChange={setPlannerFacultyFilter}>
-                                        <SelectTrigger className="rounded-xl">
+                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                             <SelectValue placeholder="All faculty modes" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="all">All faculty modes</SelectItem>
-                                            <SelectItem value="assigned">Assigned profile</SelectItem>
-                                            <SelectItem value="manual">Manual faculty</SelectItem>
-                                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                                            <SelectItem value="all"><span className="block max-w-full truncate">All faculty modes</span></SelectItem>
+                                            <SelectItem value="assigned"><span className="block max-w-full truncate">Assigned profile</span></SelectItem>
+                                            <SelectItem value="manual"><span className="block max-w-full truncate">Manual faculty</span></SelectItem>
+                                            <SelectItem value="unassigned"><span className="block max-w-full truncate">Unassigned</span></SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -2284,13 +2341,13 @@ export function PlannerManagementSection({
                                 <div className="space-y-1">
                                     <Label>Sort By</Label>
                                     <Select value={plannerSortKey} onValueChange={(value) => setPlannerSortKey(value as PlannerSortKey)}>
-                                        <SelectTrigger className="rounded-xl">
+                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                             <SelectValue placeholder="Sort planner rows" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             {PLANNER_SORT_OPTIONS.map((option) => (
                                                 <SelectItem key={option.value} value={option.value}>
-                                                    {option.label}
+                                                    <span className="block max-w-full truncate">{option.label}</span>
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -2308,17 +2365,17 @@ export function PlannerManagementSection({
                                         value={plannerSortDirection}
                                         onValueChange={(value) => setPlannerSortDirection(value as PlannerSortDirection)}
                                     >
-                                        <SelectTrigger className="h-8 w-35 rounded-xl">
+                                        <SelectTrigger className="h-8 min-w-0 w-full rounded-xl sm:w-35 [&>span]:block [&>span]:w-full [&>span]:truncate">
                                             <SelectValue placeholder="Order" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="asc">Ascending</SelectItem>
-                                            <SelectItem value="desc">Descending</SelectItem>
+                                            <SelectItem value="asc"><span className="block max-w-full truncate">Ascending</span></SelectItem>
+                                            <SelectItem value="desc"><span className="block max-w-full truncate">Descending</span></SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
 
-                                <Button type="button" variant="ghost" className="rounded-xl" onClick={resetPlannerViewControls}>
+                                <Button type="button" variant="ghost" className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto" onClick={resetPlannerViewControls}>
                                     <X className="mr-2 size-4" />
                                     Reset filters & sort
                                 </Button>
@@ -2385,7 +2442,7 @@ export function PlannerManagementSection({
                                     >
                                         <AccordionTrigger className="min-w-0 gap-3 py-4 text-left hover:no-underline">
                                             <div className="min-w-0 flex-1 text-left">
-                                                <div className="wrap-break-word text-sm font-semibold leading-5">
+                                                <div className="wrap-anywhere text-sm font-semibold leading-5">
                                                     {courseGroup.label}
                                                 </div>
                                                 {courseGroup.subtitle ? (
@@ -2409,7 +2466,7 @@ export function PlannerManagementSection({
                                                     type="button"
                                                     variant="outline"
                                                     size="sm"
-                                                    className="rounded-lg"
+                                                    className="h-auto min-h-8 justify-center rounded-lg whitespace-normal wrap-anywhere"
                                                     onClick={() =>
                                                         openPdfPreview({
                                                             title: `${courseGroup.label} PDF Preview`,
@@ -2428,7 +2485,7 @@ export function PlannerManagementSection({
                                                     type="button"
                                                     variant="outline"
                                                     size="sm"
-                                                    className="rounded-lg"
+                                                    className="h-auto min-h-8 justify-center rounded-lg whitespace-normal wrap-anywhere"
                                                     onClick={() =>
                                                         void downloadRowsPdf({
                                                             rows: courseGroup.rows,
@@ -2448,11 +2505,11 @@ export function PlannerManagementSection({
                                                         <div className="space-y-2">
                                                             <div>
                                                                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</div>
-                                                                <div className="font-semibold wrap-break-word">{row.subjectCodeDisplay || "—"}</div>
+                                                                <div className="font-semibold wrap-anywhere">{row.subjectCodeDisplay || "—"}</div>
                                                             </div>
                                                             <div>
                                                                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Descriptive Title</div>
-                                                                <div className="text-sm leading-relaxed wrap-break-word">{row.descriptiveTitleDisplay || "—"}</div>
+                                                                <div className="max-w-full text-sm leading-relaxed wrap-anywhere">{row.descriptiveTitleDisplay || "—"}</div>
                                                             </div>
                                                             <div className="grid grid-cols-2 gap-3 text-sm">
                                                                 <div>
@@ -2480,7 +2537,7 @@ export function PlannerManagementSection({
                                                                     <div>{row.facultyDisplay || "—"}</div>
                                                                 </div>
                                                             </div>
-                                                            <div className="flex flex-wrap items-center gap-2">
+                                                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                                                                 {renderConflictBadges(row.conflictFlags)}
                                                                 {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
                                                                     <Badge variant="secondary" className="rounded-lg">
@@ -2512,57 +2569,57 @@ export function PlannerManagementSection({
                                                 <Table className="w-full min-w-275 table-fixed">
                                                     <TableHeader>
                                                         <TableRow>
-                                                            <TableHead className="w-28 whitespace-normal wrap-break-word align-top">Code</TableHead>
-                                                            <TableHead className="w-72 whitespace-normal wrap-break-word align-top">Descriptive Title</TableHead>
-                                                            <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Section</TableHead>
-                                                            <TableHead className="w-20 whitespace-normal wrap-break-word align-top">Type</TableHead>
-                                                            <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Day</TableHead>
-                                                            <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Time</TableHead>
-                                                            <TableHead className="w-44 whitespace-normal wrap-break-word align-top">Room</TableHead>
-                                                            <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Instructor</TableHead>
-                                                            <TableHead className="w-32 whitespace-normal wrap-break-word align-top text-right">Actions</TableHead>
+                                                            <TableHead className="w-28 whitespace-normal wrap-anywhere align-top">Code</TableHead>
+                                                            <TableHead className="w-72 whitespace-normal wrap-anywhere align-top">Descriptive Title</TableHead>
+                                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Section</TableHead>
+                                                            <TableHead className="w-20 whitespace-normal wrap-anywhere align-top">Type</TableHead>
+                                                            <TableHead className="w-24 whitespace-normal wrap-anywhere align-top">Day</TableHead>
+                                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Time</TableHead>
+                                                            <TableHead className="w-44 whitespace-normal wrap-anywhere align-top">Room</TableHead>
+                                                            <TableHead className="w-52 whitespace-normal wrap-anywhere align-top">Instructor</TableHead>
+                                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top text-right">Actions</TableHead>
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
                                                         {courseGroup.rows.map((row) => (
                                                             <TableRow key={`desktop-${courseGroup.key}-${row.key}`}>
-                                                                <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                                <TableCell className="font-medium whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                                     {row.subjectCodeDisplay || "—"}
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
                                                                     <div className="min-w-0 space-y-1 leading-relaxed">
-                                                                        <div className="wrap-break-word font-medium">{row.descriptiveTitleDisplay || "—"}</div>
+                                                                        <div className="wrap-anywhere font-medium">{row.descriptiveTitleDisplay || "—"}</div>
                                                                         <div className="text-xs text-muted-foreground">
                                                                             Units: {row.primaryRow.subjectUnits ?? "—"}
                                                                         </div>
                                                                     </div>
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                                     {row.sectionDisplay || "—"}
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top">
-                                                                    <Badge variant="outline" className="rounded-lg whitespace-normal wrap-break-word text-center">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                                    <Badge variant="outline" className="rounded-lg whitespace-normal wrap-anywhere text-center">
                                                                         {row.meetingTypeDisplay}
                                                                     </Badge>
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                                     {row.dayDisplay}
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                                     {row.timeDisplay}
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
                                                                     <div className="min-w-0 space-y-2 leading-relaxed">
-                                                                        <div className="wrap-break-word">{row.roomDisplay || "—"}</div>
-                                                                        <div className="wrap-break-word text-xs text-muted-foreground">
+                                                                        <div className="wrap-anywhere">{row.roomDisplay || "—"}</div>
+                                                                        <div className="wrap-anywhere text-xs text-muted-foreground">
                                                                             {row.roomTypeDisplay}
                                                                         </div>
                                                                         <div>{renderConflictBadges(row.conflictFlags)}</div>
                                                                     </div>
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
                                                                     <div className="min-w-0 space-y-1 leading-relaxed">
-                                                                        <div className="wrap-break-word">{row.facultyDisplay || "—"}</div>
+                                                                        <div className="wrap-anywhere">{row.facultyDisplay || "—"}</div>
                                                                         {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
                                                                             <Badge variant="secondary" className="rounded-lg">
                                                                                 Manual
@@ -2570,7 +2627,7 @@ export function PlannerManagementSection({
                                                                         ) : null}
                                                                     </div>
                                                                 </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-break-word align-top text-right">
+                                                                <TableCell className="whitespace-normal wrap-anywhere align-top text-right">
                                                                     <div className="flex flex-col items-end gap-2">
                                                                         {row.hasConflict ? (
                                                                             <Button
@@ -2600,7 +2657,9 @@ export function PlannerManagementSection({
                     )}
                 </CardContent>
             </Card>
+    )
 
+    const laboratoryAssignmentsCard = (
             <Card className="rounded-2xl">
                 <CardHeader className="pb-4">
                     <CardTitle className="flex items-center gap-2">
@@ -2633,14 +2692,14 @@ export function PlannerManagementSection({
                             <Table className="min-w-245 w-full table-fixed">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Laboratory Room</TableHead>
-                                        <TableHead className="w-24 whitespace-normal wrap-break-word align-top">Day</TableHead>
-                                        <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Time</TableHead>
-                                        <TableHead className="w-56 whitespace-normal wrap-break-word align-top">Assigned Faculty</TableHead>
-                                        <TableHead className="w-52 whitespace-normal wrap-break-word align-top">Subject</TableHead>
-                                        <TableHead className="w-32 whitespace-normal wrap-break-word align-top">Section</TableHead>
-                                        <TableHead className="w-40 whitespace-normal wrap-break-word align-top">Conflicts</TableHead>
-                                        <TableHead className="w-36 whitespace-normal wrap-break-word align-top">Actions</TableHead>
+                                        <TableHead className="w-40 whitespace-normal wrap-anywhere align-top">Laboratory Room</TableHead>
+                                        <TableHead className="w-24 whitespace-normal wrap-anywhere align-top">Day</TableHead>
+                                        <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Time</TableHead>
+                                        <TableHead className="w-56 whitespace-normal wrap-anywhere align-top">Assigned Faculty</TableHead>
+                                        <TableHead className="w-52 whitespace-normal wrap-anywhere align-top">Subject</TableHead>
+                                        <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Section</TableHead>
+                                        <TableHead className="w-40 whitespace-normal wrap-anywhere align-top">Conflicts</TableHead>
+                                        <TableHead className="w-36 whitespace-normal wrap-anywhere align-top">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -2648,22 +2707,22 @@ export function PlannerManagementSection({
                                         const baseRow = row.primaryRow
                                         return (
                                             <TableRow key={`lab-${row.key}`}>
-                                                <TableCell className="font-medium whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                <TableCell className="font-medium whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                     {row.roomDisplay}
                                                 </TableCell>
-                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                     {row.dayDisplay}
                                                 </TableCell>
-                                                <TableCell className="whitespace-normal wrap-break-word align-top text-sm">
+                                                <TableCell className="whitespace-normal wrap-anywhere align-top text-sm">
                                                     <div className="space-y-1 leading-snug">
-                                                        <div className="font-medium wrap-break-word">{row.timeDisplay}</div>
+                                                        <div className="font-medium wrap-anywhere">{row.timeDisplay}</div>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
                                                     <div className="flex items-start gap-2">
                                                         <UserCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                                                         <div className="min-w-0 space-y-1 leading-relaxed">
-                                                            <span className="block wrap-break-word">{row.facultyDisplay}</span>
+                                                            <span className="block wrap-anywhere">{row.facultyDisplay}</span>
                                                             {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
                                                                 <Badge variant="secondary" className="rounded-lg">
                                                                     Manual
@@ -2672,16 +2731,16 @@ export function PlannerManagementSection({
                                                         </div>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                     {baseRow.subjectLabel}
                                                 </TableCell>
-                                                <TableCell className="whitespace-normal wrap-break-word align-top leading-relaxed">
+                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
                                                     {row.sectionDisplay}
                                                 </TableCell>
-                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
                                                     {renderConflictBadges(row.conflictFlags)}
                                                 </TableCell>
-                                                <TableCell className="whitespace-normal wrap-break-word align-top">
+                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
                                                     {renderGroupedEditButtons(row)}
                                                 </TableCell>
                                             </TableRow>
@@ -2693,6 +2752,32 @@ export function PlannerManagementSection({
                     )}
                 </CardContent>
             </Card>
+    )
+
+    return (
+        <>
+            <div className="space-y-3 sm:hidden">
+                <ExtraSmallPlannerCardShell
+                    value="schedule-planner-conflict-manager"
+                    title="Schedule Planner & Conflict Manager"
+                    description="Assign one subject per entry, faculty, and room. Subject matching now uses the same College, Programs, Sections, Year Levels, and Semester scope fields used by Add Subject."
+                >
+                    {plannerCard}
+                </ExtraSmallPlannerCardShell>
+
+                <ExtraSmallPlannerCardShell
+                    value="laboratory-assignments"
+                    title="Laboratory Assignments"
+                    description="View who is assigned in laboratories and their scheduled time."
+                >
+                    {laboratoryAssignmentsCard}
+                </ExtraSmallPlannerCardShell>
+            </div>
+
+            <div className="hidden space-y-6 sm:block">
+                {plannerCard}
+                {laboratoryAssignmentsCard}
+            </div>
 
             <Dialog
                 open={Boolean(pdfPreviewState)}
@@ -2708,7 +2793,7 @@ export function PlannerManagementSection({
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                         <Badge variant="secondary">{scheduleScopeLabel || "No schedule scope"}</Badge>
                         <Badge variant="secondary">{selectedTermLabel || "No term"}</Badge>
                         <Badge variant="secondary">{selectedDeptLabel || "No college"}</Badge>
@@ -2783,14 +2868,14 @@ export function PlannerManagementSection({
                     if (!v) setFormAllowConflictSave(false)
                 }}
             >
-                <DialogContent className="z-120 max-h-[78vh] overflow-y-auto sm:max-w-4xl">
+                <DialogContent className="z-120 max-h-[85svh] w-full max-w-[min(calc(100vw-1rem),36rem)] overflow-y-auto px-4 sm:max-w-4xl sm:px-6">
                     <DialogHeader>
                         <DialogTitle>{editingEntry ? "Edit Schedule Entry" : "Create Schedule Entry"}</DialogTitle>
                     </DialogHeader>
 
                     <div className="space-y-4">
                         {editingEntry ? (
-                            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground [&>span]:wrap-anywhere">
                                 <Badge variant="secondary" className="rounded-lg">
                                     Editing entry
                                 </Badge>
@@ -2802,14 +2887,14 @@ export function PlannerManagementSection({
                             </div>
                         ) : null}
 
-                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
-                            <div className="space-y-3">
-                                <div className="rounded-2xl border border-dashed p-4">
+                        <div className="flex flex-col items-center gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:items-start">
+                            <div className="w-full max-w-sm space-y-3 self-center sm:max-w-md lg:max-w-none lg:self-auto">
+                                <div className="rounded-2xl border border-dashed p-4 text-center sm:text-left">
                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                                         {editingEntry ? "Resolved Section Reference" : "Selected Section Scope"}
                                     </div>
-                                    <div className="mt-2 font-medium">{selectedSectionsSummaryLabel}</div>
-                                    <div className="mt-2 text-xs text-muted-foreground">
+                                    <div className="mt-2 font-medium wrap-anywhere">{selectedSectionsSummaryLabel}</div>
+                                    <div className="mt-2 text-xs text-muted-foreground wrap-anywhere">
                                         {filteredSections.length === 0
                                             ? "No matching section was found for the current subject filters."
                                             : editingEntry
@@ -2821,46 +2906,46 @@ export function PlannerManagementSection({
                                                         : "Select at least one section to continue."}
                                     </div>
                                     {selectedSectionsPreviewBadges.length > 0 ? (
-                                        <div className="mt-3 flex flex-wrap gap-2">
+                                        <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
                                             {selectedSectionsPreviewBadges.slice(0, 8).map((section) => (
-                                                <Badge key={section.id} variant="outline" className="rounded-full">
+                                                <Badge key={section.id} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                     {section.label}
                                                 </Badge>
                                             ))}
                                             {selectedSectionsPreviewBadges.length > 8 ? (
-                                                <Badge variant="outline" className="rounded-full">
+                                                <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                     +{selectedSectionsPreviewBadges.length - 8} more
                                                 </Badge>
                                             ) : null}
                                         </div>
                                     ) : null}
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        <Badge variant="secondary" className="rounded-full">
+                                    <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
+                                        <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                             {selectedDeptLabel || "Department not set"}
                                         </Badge>
                                         {selectedSectionProgramBadges.map((program) => (
-                                            <Badge key={`program-${program}`} variant="outline" className="rounded-full">
+                                            <Badge key={`program-${program}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                 {program}
                                             </Badge>
                                         ))}
                                         {selectedSectionYearLevelBadges.map((yearLevel) => (
-                                            <Badge key={`year-level-${yearLevel}`} variant="outline" className="rounded-full">
+                                            <Badge key={`year-level-${yearLevel}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                 {yearLevel}
                                             </Badge>
                                         ))}
                                         {selectedSectionSemesterBadges.map((semester) => (
-                                            <Badge key={`semester-${semester}`} variant="outline" className="rounded-full">
+                                            <Badge key={`semester-${semester}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                 {semester}
                                             </Badge>
                                         ))}
                                         {selectedSectionAcademicTermBadges.length > 0
                                             ? selectedSectionAcademicTermBadges.map((academicTermLabel) => (
-                                                <Badge key={`academic-term-${academicTermLabel}`} variant="outline" className="rounded-full">
+                                                <Badge key={`academic-term-${academicTermLabel}`} variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                     {academicTermLabel}
                                                 </Badge>
                                             ))
                                             : selectedTermLabel ? (
-                                                <Badge variant="outline" className="rounded-full">
+                                                <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                     {selectedTermLabel}
                                                 </Badge>
                                             ) : null}
@@ -2868,31 +2953,31 @@ export function PlannerManagementSection({
                                 </div>
                             </div>
 
-                            <div className="space-y-3">
-                                <div className="rounded-2xl border p-4">
-                                    <div className="text-xs text-muted-foreground">
+                            <div className="w-full max-w-sm space-y-3 self-center sm:max-w-md lg:max-w-none lg:self-auto">
+                                <div className="rounded-2xl border p-4 text-center sm:text-left">
+                                    <div className="text-xs text-muted-foreground wrap-anywhere">
                                         Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and linked semester records.
                                     </div>
                                 </div>
 
-                                <div className="space-y-1">
+                                <div className="mx-auto w-full max-w-sm space-y-1 sm:max-w-none">
                                     <Label>Subject</Label>
                                     <Select
                                         value={selectedSubjectId || EMPTY_SUBJECT_SELECT_VALUE}
                                         onValueChange={handleSubjectChange}
                                     >
-                                        <SelectTrigger className="rounded-xl">
+                                        <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                             <SelectValue placeholder="Select subject" />
                                         </SelectTrigger>
                                         <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                             {filteredSections.length === 0 ? (
-                                                <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE} disabled>No matching sections available</SelectItem>
+                                                <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE} disabled><span className="block max-w-full truncate">No matching sections available</span></SelectItem>
                                             ) : filteredSubjectOptions.length === 0 ? (
-                                                <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE}>No subjects available</SelectItem>
+                                                <SelectItem value={EMPTY_SUBJECT_SELECT_VALUE}><span className="block max-w-full truncate">No subjects available</span></SelectItem>
                                             ) : (
                                                 filteredSubjectOptions.map((subject) => (
                                                     <SelectItem key={subject.$id} value={subject.$id}>
-                                                        {formatSubjectOptionLabel(subject)}
+                                                        <span className="block max-w-full truncate">{formatSubjectOptionLabel(subject)}</span>
                                                     </SelectItem>
                                                 ))
                                             )}
@@ -2900,26 +2985,26 @@ export function PlannerManagementSection({
                                     </Select>
                                 </div>
 
-                                <div className="rounded-2xl border p-4">
-                                    <div className="text-xs text-muted-foreground">
+                                <div className="rounded-2xl border p-4 text-center sm:text-left">
+                                    <div className="text-xs text-muted-foreground wrap-anywhere">
                                         Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and linked semester records.
                                     </div>
 
                                     {selectedSubjectDoc ? (
                                         <div className="mt-3 space-y-2">
-                                            <Badge variant="secondary" className="rounded-full">
+                                            <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere text-center sm:text-left">
                                                 {String(selectedSubjectDoc.code || selectedSubjectDoc.title || selectedSubjectDoc.$id)}
                                             </Badge>
-                                            <div className="text-sm leading-relaxed">
+                                            <div className="max-w-full text-sm leading-relaxed wrap-anywhere">
                                                 {formatSubjectOptionLabel(selectedSubjectDoc)}
                                             </div>
                                         </div>
                                     ) : filteredSubjectOptions.length === 0 ? (
-                                        <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                                        <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground wrap-anywhere">
                                             No linked subjects are available for the selected section scope and active academic term scope.
                                         </div>
                                     ) : (
-                                        <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                                        <div className="mt-3 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground wrap-anywhere">
                                             Select one subject to continue.
                                         </div>
                                     )}
@@ -2931,12 +3016,12 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Faculty / Instructor</Label>
                                 <Select value={formFacultyChoice} onValueChange={setFormFacultyChoice}>
-                                    <SelectTrigger className="rounded-xl">
+                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                         <SelectValue placeholder="Select faculty" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                        <SelectItem value={FACULTY_OPTION_NONE}>Unassigned</SelectItem>
-                                        <SelectItem value={FACULTY_OPTION_MANUAL}>Manual encode faculty</SelectItem>
+                                        <SelectItem value={FACULTY_OPTION_NONE}><span className="block max-w-full truncate">Unassigned</span></SelectItem>
+                                        <SelectItem value={FACULTY_OPTION_MANUAL}><span className="block max-w-full truncate">Manual encode faculty</span></SelectItem>
                                         {facultyProfiles.map((faculty) => {
                                             const key = String(faculty.userId || faculty.$id || "").trim()
                                             const name = String(faculty.name || "").trim()
@@ -2946,7 +3031,7 @@ export function PlannerManagementSection({
 
                                             return (
                                                 <SelectItem key={key} value={key}>
-                                                    {label}
+                                                    <span className="block max-w-full truncate">{label}</span>
                                                 </SelectItem>
                                             )
                                         })}
@@ -2957,7 +3042,7 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Room</Label>
                                 <Select value={formRoomId} onValueChange={setFormRoomId}>
-                                    <SelectTrigger className="rounded-xl">
+                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                         <SelectValue placeholder="Select room" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
@@ -2969,7 +3054,7 @@ export function PlannerManagementSection({
 
                                             return (
                                                 <SelectItem key={room.$id} value={room.$id}>
-                                                    {label} ({type})
+                                                    <span className="block max-w-full truncate">{label} ({type})</span>
                                                 </SelectItem>
                                             )
                                         })}
@@ -3017,13 +3102,13 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Day</Label>
                                 <Select value={formDayOfWeek} onValueChange={setFormDayOfWeek}>
-                                    <SelectTrigger className="rounded-xl">
+                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                         <SelectValue placeholder="Select day" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {entryDayOptions.map((day) => (
                                             <SelectItem key={day} value={day}>
-                                                {formatDayDisplayLabel(day)}
+                                                <span className="block max-w-full truncate">{formatDayDisplayLabel(day)}</span>
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -3033,13 +3118,13 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Start Time</Label>
                                 <Select value={formStartTime} onValueChange={setFormStartTime}>
-                                    <SelectTrigger className="rounded-xl">
+                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                         <SelectValue placeholder="Select start time" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {TIME_OPTIONS.map((time) => (
                                             <SelectItem key={`st-${time.value}`} value={time.value}>
-                                                {time.label}
+                                                <span className="block max-w-full truncate">{time.label}</span>
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -3049,13 +3134,13 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>End Time</Label>
                                 <Select value={formEndTime} onValueChange={setFormEndTime}>
-                                    <SelectTrigger className="rounded-xl">
+                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                         <SelectValue placeholder="Select end time" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
                                         {TIME_OPTIONS.map((time) => (
                                             <SelectItem key={`et-${time.value}`} value={time.value}>
-                                                {time.label}
+                                                <span className="block max-w-full truncate">{time.label}</span>
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -3065,13 +3150,13 @@ export function PlannerManagementSection({
                             <div className="space-y-1">
                                 <Label>Meeting Type</Label>
                                 <Select value={formMeetingType} onValueChange={(value) => setFormMeetingType(value as MeetingType)}>
-                                    <SelectTrigger className="rounded-xl">
+                                    <SelectTrigger className="rounded-xl [&>span]:block [&>span]:w-full [&>span]:truncate">
                                         <SelectValue placeholder="Select type" />
                                     </SelectTrigger>
                                     <SelectContent className={ENTRY_DIALOG_SELECT_CONTENT_CLASS}>
-                                        <SelectItem value="LECTURE">LECTURE</SelectItem>
-                                        <SelectItem value="LAB">LAB</SelectItem>
-                                        <SelectItem value="OTHER">OTHER</SelectItem>
+                                        <SelectItem value="LECTURE"><span className="block max-w-full truncate">LECTURE</span></SelectItem>
+                                        <SelectItem value="LAB"><span className="block max-w-full truncate">LAB</span></SelectItem>
+                                        <SelectItem value="OTHER"><span className="block max-w-full truncate">OTHER</span></SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -3091,7 +3176,7 @@ export function PlannerManagementSection({
                                     </div>
                                     <ul className="list-disc space-y-1 pl-4 text-xs">
                                         {candidateConflicts.slice(0, 6).map((conflict, idx) => (
-                                            <li key={`${conflict.type}-${conflict.row.meetingId}-${idx}`}>
+                                            <li key={`${conflict.type}-${conflict.row.meetingId}-${idx}`} className="wrap-anywhere">
                                                 [{conflict.type.toUpperCase()}] {formatDayDisplayLabel(conflict.row.dayOfWeek)}{" "}
                                                 {formatTimeRange(conflict.row.startTime, conflict.row.endTime)} • {conflict.row.subjectLabel} •{" "}
                                                 {getRowSectionDisplayLabel(conflict.row, sectionDisplayLookup)} • {conflict.row.roomLabel}
