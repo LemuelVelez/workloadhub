@@ -135,8 +135,6 @@ type Props = {
     subjectSectionFilters: string[]
     subjectYearLevelFilters: string[]
     setSubjectYearLevelFilters: React.Dispatch<React.SetStateAction<string[]>>
-    subjectSemesterFilter: string
-    setSubjectSemesterFilter: (value: string) => void
     subjectAcademicTermFilter: string
     setSubjectAcademicTermFilter: (value: string) => void
     subjectCollegeOptions: string[]
@@ -148,7 +146,6 @@ type Props = {
     onCreateYearLevel: (value: string) => Promise<void> | void
     onRenameYearLevel: (currentValue: string, nextValue: string) => Promise<void> | void
     onDeleteYearLevel: (value: string) => Promise<void> | void
-    subjectSemesterOptions: string[]
     subjectAcademicTermOptions: string[]
     onClearSubjectFilters: () => void
     onApplyScheduleContextSubjectFilters: () => void
@@ -193,8 +190,6 @@ export type SubjectMatchingFiltersCardProps = {
     setSubjectSectionFilters: React.Dispatch<React.SetStateAction<string[]>>
     subjectYearLevelFilters: string[]
     setSubjectYearLevelFilters: React.Dispatch<React.SetStateAction<string[]>>
-    subjectSemesterFilter: string
-    setSubjectSemesterFilter: (value: string) => void
     subjectAcademicTermFilter: string
     setSubjectAcademicTermFilter: (value: string) => void
     subjectCollegeOptions: string[]
@@ -206,7 +201,6 @@ export type SubjectMatchingFiltersCardProps = {
     onCreateYearLevel: (value: string) => Promise<void> | void
     onRenameYearLevel: (currentValue: string, nextValue: string) => Promise<void> | void
     onDeleteYearLevel: (value: string) => Promise<void> | void
-    subjectSemesterOptions: string[]
     subjectAcademicTermOptions: string[]
     filteredSubjectCount: number
     activeSubjectFilterBadges: string[]
@@ -225,8 +219,6 @@ export function SubjectMatchingFiltersCard({
     setSubjectSectionFilters,
     subjectYearLevelFilters,
     setSubjectYearLevelFilters,
-    subjectSemesterFilter,
-    setSubjectSemesterFilter,
     subjectAcademicTermFilter,
     setSubjectAcademicTermFilter,
     subjectCollegeOptions,
@@ -238,7 +230,6 @@ export function SubjectMatchingFiltersCard({
     onCreateYearLevel,
     onRenameYearLevel,
     onDeleteYearLevel,
-    subjectSemesterOptions,
     subjectAcademicTermOptions,
     filteredSubjectCount,
     activeSubjectFilterBadges,
@@ -290,7 +281,7 @@ export function SubjectMatchingFiltersCard({
                         <div className="space-y-1">
                             <CardTitle>Subject Matching Filters</CardTitle>
                             <CardDescription>
-                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, sections, year levels, semester, and linked semester record.
+                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, sections, year levels, and linked semester record.
                             </CardDescription>
                         </div>
 
@@ -526,29 +517,12 @@ export function SubjectMatchingFiltersCard({
 
                             <div className="grid gap-2">
                                 <Label>Semester</Label>
-                                <Select value={subjectSemesterFilter} onValueChange={setSubjectSemesterFilter}>
+                                <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
                                     <SelectTrigger className="rounded-xl">
                                         <SelectValue placeholder="All semesters" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semesters</SelectItem>
-                                        {subjectSemesterOptions.map((option) => (
-                                            <SelectItem key={option} value={option}>
-                                                {option}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label>Academic Term</Label>
-                                <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
-                                    <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="All academic terms" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
                                         {subjectAcademicTermOptions.map((option) => (
                                             <SelectItem key={option} value={option}>
                                                 {option}
@@ -1362,7 +1336,6 @@ export function PlannerManagementSection({
     subjectProgramFilters,
     subjectSectionFilters,
     subjectYearLevelFilters,
-    subjectSemesterFilter,
     subjectAcademicTermFilter,
     formFacultyChoice,
     setFormFacultyChoice,
@@ -1415,7 +1388,6 @@ export function PlannerManagementSection({
                 subjectProgramFilters,
                 subjectSectionFilters,
                 subjectYearLevelFilters,
-                subjectSemesterFilter,
                 subjectAcademicTermFilter,
             })
         )
@@ -1425,7 +1397,6 @@ export function PlannerManagementSection({
         subjectCollegeFilter,
         subjectProgramFilters,
         subjectSectionFilters,
-        subjectSemesterFilter,
         subjectYearLevelFilters,
     ])
 
@@ -1906,7 +1877,7 @@ export function PlannerManagementSection({
                 <CardHeader className="pb-4">
                     <CardTitle>Schedule Planner & Conflict Manager</CardTitle>
                     <CardDescription>
-                        Assign one subject per entry, faculty, and room. Subject matching now uses the same College, Programs, Year Levels, and Semester scope fields used by Add Subject.
+                        Assign one subject per entry, faculty, and room. Subject matching now uses the same College, Programs, Sections, Year Levels, and Semester scope fields used by Add Subject.
                     </CardDescription>
                 </CardHeader>
 

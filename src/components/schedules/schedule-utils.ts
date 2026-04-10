@@ -312,7 +312,6 @@ export type SectionScopeFilterParams = {
     subjectCollegeFilter: string
     subjectProgramFilters: string[]
     subjectYearLevelFilters: string[]
-    subjectSemesterFilter: string
     subjectAcademicTermFilter: string
     subjectSectionFilters?: string[]
 }
@@ -322,14 +321,12 @@ export function sectionMatchesSubjectFilters({
     subjectCollegeFilter,
     subjectProgramFilters,
     subjectYearLevelFilters,
-    subjectSemesterFilter,
     subjectAcademicTermFilter,
     subjectSectionFilters = [],
 }: SectionScopeFilterParams) {
     const normalizedCollegeFilter = normalizeToken(subjectCollegeFilter)
     const normalizedProgramFilters = subjectProgramFilters.map(normalizeToken).filter(Boolean)
     const normalizedYearLevelFilters = subjectYearLevelFilters.map(normalizeToken).filter(Boolean)
-    const normalizedSemesterFilter = normalizeToken(subjectSemesterFilter)
     const normalizedAcademicTermFilter = normalizeToken(subjectAcademicTermFilter)
     const normalizedSectionFilters = subjectSectionFilters.map(normalizeToken).filter(Boolean)
 
@@ -342,7 +339,6 @@ export function sectionMatchesSubjectFilters({
     const sectionYearLevelTokens = [section.yearLevel, section.label, section.name]
         .map((value) => normalizeToken(String(value ?? "")))
         .filter(Boolean)
-    const sectionSemesterToken = normalizeToken(section.semester)
     const sectionAcademicTermToken = normalizeToken(section.academicTermLabel)
     const sectionIdToken = normalizeToken(section.$id)
 
@@ -362,9 +358,6 @@ export function sectionMatchesSubjectFilters({
         if (!hasYearMatch) return false
     }
 
-    if (normalizedSemesterFilter && normalizedSemesterFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (sectionSemesterToken !== normalizedSemesterFilter) return false
-    }
 
     if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
         if (sectionAcademicTermToken !== normalizedAcademicTermFilter) return false

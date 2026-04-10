@@ -45,7 +45,6 @@ import {
     filterSubjectsForSections,
     formatYearLevelFilterLabel,
     getCanonicalDayValue,
-    getSubjectSemesterFilterValues,
     getSubjectYearLevelFilterValues,
     hhmmToMinutes,
     matchesSelectedSubjectFilter,
@@ -144,7 +143,6 @@ export default function AdminSchedulesPage() {
     const [subjectProgramFilters, setSubjectProgramFilters] = React.useState<string[]>([])
     const [subjectSectionFilters, setSubjectSectionFilters] = React.useState<string[]>([])
     const [subjectYearLevelFilters, setSubjectYearLevelFilters] = React.useState<string[]>([])
-    const [subjectSemesterFilter, setSubjectSemesterFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
     const [subjectAcademicTermFilter, setSubjectAcademicTermFilter] = React.useState(SUBJECT_FILTER_ALL_VALUE)
     const [yearLevelMutating, setYearLevelMutating] = React.useState(false)
 
@@ -292,11 +290,6 @@ export default function AdminSchedulesPage() {
         return ""
     }, [deptMap, sections, selectedFormDeptDoc])
 
-    const selectedSemesterLabel = React.useMemo(() => {
-        if (selectedFormTermDoc) return String(selectedFormTermDoc.semester || "").trim()
-        if (activeAcademicTerms.length === 1) return String(activeAcademicTerms[0]?.semester || "").trim()
-        return ""
-    }, [activeAcademicTerms, selectedFormTermDoc])
 
     const selectedAcademicTermCompositeLabel = React.useMemo(() => {
         const sourceTerm = selectedFormTermDoc || (activeAcademicTerms.length === 1 ? activeAcademicTerms[0] : null)
@@ -427,7 +420,6 @@ export default function AdminSchedulesPage() {
                         subjectProgramFilters,
                         subjectSectionFilters,
                         subjectYearLevelFilters,
-                        subjectSemesterFilter,
                         subjectAcademicTermFilter,
                     })
                 )
@@ -439,7 +431,6 @@ export default function AdminSchedulesPage() {
             subjectCollegeFilter,
             subjectProgramFilters,
             subjectSectionFilters,
-            subjectSemesterFilter,
             subjectYearLevelFilters,
         ]
     )
@@ -579,15 +570,6 @@ export default function AdminSchedulesPage() {
         }, {})
     }, [yearLevelTotals])
 
-    const subjectSemesterOptions = React.useMemo(
-        () =>
-            buildSubjectFilterOptions([
-                selectedSemesterLabel,
-                ...activeAcademicTerms.map((term) => normalizeDisplayValue(term.semester)),
-                ...subjects.flatMap((subject) => getSubjectSemesterFilterValues(subject)),
-            ]),
-        [activeAcademicTerms, normalizeDisplayValue, selectedSemesterLabel, subjects]
-    )
 
     const subjectAcademicTermOptions = React.useMemo(
         () =>
@@ -604,7 +586,6 @@ export default function AdminSchedulesPage() {
         setSubjectProgramFilters([])
         setSubjectSectionFilters([])
         setSubjectYearLevelFilters([])
-        setSubjectSemesterFilter(SUBJECT_FILTER_ALL_VALUE)
         setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
     }, [])
 
@@ -619,9 +600,6 @@ export default function AdminSchedulesPage() {
         setSubjectProgramFilters(matchedProgram !== SUBJECT_FILTER_ALL_VALUE ? [matchedProgram] : [])
         setSubjectSectionFilters(selectedFormSection?.$id ? [selectedFormSection.$id] : [])
         setSubjectYearLevelFilters(matchedYearLevel !== SUBJECT_FILTER_ALL_VALUE ? [matchedYearLevel] : [])
-        setSubjectSemesterFilter(
-            pickMatchingSubjectFilterOption(subjectSemesterOptions, [selectedSemesterLabel, selectedTermLabel])
-        )
         setSubjectAcademicTermFilter(
             pickMatchingSubjectFilterOption(subjectAcademicTermOptions, [selectedAcademicTermCompositeLabel])
         )
@@ -630,12 +608,9 @@ export default function AdminSchedulesPage() {
         selectedAcademicTermCompositeLabel,
         selectedDepartmentName,
         selectedFormSection,
-        selectedSemesterLabel,
-        selectedTermLabel,
         subjectAcademicTermOptions,
         subjectCollegeOptions,
         subjectProgramOptions,
-        subjectSemesterOptions,
         subjectYearLevelOptions,
     ])
 
@@ -652,10 +627,6 @@ export default function AdminSchedulesPage() {
         setSubjectProgramFilters((current) => current.filter((value) => subjectProgramOptions.includes(value)))
         setSubjectSectionFilters((current) => current.filter((value) => subjectSectionOptions.some((option) => option.value === value)))
         setSubjectYearLevelFilters((current) => current.filter((value) => subjectYearLevelOptions.includes(value)))
-
-        if (subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectSemesterOptions.includes(subjectSemesterFilter)) {
-            setSubjectSemesterFilter(SUBJECT_FILTER_ALL_VALUE)
-        }
         if (subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectAcademicTermOptions.includes(subjectAcademicTermFilter)) {
             setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
         }
@@ -666,8 +637,6 @@ export default function AdminSchedulesPage() {
         subjectCollegeOptions,
         subjectProgramOptions,
         subjectSectionOptions,
-        subjectSemesterFilter,
-        subjectSemesterOptions,
         subjectYearLevelOptions,
     ])
 
@@ -677,14 +646,12 @@ export default function AdminSchedulesPage() {
                 const subjectCollegeValues = getSubjectCollegeNameValues(subject)
                 const subjectProgramValues = getSubjectProgramNameValues(subject)
                 const subjectYearValues = getSubjectYearLevelFilterValues(subject)
-                const subjectSemesterValues = getSubjectSemesterFilterValues(subject)
                 const subjectAcademicTermValues = getSubjectAcademicTermNameValues(subject)
 
                 return (
                     matchesSelectedSubjectFilter(subjectCollegeFilter, subjectCollegeValues) &&
                     matchesAnySelectedSubjectFilter(subjectProgramFilters, subjectProgramValues) &&
                     matchesAnySelectedSubjectFilter(subjectYearLevelFilters, subjectYearValues) &&
-                    matchesSelectedSubjectFilter(subjectSemesterFilter, subjectSemesterValues) &&
                     matchesSelectedSubjectFilter(subjectAcademicTermFilter, subjectAcademicTermValues)
                 )
             })
@@ -704,7 +671,6 @@ export default function AdminSchedulesPage() {
         subjectAcademicTermFilter,
         subjectCollegeFilter,
         subjectProgramFilters,
-        subjectSemesterFilter,
         subjectYearLevelFilters,
     ])
 
@@ -719,8 +685,7 @@ export default function AdminSchedulesPage() {
                         .join(", ")}`
                     : null,
                 subjectYearLevelFilters.length > 0 ? `Year Levels: ${subjectYearLevelFilters.join(", ")}` : null,
-                subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectSemesterFilter}` : null,
-                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Academic Term: ${subjectAcademicTermFilter}` : null,
+                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectAcademicTermFilter}` : null,
             ].filter(Boolean) as string[],
         [
             subjectAcademicTermFilter,
@@ -728,7 +693,6 @@ export default function AdminSchedulesPage() {
             subjectProgramFilters,
             subjectSectionFilters,
             subjectSectionOptions,
-            subjectSemesterFilter,
             subjectYearLevelFilters,
         ]
     )
@@ -1733,8 +1697,6 @@ export default function AdminSchedulesPage() {
                     setSubjectSectionFilters={setSubjectSectionFilters}
                     subjectYearLevelFilters={subjectYearLevelFilters}
                     setSubjectYearLevelFilters={setSubjectYearLevelFilters}
-                    subjectSemesterFilter={subjectSemesterFilter}
-                    setSubjectSemesterFilter={setSubjectSemesterFilter}
                     subjectAcademicTermFilter={subjectAcademicTermFilter}
                     setSubjectAcademicTermFilter={setSubjectAcademicTermFilter}
                     subjectCollegeOptions={subjectCollegeOptions}
@@ -1746,7 +1708,6 @@ export default function AdminSchedulesPage() {
                     onCreateYearLevel={createYearLevelSection}
                     onRenameYearLevel={renameYearLevelSections}
                     onDeleteYearLevel={deleteYearLevelSections}
-                    subjectSemesterOptions={subjectSemesterOptions}
                     subjectAcademicTermOptions={subjectAcademicTermOptions}
                     filteredSubjectCount={filteredFormSubjects.length}
                     activeSubjectFilterBadges={activeSubjectFilterBadges}
@@ -1785,8 +1746,6 @@ export default function AdminSchedulesPage() {
                     subjectSectionFilters={subjectSectionFilters}
                     subjectYearLevelFilters={subjectYearLevelFilters}
                     setSubjectYearLevelFilters={setSubjectYearLevelFilters}
-                    subjectSemesterFilter={subjectSemesterFilter}
-                    setSubjectSemesterFilter={setSubjectSemesterFilter}
                     subjectAcademicTermFilter={subjectAcademicTermFilter}
                     setSubjectAcademicTermFilter={setSubjectAcademicTermFilter}
                     subjectCollegeOptions={subjectCollegeOptions}
@@ -1798,7 +1757,6 @@ export default function AdminSchedulesPage() {
                     onCreateYearLevel={createYearLevelSection}
                     onRenameYearLevel={renameYearLevelSections}
                     onDeleteYearLevel={deleteYearLevelSections}
-                    subjectSemesterOptions={subjectSemesterOptions}
                     subjectAcademicTermOptions={subjectAcademicTermOptions}
                     onClearSubjectFilters={clearSubjectFilters}
                     onApplyScheduleContextSubjectFilters={applyScheduleContextSubjectFilters}
