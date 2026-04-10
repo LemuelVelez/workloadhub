@@ -299,7 +299,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 <div>
                     <div className="font-medium">Sections</div>
                     <div className="text-sm text-muted-foreground">
-                        Manage class sections per term (A–Z + Others), including linked college, program, year level, semester, academic term, and student count.
+                        Manage class sections per semester (A–Z + Others), including linked college, program, year level, semester, and student count.
                     </div>
                 </div>
 
@@ -307,12 +307,12 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     <div className="w-full sm:w-80">
                         <Select value={vm.selectedTermId} onValueChange={vm.setSelectedTermId}>
                             <SelectTrigger>
-                                <SelectValue placeholder="Select Academic Term" />
+                                <SelectValue placeholder="Select Semester" />
                             </SelectTrigger>
                             <SelectContent>
                                 {vm.terms.length === 0 ? (
                                     <SelectItem value="__none__" disabled>
-                                        No academic terms found
+                                        No semesters found
                                     </SelectItem>
                                 ) : (
                                     vm.terms.map((t) => (
@@ -358,12 +358,12 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 </div>
             ) : vm.terms.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
-                    No academic terms found. Create an Academic Term first to manage
+                    No semesters found. Create a Semester first to manage
                     Sections.
                 </div>
             ) : vm.filteredSections.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
-                    No sections found for this term.
+                    No sections found for this semester.
                 </div>
             ) : (
                 <div className="overflow-hidden rounded-md border">
@@ -373,8 +373,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                 <TableHead className="w-40">Section</TableHead>
                                 <TableHead className="w-72">College</TableHead>
                                 <TableHead>Program (optional)</TableHead>
-                                <TableHead className="w-28">Semester</TableHead>
-                                <TableHead className="w-44">Academic Term</TableHead>
+                                <TableHead className="w-44">Semester</TableHead>
                                 <TableHead className="w-32">Students</TableHead>
                                 <TableHead className="w-24">Active</TableHead>
                                 <TableHead className="w-40 text-right">Actions</TableHead>
@@ -400,10 +399,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                             {vm.programLabel(vm.programs, s.programId ?? null)}
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
-                                            {s.semester || "—"}
-                                        </TableCell>
-                                        <TableCell className="text-muted-foreground">
-                                            {s.academicTermLabel || vm.termLabel(vm.terms, s.termId)}
+                                            {s.academicTermLabel || vm.termLabel(vm.terms, s.termId) || s.semester || "—"}
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
                                             {s.studentCount != null ? s.studentCount : "—"}
@@ -583,7 +579,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                         {`${vm.collegeLabel(
                                                             vm.colleges,
                                                             section.departmentId
-                                                        )} • ${section.semester || "No Semester"} • ${section.academicTermLabel || vm.termLabel(vm.terms, section.termId)}`}
+                                                        )} • ${section.academicTermLabel || vm.termLabel(vm.terms, section.termId) || section.semester || "No Semester"}`}
                                                     </div>
                                                 </div>
                                             </label>

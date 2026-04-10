@@ -874,7 +874,7 @@ export function useMasterDataManagement() {
                     `${currentSubject.code} linked to ${termLabel(terms, termId)}.`
                 )
             } else {
-                toast.success(`${currentSubject.code} unlinked from academic term.`)
+                toast.success(`${currentSubject.code} unlinked from semester.`)
             }
 
             return true
@@ -1176,7 +1176,7 @@ export function useMasterDataManagement() {
         const name = normalizeSectionNameValue(sectionName)
 
         if (!termId) {
-            toast.error("Academic term is required for Sections.")
+            toast.error("Semester is required for Sections.")
             return
         }
         if (!departmentId) {

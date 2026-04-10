@@ -204,6 +204,13 @@ export function MasterDataDialogs({ vm }: Props) {
 
     const sectionYearSelectValue = extractSectionYearNumber(vm.sectionYear)
     const currentSectionTrackPrefix = extractSectionTrackPrefixFromYearLevel(vm.sectionYear)
+    const semesterOptions = Array.from(
+        new Set(
+            vm.terms
+                .map((term) => String(term.semester ?? "").trim())
+                .filter(Boolean)
+        )
+    ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
 
     const sectionStoredYearLevelValue = buildSectionYearLevelValue({
         yearLevel: vm.sectionYear,
@@ -341,7 +348,7 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.subjectEditing ? "Edit Subject" : "Add Subject"}</DialogTitle>
                         <DialogDescription>
-                            Subjects are now scoped to a college, program, year level, and optional academic term so records only show the correct subjects for matching sections.
+                            Subjects are now scoped to a college, program, year level, and semester so records only show the correct subjects for matching sections.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -463,15 +470,23 @@ export function MasterDataDialogs({ vm }: Props) {
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="__none__">No Semester</SelectItem>
-                                            <SelectItem value="1st Semester">1st Semester</SelectItem>
-                                            <SelectItem value="2nd Semester">2nd Semester</SelectItem>
-                                            <SelectItem value="Summer">Summer</SelectItem>
+                                            {semesterOptions.length === 0 ? (
+                                                <SelectItem value="__no_semester_options__" disabled>
+                                                    No semesters available
+                                                </SelectItem>
+                                            ) : (
+                                                semesterOptions.map((semester) => (
+                                                    <SelectItem key={semester} value={semester}>
+                                                        {semester}
+                                                    </SelectItem>
+                                                ))
+                                            )}
                                         </SelectContent>
                                     </Select>
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label>Academic Term (optional)</Label>
+                                    <Label>Semester Link (optional)</Label>
                                     <Select
                                         value={vm.subjectTermId || "__none__"}
                                         onValueChange={(v) => {
@@ -485,10 +500,10 @@ export function MasterDataDialogs({ vm }: Props) {
                                         }}
                                     >
                                         <SelectTrigger>
-                                            <SelectValue placeholder="No Term Link" />
+                                            <SelectValue placeholder="No Semester Link" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="__none__">No Term Link</SelectItem>
+                                            <SelectItem value="__none__">No Semester Link</SelectItem>
                                             {vm.terms.map((t) => (
                                                 <SelectItem key={t.$id} value={t.$id}>
                                                     {vm.termLabel(vm.terms, t.$id)}
@@ -498,7 +513,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                         </SelectContent>
                                     </Select>
                                     <div className="text-xs text-muted-foreground">
-                                        Optional direct term link. The semester value is still saved so subjects remain properly scoped even before term linking.
+                                        Optional direct semester record link. The semester scope is still saved on the subject even without a linked semester record.
                                     </div>
                                 </div>
                             </div>
@@ -688,18 +703,18 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.sectionEditing ? "Edit Section" : "Add Section"}</DialogTitle>
                         <DialogDescription>
-                            Sections are linked to College, Program, Year Level, Semester, and Academic Term so schedules only show the correct sections for the active scope.
+                            Sections are linked to College, Program, Year Level, and Semester so schedules only show the correct sections for the active scope.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <Label>Academic Term</Label>
+                            <Label>Semester</Label>
                             {vm.sectionEditing ? (
                                 <div className="grid gap-2">
                                     <Input value={vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
                                     <div className="text-xs text-muted-foreground">
-                                        Term cannot be changed once created (recommended).
+                                        Semester record cannot be changed once created (recommended).
                                     </div>
                                 </div>
                             ) : (
@@ -713,7 +728,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                     }}
                                 >
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select Academic Term" />
+                                        <SelectValue placeholder="Select Semester" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {vm.terms.map((t) => (
@@ -747,12 +762,12 @@ export function MasterDataDialogs({ vm }: Props) {
                                 <Label>Semester</Label>
                                 <Input value={vm.sectionSemester || "—"} disabled />
                                 <div className="text-xs text-muted-foreground">
-                                    Filled automatically from the selected academic term.
+                                    Filled automatically from the selected semester record.
                                 </div>
                             </div>
 
                             <div className="grid gap-2">
-                                <Label>Academic Term Link Preview</Label>
+                                <Label>Semester Record Preview</Label>
                                 <Input value={vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
                             </div>
                         </div>

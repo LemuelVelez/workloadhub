@@ -275,7 +275,7 @@ export function SubjectMatchingFiltersCard({
                         <div className="space-y-1">
                             <CardTitle>Subject Matching Filters</CardTitle>
                             <CardDescription>
-                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, year levels, semester, and academic term.
+                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, year levels, semester, and linked semester record.
                             </CardDescription>
                         </div>
 
@@ -482,13 +482,13 @@ export function SubjectMatchingFiltersCard({
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label>Academic Term</Label>
+                                    <Label>Semester Record</Label>
                                     <Select value={subjectAcademicTermFilter} onValueChange={setSubjectAcademicTermFilter}>
                                         <SelectTrigger className="rounded-xl">
-                                            <SelectValue placeholder="All academic terms" />
+                                            <SelectValue placeholder="All semester records" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All academic terms</SelectItem>
+                                            <SelectItem value={SUBJECT_FILTER_ALL_VALUE}>All semester records</SelectItem>
                                             {subjectAcademicTermOptions.map((option) => (
                                                 <SelectItem key={option} value={option}>
                                                     {option}
@@ -2170,9 +2170,9 @@ export function PlannerManagementSection({
                             <div className="mx-auto flex size-10 items-center justify-center rounded-full border">
                                 <CalendarDays className="size-5" />
                             </div>
-                            <div className="mt-3 font-medium">No active academic term</div>
+                            <div className="mt-3 font-medium">No active semester</div>
                             <div className="text-sm text-muted-foreground">
-                                Activate at least one academic term to manage schedule entries and conflict detection.
+                                Activate at least one semester to manage schedule entries and conflict detection.
                             </div>
                         </div>
                     ) : entriesLoading ? (
@@ -2452,7 +2452,7 @@ export function PlannerManagementSection({
                 <CardContent>
                     {!hasScheduleScope ? (
                         <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                            No active academic term to view laboratory assignments.
+                            No active semester to view laboratory assignments.
                         </div>
                     ) : entriesLoading ? (
                         <div className="space-y-3">
@@ -2695,7 +2695,7 @@ export function PlannerManagementSection({
                             <div className="space-y-3">
                                 <div className="rounded-2xl border p-4">
                                     <div className="text-xs text-muted-foreground">
-                                        Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and academic term records.
+                                        Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and linked semester records.
                                     </div>
                                 </div>
 
@@ -2726,7 +2726,7 @@ export function PlannerManagementSection({
 
                                 <div className="rounded-2xl border p-4">
                                     <div className="text-xs text-muted-foreground">
-                                        Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and academic term records.
+                                        Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and linked semester records.
                                     </div>
 
                                     {selectedSubjectDoc ? (

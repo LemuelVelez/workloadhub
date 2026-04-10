@@ -236,17 +236,17 @@ export default function AdminSchedulesPage() {
     )
 
     const selectedAcademicTermScopeLabel = React.useMemo(() => {
-        if (termScopeSelection.length === 0) return "No active academic terms selected"
+        if (termScopeSelection.length === 0) return "No active semesters selected"
         if (termScopeSelection.length === 1) {
-            return academicTermScopeOptions.find((term) => term.$id === termScopeSelection[0])?.label || "1 academic term selected"
+            return academicTermScopeOptions.find((term) => term.$id === termScopeSelection[0])?.label || "1 semester selected"
         }
-        return `${termScopeSelection.length} academic terms selected`
+        return `${termScopeSelection.length} semesters selected`
     }, [academicTermScopeOptions, termScopeSelection])
 
     const selectedTermLabel = React.useMemo(() => {
         if (selectedFormTermDoc) return termLabel(selectedFormTermDoc)
         if (activeAcademicTerms.length === 1) return termLabel(activeAcademicTerms[0])
-        if (activeAcademicTerms.length > 1) return `${activeAcademicTerms.length} active academic terms`
+        if (activeAcademicTerms.length > 1) return `${activeAcademicTerms.length} active semesters`
         return "—"
     }, [activeAcademicTerms, selectedFormTermDoc])
 
@@ -643,7 +643,7 @@ export default function AdminSchedulesPage() {
                 subjectProgramFilters.length > 0 ? `Programs: ${subjectProgramFilters.join(", ")}` : null,
                 subjectYearLevelFilters.length > 0 ? `Year Levels: ${subjectYearLevelFilters.join(", ")}` : null,
                 subjectSemesterFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester: ${subjectSemesterFilter}` : null,
-                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Academic Term: ${subjectAcademicTermFilter}` : null,
+                subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE ? `Semester Record: ${subjectAcademicTermFilter}` : null,
             ].filter(Boolean) as string[],
         [
             subjectAcademicTermFilter,
@@ -1357,7 +1357,7 @@ export default function AdminSchedulesPage() {
                 normalizeDisplayValue((selectedSubjectForPayload as any)?.departmentId)
 
             if (!resolvedTermId || !resolvedDepartmentId) {
-                toast.error("Unable to resolve the academic term or college for this schedule entry.")
+                toast.error("Unable to resolve the semester or college for this schedule entry.")
                 return
             }
 
@@ -1490,8 +1490,8 @@ export default function AdminSchedulesPage() {
 
         const termLabelText =
             activeAcademicTerms.length === 1
-                ? buildAcademicTermOptionLabel(activeAcademicTerms[0]) || "Active academic term"
-                : `${activeAcademicTerms.length} active academic terms`
+                ? buildAcademicTermOptionLabel(activeAcademicTerms[0]) || "Active semester"
+                : `${activeAcademicTerms.length} active semesters`
 
         const departmentLabelText =
             selectedDepartmentName ||
@@ -1504,7 +1504,7 @@ export default function AdminSchedulesPage() {
         const normalizedSelection = Array.from(new Set(termScopeSelection.map((value) => String(value || "").trim()).filter(Boolean)))
 
         if (normalizedSelection.length === 0) {
-            toast.error("Select at least one academic term to activate.")
+            toast.error("Select at least one semester to activate.")
             return
         }
 
@@ -1519,11 +1519,11 @@ export default function AdminSchedulesPage() {
                 )
             )
 
-            toast.success("Active academic terms updated.")
+            toast.success("Active semesters updated.")
             setTermScopePopoverOpen(false)
             await fetchAll()
         } catch (e: any) {
-            toast.error(e?.message || "Failed to update active academic terms.")
+            toast.error(e?.message || "Failed to update active semesters.")
         } finally {
             setTermScopeSaving(false)
         }
@@ -1546,12 +1546,12 @@ export default function AdminSchedulesPage() {
             <div className="space-y-6 p-6">
                 <Card className="rounded-2xl">
                     <CardHeader className="pb-4">
-                        <CardTitle className="text-base">Academic Term Scope</CardTitle>
+                        <CardTitle className="text-base">Semester Scope</CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div className="space-y-1">
                             <div className="text-sm text-muted-foreground">
-                                Set the active academic terms directly from this page. Schedule sections, subjects, and entries only load from the selected active terms.
+                                Set the active semesters directly from this page. Schedule sections, subjects, and entries only load from the selected active semester records.
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 {activeAcademicTerms.length > 0 ? (
@@ -1561,7 +1561,7 @@ export default function AdminSchedulesPage() {
                                         </Badge>
                                     ))
                                 ) : (
-                                    <Badge variant="outline" className="rounded-lg">No active academic term</Badge>
+                                    <Badge variant="outline" className="rounded-lg">No active semester</Badge>
                                 )}
                             </div>
                         </div>
@@ -1576,15 +1576,15 @@ export default function AdminSchedulesPage() {
                                 </PopoverTrigger>
                                 <PopoverContent align="end" className="w-[320px] max-h-75 overflow-auto p-0">
                                     <div className="border-b px-4 py-3">
-                                        <div className="text-sm font-medium">Select active academic terms</div>
+                                        <div className="text-sm font-medium">Select active semesters</div>
                                         <div className="text-xs text-muted-foreground">
-                                            Multiple terms can stay active at the same time.
+                                            Multiple semesters can stay active at the same time.
                                         </div>
                                     </div>
                                     <ScrollArea className="max-h-72">
                                         <div className="space-y-2 p-3">
                                             {academicTermScopeOptions.length === 0 ? (
-                                                <div className="text-sm text-muted-foreground">No academic terms available.</div>
+                                                <div className="text-sm text-muted-foreground">No semesters available.</div>
                                             ) : (
                                                 academicTermScopeOptions.map((term) => {
                                                     const checked = termScopeSelection.includes(term.$id)

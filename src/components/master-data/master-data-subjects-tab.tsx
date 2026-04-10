@@ -952,6 +952,17 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         bulkLinkLockedSubjectIds.length === 1 &&
         bulkLinkSourceSubjectIds.length === 1
 
+    const semesterOptions = React.useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    vm.terms
+                        .map((term) => normalizeSemesterLabel(String(term.semester ?? "")))
+                        .filter(Boolean)
+                )
+            ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })),
+        [vm.terms]
+    )
 
     return (
         <TabsContent value="subjects" className="space-y-4">
@@ -959,7 +970,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                 <div>
                     <div className="font-medium">Subjects</div>
                     <div className="text-sm text-muted-foreground">
-                        Manage subject list, units, hours, and semester segregation.
+                        Manage subject list, units, hours, and semester scope.
                     </div>
                 </div>
 
@@ -1277,7 +1288,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
                                             const termLabel = linkedTermId
                                                 ? vm.termLabel(vm.terms, linkedTermId)
-                                                : "No direct academic term link. Semester scope is still saved on the subject."
+                                                : "No direct semester link. Semester scope is still saved on the subject."
 
                                             return (
                                                 <TableRow key={subject.$id}>
@@ -1424,7 +1435,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>Edit Visible Subject Scope</DialogTitle>
                         <DialogDescription>
-                            Apply a college, multiple programs, multiple year levels, and one semester to the selected visible subjects.
+                            Apply a college, multiple programs, multiple year levels, and one semester scope to the selected visible subjects.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1459,9 +1470,17 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="__none__">No Semester</SelectItem>
-                                            <SelectItem value="1st Semester">1st Semester</SelectItem>
-                                            <SelectItem value="2nd Semester">2nd Semester</SelectItem>
-                                            <SelectItem value="Summer">Summer</SelectItem>
+                                            {semesterOptions.length === 0 ? (
+                                                <SelectItem value="__no_semester_options__" disabled>
+                                                    No semesters available
+                                                </SelectItem>
+                                            ) : (
+                                                semesterOptions.map((semester) => (
+                                                    <SelectItem key={semester} value={semester}>
+                                                        {semester}
+                                                    </SelectItem>
+                                                ))
+                                            )}
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1682,19 +1701,19 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>
                             {isSingleSubjectLinkMode
-                                ? "Link Subject to Term"
-                                : "Edit Subject Term Links"}
+                                ? "Link Subject to Semester"
+                                : "Edit Subject Semester Links"}
                         </DialogTitle>
                         <DialogDescription>
                             {isSingleSubjectLinkMode
-                                ? "Permanently connect this subject to an academic term for proper semester segregation."
-                                : "Bulk edit the selected subjects and link or relink them to the correct academic term."}
+                                ? "Permanently connect this subject to a semester record for proper semester scope."
+                                : "Bulk edit the selected subjects and link or relink them to the correct semester record."}
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <label className="text-sm font-medium">Academic Term</label>
+                            <label className="text-sm font-medium">Semester</label>
                             <Select
                                 value={bulkLinkTermId}
                                 onValueChange={setBulkLinkTermId}
@@ -1705,7 +1724,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                 <SelectContent>
                                     {bulkLinkTermOptions.length === 0 ? (
                                         <SelectItem value="__none__" disabled>
-                                            No matching academic terms found
+                                            No matching semesters found
                                         </SelectItem>
                                     ) : (
                                         bulkLinkTermOptions.map((term) => (
@@ -1767,7 +1786,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             <div className="space-y-2 p-3">
                                 {bulkLinkEligibleSubjects.length === 0 ? (
                                     <div className="text-sm text-muted-foreground">
-                                        No subjects match the selected term or semester filter.
+                                        No subjects match the selected semester scope.
                                     </div>
                                 ) : (
                                     bulkLinkEligibleSubjects.map((subject) => {
