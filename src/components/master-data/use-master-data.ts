@@ -41,6 +41,8 @@ const SUBJECT_PROGRAM_ARRAY_KEYS = ["programIds", "program_ids"] as const
 const SUBJECT_SCOPE_YEAR_LEVEL_KEYS = ["yearLevel", "sectionYearLevel", "sectionYear", "year_level"] as const
 const SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS = ["yearLevels", "year_levels"] as const
 const SUBJECT_SEMESTER_KEYS = ["semester", "semesterLabel", "termSemester", "termSem"] as const
+const SECTION_SUBJECT_KEYS = ["subjectId", "subject", "subject_id", "subjectID"] as const
+const SECTION_SUBJECT_ARRAY_KEYS = ["subjectIds", "subject_ids"] as const
 
 async function listDocs(collectionId: string, queries: any[] = []) {
     const res = await databases.listDocuments(DATABASE_ID, collectionId, queries)
@@ -194,6 +196,42 @@ function buildSubjectSemesterPayload(
     const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["semester"]
 
     return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function resolveSectionSubjectIds(source: Record<string, unknown> | null | undefined) {
+    return readStringArrayValues(source, SECTION_SUBJECT_ARRAY_KEYS, SECTION_SUBJECT_KEYS)
+}
+
+function resolveSectionPrimarySubjectId(source: Record<string, unknown> | null | undefined) {
+    return resolveSectionSubjectIds(source)[0] ?? readFirstStringValue(source, SECTION_SUBJECT_KEYS)
+}
+
+function buildSectionSubjectPayload(
+    source: Record<string, unknown> | null | undefined,
+    subjectIdInput?: string | null
+) {
+    const nextValue = str(subjectIdInput) || null
+    const existingKeys = SECTION_SUBJECT_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["subjectId"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSectionSubjectIdsPayload(
+    source: Record<string, unknown> | null | undefined,
+    subjectIdsInput: string[] = []
+) {
+    const nextValue = Array.from(new Set(subjectIdsInput.map((value) => str(value)).filter(Boolean)))
+    const existingKeys = SECTION_SUBJECT_ARRAY_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["subjectIds"]
+
+    return keysToUpdate.reduce<Record<string, string[]>>((acc, key) => {
         acc[key] = nextValue
         return acc
     }, {})
@@ -465,12 +503,15 @@ export function useMasterDataManagement() {
             setSections(
                 (sectionDocs ?? []).map((s: any) => {
                     const programId = s.programId ? str(s.programId) : null
+                    const subjectIds = resolveSectionSubjectIds(s)
+                    const subjectId = subjectIds[0] ?? resolveSectionPrimarySubjectId(s) ?? null
                     return {
                         $id: s.$id,
                         termId: str(s.termId),
                         departmentId: str(s.departmentId),
                         programId,
-                        subjectId: s.subjectId ? str(s.subjectId) : null,
+                        subjectId,
+                        subjectIds: subjectIds.length > 0 ? subjectIds : subjectId ? [subjectId] : [],
                         yearLevel:
                             (buildStoredSectionYearLevel(
                                 s.yearLevel,
@@ -1122,7 +1163,7 @@ export function useMasterDataManagement() {
     const [sectionTermId, setSectionTermId] = React.useState("")
     const [sectionCollegeId, setSectionCollegeId] = React.useState("")
     const [sectionProgramId, setSectionProgramId] = React.useState<string>("__none__")
-    const [sectionSubjectId, setSectionSubjectId] = React.useState<string>("__none__")
+    const [sectionSubjectIds, setSectionSubjectIds] = React.useState<string[]>([])
     const [sectionSemester, setSectionSemester] = React.useState<string>("")
     const [sectionAcademicTermLabel, setSectionAcademicTermLabel] = React.useState<string>("")
     const [sectionYear, setSectionYear] = React.useState<string>("1")
@@ -1137,7 +1178,7 @@ export function useMasterDataManagement() {
             setSectionTermId(str(selectedTermId))
             setSectionCollegeId(defaultCollegeId)
             setSectionProgramId("__none__")
-            setSectionSubjectId("__none__")
+            setSectionSubjectIds([])
             const selectedTerm = terms.find((term) => str(term.$id) === str(selectedTermId))
             setSectionSemester(str(selectedTerm?.semester))
             setSectionAcademicTermLabel(termLabel(terms, str(selectedTermId)))
@@ -1151,7 +1192,13 @@ export function useMasterDataManagement() {
         setSectionTermId(str(sectionEditing.termId))
         setSectionCollegeId(str(sectionEditing.departmentId))
         setSectionProgramId(sectionEditing.programId ? str(sectionEditing.programId) : "__none__")
-        setSectionSubjectId(sectionEditing.subjectId ? str(sectionEditing.subjectId) : "__none__")
+        setSectionSubjectIds(
+            resolveSectionSubjectIds(sectionEditing as any).length > 0
+                ? resolveSectionSubjectIds(sectionEditing as any)
+                : sectionEditing.subjectId
+                    ? [str(sectionEditing.subjectId)]
+                    : []
+        )
         setSectionSemester(str(sectionEditing.semester))
         setSectionAcademicTermLabel(str(sectionEditing.academicTermLabel) || termLabel(terms, str(sectionEditing.termId)))
         setSectionYear(normalizeSectionYearLevelValue(sectionEditing.yearLevel) || "1")
@@ -1203,20 +1250,22 @@ export function useMasterDataManagement() {
     }, [sectionCollegeId, sectionProgramId, sectionTermId, sectionSemester, sectionYear, subjects, terms])
 
     React.useEffect(() => {
-        if (sectionSubjectId === "__none__") return
+        if (sectionSubjectIds.length === 0) return
 
-        const hasMatch = sectionSubjectsForSelectedScope.some((subject) => subject.$id === sectionSubjectId)
-        if (!hasMatch) {
-            setSectionSubjectId("__none__")
-        }
-    }, [sectionSubjectId, sectionSubjectsForSelectedScope])
+        const allowedIds = new Set(sectionSubjectsForSelectedScope.map((subject) => subject.$id))
+        setSectionSubjectIds((current) => {
+            const filtered = current.filter((subjectId) => allowedIds.has(subjectId))
+            return filtered.length === current.length ? current : filtered
+        })
+    }, [sectionSubjectIds.length, sectionSubjectsForSelectedScope])
 
     async function saveSection() {
         const termId = str(sectionTermId)
         const departmentId = str(sectionCollegeId)
         const programId = str(sectionProgramId) === "__none__" ? null : str(sectionProgramId)
         const selectedTerm = terms.find((term) => str(term.$id) === termId)
-        const subjectId = str(sectionSubjectId) === "__none__" ? "" : str(sectionSubjectId)
+        const subjectIds = Array.from(new Set(sectionSubjectIds.map((subjectId) => str(subjectId)).filter(Boolean)))
+        const primarySubjectId = subjectIds[0] ?? ""
         const semester = str(selectedTerm?.semester)
         const academicTermLabel = termLabel(terms, termId)
         const yearLevel = buildStoredSectionYearLevel(sectionYear, programId, programs)
@@ -1235,8 +1284,8 @@ export function useMasterDataManagement() {
             toast.error("Year level must be valid.")
             return
         }
-        if (!subjectId) {
-            toast.error("Subject is required for Sections.")
+        if (subjectIds.length === 0) {
+            toast.error("Link at least one subject for this section.")
             return
         }
         if (!name) {
@@ -1250,12 +1299,16 @@ export function useMasterDataManagement() {
 
         const studentCount = str(sectionStudentCount) ? num(sectionStudentCount, 0) : null
         const editingSectionId = sectionEditing?.$id ?? null
+        const subjectPayload = {
+            ...buildSectionSubjectPayload(sectionEditing as any, primarySubjectId || null),
+            ...buildSectionSubjectIdsPayload(sectionEditing as any, subjectIds),
+        }
 
         const payload: any = {
             termId,
             departmentId,
             programId,
-            subjectId,
+            ...subjectPayload,
             yearLevel,
             semester: semester || null,
             academicTermLabel: academicTermLabel || null,
@@ -1440,8 +1493,11 @@ export function useMasterDataManagement() {
         return base.filter((s) => {
             const college = collegeLabel(colleges, s.departmentId)
             const prog = programLabel(programs, s.programId ?? null)
-            const subject = s.subjectId ? subjectMap.get(str(s.subjectId)) : null
-            const subjectLabel = subject ? `${subject.code} ${subject.title}` : ""
+            const subjectLabel = resolveSectionSubjectIds(s as any)
+                .map((subjectId) => subjectMap.get(str(subjectId)))
+                .filter(Boolean)
+                .map((subject) => `${subject?.code ?? ""} ${subject?.title ?? ""}`.trim())
+                .join(" ")
             const term = s.academicTermLabel || termLabel(terms, s.termId)
             const semester = str(s.semester)
             const main = buildSectionDisplayLabel(s.yearLevel, s.name)
@@ -1449,7 +1505,7 @@ export function useMasterDataManagement() {
                 .toLowerCase()
                 .includes(q)
         })
-    }, [visibleSectionsByTerm, q, colleges, programs, terms])
+    }, [visibleSectionsByTerm, q, colleges, programs, subjectMap, terms])
 
     const stats = React.useMemo(
         () => [
@@ -1763,8 +1819,8 @@ export function useMasterDataManagement() {
         setSectionCollegeId,
         sectionProgramId,
         setSectionProgramId,
-        sectionSubjectId,
-        setSectionSubjectId,
+        sectionSubjectIds,
+        setSectionSubjectIds,
         sectionSemester,
         setSectionSemester,
         sectionAcademicTermLabel,

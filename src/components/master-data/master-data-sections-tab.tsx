@@ -105,10 +105,132 @@ function buildSectionDisplayLabel(
     return `${displayYearLevel} - ${normalizedName}`
 }
 
+function extractSectionYearNumber(value?: string | number | null) {
+    const normalized = normalizeSectionYearLevelValue(value)
+    if (!normalized) return ""
+
+    const direct = normalized.match(/^([1-9]\d*)$/)
+    if (direct) return direct[1]
+
+    const prefixed = normalized.match(/^(?:CS|IS)\s+([1-9]\d*)$/)
+    if (prefixed) return prefixed[1]
+
+    const trailing = normalized.match(/(?:^|[\s-])([1-9]\d*)$/)
+    return trailing?.[1] ?? ""
+}
+
+function resolveSectionSubjectIds(section: { subjectId?: string | null; subjectIds?: string[] | string | null }) {
+    const values = Array.isArray(section.subjectIds)
+        ? section.subjectIds
+        : typeof section.subjectIds === "string"
+            ? section.subjectIds.split(",")
+            : []
+
+    const normalized = values
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+
+    if (normalized.length > 0) return Array.from(new Set(normalized))
+
+    const fallback = String(section.subjectId ?? "").trim()
+    return fallback ? [fallback] : []
+}
+
+function resolveSubjectProgramIds(subject: { programId?: string | null; programIds?: string[] | string | null }) {
+    const values = Array.isArray(subject.programIds)
+        ? subject.programIds
+        : typeof subject.programIds === "string"
+            ? subject.programIds.split(",")
+            : []
+
+    const normalized = values
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+
+    if (normalized.length > 0) return Array.from(new Set(normalized))
+
+    const fallback = String(subject.programId ?? "").trim()
+    return fallback ? [fallback] : []
+}
+
+function resolveSubjectYearLevels(subject: { yearLevel?: string | number | null; yearLevels?: Array<string | number> | null }) {
+    const values = Array.isArray(subject.yearLevels)
+        ? subject.yearLevels
+        : []
+
+    const normalized = values
+        .map((value) => extractSectionYearNumber(value) || normalizeSectionYearLevelValue(value))
+        .filter(Boolean)
+
+    if (normalized.length > 0) return Array.from(new Set(normalized))
+
+    const fallback = extractSectionYearNumber(subject.yearLevel) || normalizeSectionYearLevelValue(subject.yearLevel)
+    return fallback ? [fallback] : []
+}
+
+function subjectMatchesSectionScope(
+    subject: {
+        $id: string
+        termId?: string | null
+        departmentId?: string | null
+        semester?: string | null
+        programId?: string | null
+        programIds?: string[] | null
+        yearLevel?: string | number | null
+        yearLevels?: Array<string | number> | null
+    },
+    section: {
+        termId?: string | null
+        departmentId?: string | null
+        programId?: string | null
+        yearLevel?: string | number | null
+        semester?: string | null
+    }
+) {
+    const sectionTermId = String(section.termId ?? "").trim()
+    const subjectTermId = String(subject.termId ?? "").trim()
+    if (sectionTermId && subjectTermId && sectionTermId !== subjectTermId) return false
+
+    const sectionDepartmentId = String(section.departmentId ?? "").trim()
+    const subjectDepartmentId = String(subject.departmentId ?? "").trim()
+    if (sectionDepartmentId && subjectDepartmentId && sectionDepartmentId !== subjectDepartmentId) return false
+
+    const sectionProgramId = String(section.programId ?? "").trim()
+    const subjectProgramIds = resolveSubjectProgramIds(subject)
+    if (sectionProgramId && subjectProgramIds.length > 0 && !subjectProgramIds.includes(sectionProgramId)) {
+        return false
+    }
+
+    const sectionYearNumber = extractSectionYearNumber(section.yearLevel)
+    const subjectYearLevels = resolveSubjectYearLevels(subject)
+    if (sectionYearNumber && subjectYearLevels.length > 0 && !subjectYearLevels.includes(sectionYearNumber)) {
+        return false
+    }
+
+    const sectionSemester = String(section.semester ?? "").trim()
+    const subjectSemester = String(subject.semester ?? "").trim()
+    if (sectionSemester && subjectSemester && sectionSemester !== subjectSemester) return false
+
+    return true
+}
+
+function buildSectionSubjectSummary(
+    vm: MasterDataManagementVM,
+    section: { subjectId?: string | null; subjectIds?: string[] | null }
+) {
+    const labels = resolveSectionSubjectIds(section)
+        .map((subjectId) => vm.subjects.find((subject) => subject.$id === subjectId))
+        .filter(Boolean)
+        .map((subject) => `${subject?.code} — ${subject?.title}`)
+
+    return labels.length > 0 ? labels.join(", ") : "—"
+}
+
 export function MasterDataSectionsTab({ vm }: Props) {
     const [bulkEditOpen, setBulkEditOpen] = React.useState(false)
     const [bulkEditProgramId, setBulkEditProgramId] = React.useState("__keep__")
     const [bulkEditStudentCount, setBulkEditStudentCount] = React.useState("")
+    const [bulkEditSubjectIds, setBulkEditSubjectIds] = React.useState<string[]>([])
     const [bulkEditSectionIds, setBulkEditSectionIds] = React.useState<string[]>([])
     const [bulkEditing, setBulkEditing] = React.useState(false)
 
@@ -141,9 +263,34 @@ export function MasterDataSectionsTab({ vm }: Props) {
         )
     }, [eligibleSections, vm.programs])
 
+    const bulkSelectedSections = React.useMemo(
+        () => eligibleSections.filter((section) => bulkEditSectionIds.includes(String(section.$id))),
+        [eligibleSections, bulkEditSectionIds]
+    )
+
+    const bulkEditSubjectOptions = React.useMemo(() => {
+        const sourceSections = bulkSelectedSections.length > 0 ? bulkSelectedSections : eligibleSections
+
+        return vm.subjects
+            .filter((subject) =>
+                sourceSections.some((section) =>
+                    subjectMatchesSectionScope(subject, {
+                        termId: section.termId,
+                        departmentId: section.departmentId,
+                        programId: section.programId ?? null,
+                        yearLevel: section.yearLevel,
+                        semester: section.semester ?? null,
+                    })
+                )
+            )
+            .slice()
+            .sort((a, b) => `${a.code} ${a.title}`.localeCompare(`${b.code} ${b.title}`))
+    }, [bulkSelectedSections, eligibleSections, vm.subjects])
+
     const openBulkEditDialog = React.useCallback(() => {
         setBulkEditProgramId("__keep__")
         setBulkEditStudentCount("")
+        setBulkEditSubjectIds([])
         setBulkEditSectionIds(eligibleSections.map((section) => String(section.$id)))
         setBulkEditOpen(true)
     }, [eligibleSections])
@@ -154,6 +301,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
         if (!nextOpen) {
             setBulkEditProgramId("__keep__")
             setBulkEditStudentCount("")
+            setBulkEditSubjectIds([])
             setBulkEditSectionIds([])
         }
     }, [])
@@ -183,9 +331,11 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
         const hasProgramChange = bulkEditProgramId !== "__keep__"
         const hasStudentCountChange = bulkEditStudentCount.trim() !== ""
+        const normalizedBulkSubjectIds = Array.from(new Set(bulkEditSubjectIds.map((subjectId) => String(subjectId).trim()).filter(Boolean)))
+        const hasSubjectChange = normalizedBulkSubjectIds.length > 0
 
-        if (!hasProgramChange && !hasStudentCountChange) {
-            toast.error("Choose a program, a student count, or both.")
+        if (!hasProgramChange && !hasStudentCountChange && !hasSubjectChange) {
+            toast.error("Choose a program, linked subjects, a student count, or any combination.")
             return
         }
 
@@ -239,6 +389,11 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     payload.studentCount = numericStudentCount
                 }
 
+                if (hasSubjectChange) {
+                    payload.subjectId = normalizedBulkSubjectIds[0] ?? null
+                    payload.subjectIds = normalizedBulkSubjectIds
+                }
+
                 try {
                     await databases.updateDocument(
                         DATABASE_ID,
@@ -288,6 +443,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
         bulkEditProgramId,
         bulkEditSectionIds,
         bulkEditStudentCount,
+        bulkEditSubjectIds,
         eligibleSectionMap,
         handleBulkEditOpenChange,
         vm,
@@ -299,7 +455,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 <div>
                     <div className="font-medium">Sections</div>
                     <div className="text-sm text-muted-foreground">
-                        Manage class sections per semester (A–Z + Others), including linked college, program, year level, semester, and student count.
+                        Manage class sections per semester (A–Z + Others), including linked college, program, subject or multiple subjects, year level, semester, and student count.
                     </div>
                 </div>
 
@@ -373,7 +529,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                 <TableHead className="w-40">Section</TableHead>
                                 <TableHead className="w-72">College</TableHead>
                                 <TableHead>Program (optional)</TableHead>
-                                <TableHead>Subject</TableHead>
+                                <TableHead>Subjects</TableHead>
                                 <TableHead className="w-44">Semester</TableHead>
                                 <TableHead className="w-32">Students</TableHead>
                                 <TableHead className="w-24">Active</TableHead>
@@ -400,12 +556,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                             {vm.programLabel(vm.programs, s.programId ?? null)}
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
-                                            {s.subjectId
-                                                ? (() => {
-                                                    const subject = vm.subjects.find((item) => item.$id === s.subjectId)
-                                                    return subject ? `${subject.code} — ${subject.title}` : "—"
-                                                })()
-                                                : "—"}
+                                            {buildSectionSubjectSummary(vm, s)}
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
                                             {s.academicTermLabel || vm.termLabel(vm.terms, s.termId) || s.semester || "—"}
@@ -456,10 +607,9 @@ export function MasterDataSectionsTab({ vm }: Props) {
             <Dialog open={bulkEditOpen} onOpenChange={handleBulkEditOpenChange}>
                 <DialogContent className="sm:max-w-3xl max-h-[95svh] overflow-auto">
                     <DialogHeader>
-                        <DialogTitle>Edit Sections Without Program or Students</DialogTitle>
+                        <DialogTitle>Edit Sections</DialogTitle>
                         <DialogDescription>
-                            Apply a program, a student count, or both to the sections that still
-                            have missing values.
+                            Apply a program, linked subjects, a student count, or any combination to the eligible sections below.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -498,6 +648,60 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                     }
                                     placeholder="Leave blank to keep current"
                                 />
+                            </div>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <label className="text-sm font-medium">Linked Subjects</label>
+                                <span className="text-xs text-muted-foreground">
+                                    {bulkEditSubjectIds.length} selected
+                                </span>
+                            </div>
+                            <ScrollArea className="h-44 rounded-md border">
+                                <div className="space-y-2 p-3">
+                                    {bulkEditSubjectOptions.length === 0 ? (
+                                        <div className="text-sm text-muted-foreground">
+                                            No matching subjects found for the selected sections.
+                                        </div>
+                                    ) : (
+                                        bulkEditSubjectOptions.map((subject) => {
+                                            const checked = bulkEditSubjectIds.includes(subject.$id)
+
+                                            return (
+                                                <label
+                                                    key={subject.$id}
+                                                    htmlFor={`bulk-edit-subject-${subject.$id}`}
+                                                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                >
+                                                    <Checkbox
+                                                        id={`bulk-edit-subject-${subject.$id}`}
+                                                        checked={checked}
+                                                        onCheckedChange={(value) => {
+                                                            const isChecked = Boolean(value)
+                                                            setBulkEditSubjectIds((current) => {
+                                                                if (isChecked) {
+                                                                    return current.includes(subject.$id)
+                                                                        ? current
+                                                                        : [...current, subject.$id]
+                                                                }
+                                                                return current.filter((id) => id !== subject.$id)
+                                                            })
+                                                        }}
+                                                    />
+
+                                                    <div className="min-w-0 flex-1 text-sm">
+                                                        <div className="font-medium">{subject.code}</div>
+                                                        <div className="text-muted-foreground">{subject.title}</div>
+                                                    </div>
+                                                </label>
+                                            )
+                                        })
+                                    )}
+                                </div>
+                            </ScrollArea>
+                            <div className="text-xs text-muted-foreground">
+                                Leave this empty to keep the current subject links for the selected sections.
                             </div>
                         </div>
 
@@ -542,8 +746,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                             <div className="space-y-2 p-3">
                                 {eligibleSections.length === 0 ? (
                                     <div className="text-sm text-muted-foreground">
-                                        No sections without program or students found in the
-                                        current list.
+                                        No eligible sections found in the current list.
                                     </div>
                                 ) : (
                                     eligibleSections.map((section) => {
@@ -589,6 +792,10 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                             vm.colleges,
                                                             section.departmentId
                                                         )} • ${section.academicTermLabel || vm.termLabel(vm.terms, section.termId) || section.semester || "No Semester"}`}
+                                                    </div>
+
+                                                    <div className="text-xs text-muted-foreground">
+                                                        Subjects: {buildSectionSubjectSummary(vm, section)}
                                                     </div>
                                                 </div>
                                             </label>

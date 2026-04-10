@@ -218,6 +218,11 @@ export function MasterDataDialogs({ vm }: Props) {
         programName: selectedSectionProgram?.name,
     })
 
+    const selectedSectionSubjectLabels = vm.sectionSubjectIds
+        .map((subjectId) => vm.sectionSubjectsForSelectedScope.find((subject) => subject.$id === subjectId))
+        .filter(Boolean)
+        .map((subject) => `${subject?.code} — ${subject?.title}`)
+
     return (
         <>
             {/* College Dialog */}
@@ -681,7 +686,7 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.sectionEditing ? "Edit Section" : "Add Section"}</DialogTitle>
                         <DialogDescription>
-                            Sections are linked to Subject, College, Program, Year Level, and Semester so schedules only show the correct sections for the active scope.
+                            Sections are linked to Subject or multiple Subjects, College, Program, Year Level, and Semester so schedules only show the correct sections for the active scope.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -790,28 +795,62 @@ export function MasterDataDialogs({ vm }: Props) {
                         </div>
 
                         <div className="grid gap-2">
-                            <Label>Subject</Label>
-                            <Select
-                                value={vm.sectionSubjectId || "__none__"}
-                                onValueChange={vm.setSectionSubjectId}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Subject" />
-                                </SelectTrigger>
-                                <SelectContent>
+                            <div className="flex items-center justify-between gap-2">
+                                <Label>Linked Subjects</Label>
+                                <span className="text-xs text-muted-foreground">
+                                    {vm.sectionSubjectIds.length} selected
+                                </span>
+                            </div>
+                            <ScrollArea className="h-44 rounded-md border">
+                                <div className="space-y-2 p-3">
                                     {vm.sectionSubjectsForSelectedScope.length === 0 ? (
-                                        <SelectItem value="__none__" disabled>
-                                            No matching subjects found
-                                        </SelectItem>
+                                        <div className="text-sm text-muted-foreground">
+                                            No matching subjects found.
+                                        </div>
                                     ) : (
-                                        vm.sectionSubjectsForSelectedScope.map((subject) => (
-                                            <SelectItem key={subject.$id} value={subject.$id}>
-                                                {subject.code} — {subject.title}
-                                            </SelectItem>
-                                        ))
+                                        vm.sectionSubjectsForSelectedScope.map((subject) => {
+                                            const checked = vm.sectionSubjectIds.includes(subject.$id)
+
+                                            return (
+                                                <label
+                                                    key={subject.$id}
+                                                    htmlFor={`section-subject-${subject.$id}`}
+                                                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                >
+                                                    <Checkbox
+                                                        id={`section-subject-${subject.$id}`}
+                                                        checked={checked}
+                                                        onCheckedChange={(value) => {
+                                                            const isChecked = Boolean(value)
+                                                            vm.setSectionSubjectIds((current) => {
+                                                                if (isChecked) {
+                                                                    return current.includes(subject.$id)
+                                                                        ? current
+                                                                        : [...current, subject.$id]
+                                                                }
+                                                                return current.filter((id) => id !== subject.$id)
+                                                            })
+                                                        }}
+                                                    />
+
+                                                    <div className="min-w-0 flex-1 text-sm">
+                                                        <div className="font-medium">{subject.code}</div>
+                                                        <div className="text-muted-foreground">{subject.title}</div>
+                                                    </div>
+                                                </label>
+                                            )
+                                        })
                                     )}
-                                </SelectContent>
-                            </Select>
+                                </div>
+                            </ScrollArea>
+                            <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                                Linked subject preview:{" "}
+                                <span className="font-medium text-foreground">
+                                    {selectedSectionSubjectLabels.length === 0
+                                        ? "Select at least one subject"
+                                        : selectedSectionSubjectLabels.join(", ")}
+                                </span>
+                            </div>
                             <div className="text-xs text-muted-foreground">
                                 Subject options are filtered by the selected college, program, year level, and semester.
                             </div>
