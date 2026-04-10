@@ -155,23 +155,10 @@ export type CandidateConflict = {
     row: ScheduleRow
 }
 
-export type VersionStats = {
-    total: number
-    draft: number
-    active: number
-    archived: number
-}
-
 export type PlannerStats = {
     total: number
     conflicts: number
     labs: number
-}
-
-export type VersionSelectOption = {
-    value: string
-    label: string
-    meta: string
 }
 
 export const BASE_DAY_OPTIONS = [

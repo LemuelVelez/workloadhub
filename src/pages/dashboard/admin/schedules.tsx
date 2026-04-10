@@ -75,6 +75,98 @@ type AcademicTermScopeOption = {
     isActive: boolean
 }
 
+type ScheduleClassWritePayload = Pick<
+    ClassDoc,
+    | "termId"
+    | "departmentId"
+    | "programId"
+    | "sectionId"
+    | "subjectId"
+    | "facultyUserId"
+    | "classCode"
+    | "deliveryMode"
+    | "status"
+    | "remarks"
+>
+
+type ScheduleMeetingWritePayload = Pick<
+    ClassMeetingDoc,
+    | "classId"
+    | "dayOfWeek"
+    | "startTime"
+    | "endTime"
+    | "roomId"
+    | "meetingType"
+>
+
+function buildScheduleClassWritePayload({
+    termId,
+    departmentId,
+    programId,
+    sectionId,
+    subjectId,
+    facultyUserId,
+    manualFaculty,
+    status,
+}: {
+    termId: string
+    departmentId: string
+    programId?: string | null
+    sectionId: string
+    subjectId: string
+    facultyUserId?: string | null
+    manualFaculty?: string | null
+    status?: string | null
+}): ScheduleClassWritePayload {
+    return {
+        termId,
+        departmentId,
+        programId: programId || null,
+        sectionId,
+        subjectId,
+        facultyUserId: facultyUserId || null,
+        classCode: null,
+        deliveryMode: null,
+        status: status || null,
+        remarks: composeRemarks("", String(manualFaculty || "").trim()),
+    }
+}
+
+function buildScheduleMeetingWritePayload({
+    classId,
+    dayOfWeek,
+    startTime,
+    endTime,
+    roomId,
+    meetingType,
+}: {
+    classId: string
+    dayOfWeek: string
+    startTime: string
+    endTime: string
+    roomId?: string | null
+    meetingType: MeetingType
+}): ScheduleMeetingWritePayload {
+    return {
+        classId,
+        dayOfWeek: getCanonicalDayValue(dayOfWeek),
+        startTime,
+        endTime,
+        roomId: roomId || null,
+        meetingType,
+    }
+}
+
+function getScheduleSaveErrorMessage(error: unknown) {
+    const message = String((error as any)?.message || "").trim()
+
+    if (message.includes('Missing required attribute "versionId"')) {
+        return 'The schedule schema still requires versionId in Appwrite. Remove that required attribute from the affected schedule collection, then save again.'
+    }
+
+    return message || "Failed to save schedule entry."
+}
+
 function normalizeSectionYearLevelLabel(value?: string | number | null) {
     const normalized = String(value ?? "")
         .trim()
@@ -1795,40 +1887,37 @@ const sectionScopedSubjects = React.useMemo(
                 return
             }
 
-            const classPayload: any = {
+            const classPayload = buildScheduleClassWritePayload({
                 termId: resolvedTermId,
                 departmentId: resolvedDepartmentId,
                 programId: (selectedSectionForPayload as any)?.programId || (selectedSubjectForPayload as any)?.programId || null,
                 sectionId: selectedSectionId,
+                subjectId: selectedSubjectId,
                 facultyUserId,
-                classCode: null,
-                deliveryMode: null,
-                remarks: composeRemarks("", manualFaculty),
-            }
+                manualFaculty,
+                status: editingEntry ? editingEntry.classStatus || null : "Planned",
+            })
 
             if (editingEntry) {
                 await databases.updateDocument(
                     DATABASE_ID,
                     COLLECTIONS.CLASSES,
                     editingEntry.classId,
-                    {
-                        ...classPayload,
-                        subjectId: selectedSubjectId,
-                    }
+                    classPayload
                 )
 
                 await databases.updateDocument(
                     DATABASE_ID,
                     COLLECTIONS.CLASS_MEETINGS,
                     editingEntry.meetingId,
-                    {
+                    buildScheduleMeetingWritePayload({
                         classId: editingEntry.classId,
-                        dayOfWeek: getCanonicalDayValue(formDayOfWeek),
+                        dayOfWeek: formDayOfWeek,
                         startTime: formStartTime,
                         endTime: formEndTime,
-                        roomId: formRoomId || null,
+                        roomId: formRoomId,
                         meetingType: formMeetingType,
-                    }
+                    })
                 )
 
                 toast.success("Schedule entry updated.")
@@ -1837,21 +1926,22 @@ const sectionScopedSubjects = React.useMemo(
                     DATABASE_ID,
                     COLLECTIONS.CLASSES,
                     ID.unique(),
-                    {
-                        ...classPayload,
-                        subjectId: selectedSubjectId,
-                        status: "Planned",
-                    }
+                    classPayload
                 )
 
-                await databases.createDocument(DATABASE_ID, COLLECTIONS.CLASS_MEETINGS, ID.unique(), {
-                    classId: (createdClass as any).$id,
-                    dayOfWeek: getCanonicalDayValue(formDayOfWeek),
-                    startTime: formStartTime,
-                    endTime: formEndTime,
-                    roomId: formRoomId || null,
-                    meetingType: formMeetingType,
-                })
+                await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.CLASS_MEETINGS,
+                    ID.unique(),
+                    buildScheduleMeetingWritePayload({
+                        classId: (createdClass as any).$id,
+                        dayOfWeek: formDayOfWeek,
+                        startTime: formStartTime,
+                        endTime: formEndTime,
+                        roomId: formRoomId,
+                        meetingType: formMeetingType,
+                    })
+                )
 
                 toast.success("Schedule entry created.")
             }
@@ -1859,7 +1949,7 @@ const sectionScopedSubjects = React.useMemo(
             handleEntryDialogOpenChange(false)
             await fetchScheduleContext()
         } catch (e: any) {
-            toast.error(e?.message || "Failed to save schedule entry.")
+            toast.error(getScheduleSaveErrorMessage(e))
         } finally {
             setEntrySaving(false)
         }

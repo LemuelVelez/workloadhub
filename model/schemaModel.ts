@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "014_sync_section_term_metadata" as const;
+export const SCHEMA_MIGRATION_ID = "015_remove_schedule_version_requirement" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -214,6 +214,8 @@ export const ATTR = {
         isActive: "isActive",
     },
     CLASSES: {
+        // Schedule planner writes direct class records only.
+        // No versionId attribute is required or used here.
         termId: "termId",
         departmentId: "departmentId",
         programId: "programId",
@@ -226,6 +228,7 @@ export const ATTR = {
         remarks: "remarks",
     },
     CLASS_MEETINGS: {
+        // Class meetings are also stored without any versionId dependency.
         classId: "classId",
         dayOfWeek: "dayOfWeek",
         startTime: "startTime",
