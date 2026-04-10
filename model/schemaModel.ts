@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "011_link_sections_scope_fields" as const;
+export const SCHEMA_MIGRATION_ID = "012_link_sections_subject_scope" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -204,6 +204,7 @@ export const ATTR = {
         termId: "termId",
         departmentId: "departmentId",
         programId: "programId",
+        subjectId: "subjectId",
         yearLevel: "yearLevel",
         semester: "semester",
         academicTermLabel: "academicTermLabel",
@@ -342,6 +343,7 @@ export const INDEX = {
 
     SECTIONS: {
         termDepartment: "idx_sections_term_department",
+        subjectId: "idx_sections_subjectId",
         semester: "idx_sections_semester",
         academicTermLabel: "idx_sections_academic_term_label",
 
@@ -520,6 +522,7 @@ export type Section = {
     termId: string;
     departmentId: string;
     programId?: string | null;
+    subjectId?: string | null;
 
     /**
      * ✅ Stored as prefixed string:

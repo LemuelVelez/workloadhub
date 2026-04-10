@@ -373,6 +373,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                 <TableHead className="w-40">Section</TableHead>
                                 <TableHead className="w-72">College</TableHead>
                                 <TableHead>Program (optional)</TableHead>
+                                <TableHead>Subject</TableHead>
                                 <TableHead className="w-44">Semester</TableHead>
                                 <TableHead className="w-32">Students</TableHead>
                                 <TableHead className="w-24">Active</TableHead>
@@ -397,6 +398,14 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
                                             {vm.programLabel(vm.programs, s.programId ?? null)}
+                                        </TableCell>
+                                        <TableCell className="text-muted-foreground">
+                                            {s.subjectId
+                                                ? (() => {
+                                                    const subject = vm.subjects.find((item) => item.$id === s.subjectId)
+                                                    return subject ? `${subject.code} — ${subject.title}` : "—"
+                                                })()
+                                                : "—"}
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
                                             {s.academicTermLabel || vm.termLabel(vm.terms, s.termId) || s.semester || "—"}

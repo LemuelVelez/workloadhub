@@ -681,7 +681,7 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.sectionEditing ? "Edit Section" : "Add Section"}</DialogTitle>
                         <DialogDescription>
-                            Sections are linked to College, Program, Year Level, and Semester so schedules only show the correct sections for the active scope.
+                            Sections are linked to Subject, College, Program, Year Level, and Semester so schedules only show the correct sections for the active scope.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -786,6 +786,34 @@ export function MasterDataDialogs({ vm }: Props) {
                             </Select>
                             <div className="text-xs text-muted-foreground">
                                 Optional, but recommended if your schedule rules are program-based.
+                            </div>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label>Subject</Label>
+                            <Select
+                                value={vm.sectionSubjectId || "__none__"}
+                                onValueChange={vm.setSectionSubjectId}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Subject" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {vm.sectionSubjectsForSelectedScope.length === 0 ? (
+                                        <SelectItem value="__none__" disabled>
+                                            No matching subjects found
+                                        </SelectItem>
+                                    ) : (
+                                        vm.sectionSubjectsForSelectedScope.map((subject) => (
+                                            <SelectItem key={subject.$id} value={subject.$id}>
+                                                {subject.code} — {subject.title}
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground">
+                                Subject options are filtered by the selected college, program, year level, and semester.
                             </div>
                         </div>
 
