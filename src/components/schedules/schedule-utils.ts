@@ -403,22 +403,42 @@ export function sectionMatchesSubjectFilters({
     const normalizedAcademicTermFilter = normalizeToken(subjectAcademicTermFilter)
     const normalizedSectionFilters = subjectSectionFilters.map(normalizeToken).filter(Boolean)
 
-    const sectionCollegeTokens = [section.departmentId, section.programCode, section.programName]
+    const schoolYear = String((section as any)?.schoolYear || "").trim()
+    const semester = String(section.semester || "").trim()
+    const combinedAcademicTerm = schoolYear && semester ? `${schoolYear} • ${semester}` : ""
+
+    const sectionCollegeTokens = [
+        section.departmentId,
+        (section as any)?.departmentName,
+        (section as any)?.departmentLabel,
+        (section as any)?.college,
+        (section as any)?.collegeName,
+    ]
         .map(normalizeToken)
         .filter(Boolean)
+
     const sectionProgramTokens = [section.$id, section.programId, section.programCode, section.programName]
         .map(normalizeToken)
         .filter(Boolean)
+
     const sectionYearLevelTokens = [section.yearLevel, section.label, section.name, [section.yearLevel, section.name].filter(Boolean).join(" - ")]
         .map((value) => normalizeToken(String(value ?? "")))
         .filter(Boolean)
-    const sectionAcademicTermTokens = [section.academicTermLabel, section.semester]
+
+    const sectionAcademicTermTokens = [section.academicTermLabel, section.semester, schoolYear, combinedAcademicTerm]
         .map(normalizeToken)
         .filter(Boolean)
+
     const sectionAliases = Array.from(getSectionAliases(section))
 
     if (normalizedCollegeFilter && normalizedCollegeFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
         if (!sectionCollegeTokens.some((token) => subjectFilterValuesMatch(token, normalizedCollegeFilter))) return false
+    }
+
+    if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
+        if (!sectionAcademicTermTokens.some((token) => subjectFilterValuesMatch(token, normalizedAcademicTermFilter))) {
+            return false
+        }
     }
 
     if (normalizedProgramFilters.length > 0) {
@@ -433,12 +453,6 @@ export function sectionMatchesSubjectFilters({
             sectionYearLevelTokens.some((token) => subjectFilterValuesMatch(token, value))
         )
         if (!hasYearMatch) return false
-    }
-
-    if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (!sectionAcademicTermTokens.some((token) => subjectFilterValuesMatch(token, normalizedAcademicTermFilter))) {
-            return false
-        }
     }
 
     if (normalizedSectionFilters.length > 0) {

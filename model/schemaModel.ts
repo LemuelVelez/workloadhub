@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "013_add_section_subject_ids" as const;
+export const SCHEMA_MIGRATION_ID = "014_sync_section_term_metadata" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
