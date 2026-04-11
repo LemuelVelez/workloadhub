@@ -1411,8 +1411,6 @@ function ExtraSmallPlannerCardShell({
     value,
     title,
     description,
-    dialogTitle,
-    dialogDescription,
     children,
 }: ExtraSmallPlannerCardShellProps) {
     return (
@@ -1436,14 +1434,6 @@ function ExtraSmallPlannerCardShell({
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-6xl overflow-y-auto px-4 sm:px-6">
-                                    <DialogHeader>
-                                        <DialogTitle className="wrap-anywhere">{dialogTitle || title}</DialogTitle>
-                                        {dialogDescription || description ? (
-                                            <DialogDescription className="wrap-anywhere">
-                                                {dialogDescription || description}
-                                            </DialogDescription>
-                                        ) : null}
-                                    </DialogHeader>
                                     <div className="min-w-0">{children}</div>
                                 </DialogContent>
                             </Dialog>
@@ -3379,7 +3369,7 @@ export function PlannerManagementSection({
                                     <AlertTriangle className="size-4" />
                                     Conflict detected
                                 </AlertTitle>
-                                <AlertDescription className="space-y-2 [&_*]:wrap-anywhere">
+                                <AlertDescription className="space-y-2 **:wrap-anywhere">
                                     <div className="text-sm wrap-anywhere">
                                         Room: <span className="font-medium">{candidateConflictCounts.room}</span> • Faculty:{" "}
                                         <span className="font-medium">{candidateConflictCounts.faculty}</span> • Section:{" "}

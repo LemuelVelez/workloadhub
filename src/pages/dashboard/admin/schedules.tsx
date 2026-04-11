@@ -17,9 +17,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -318,8 +315,6 @@ function ExtraSmallScheduleCardShell({
     value,
     title,
     description,
-    dialogTitle,
-    dialogDescription,
     children,
 }: ExtraSmallScheduleCardShellProps) {
     return (
@@ -346,14 +341,6 @@ function ExtraSmallScheduleCardShell({
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
-                                    <DialogHeader>
-                                        <DialogTitle className="wrap-anywhere">{dialogTitle || title}</DialogTitle>
-                                        {dialogDescription || description ? (
-                                            <DialogDescription className="wrap-anywhere">
-                                                {dialogDescription || description}
-                                            </DialogDescription>
-                                        ) : null}
-                                    </DialogHeader>
 
                                     <div className="min-w-0">{children}</div>
                                 </DialogContent>
@@ -828,80 +815,80 @@ export default function AdminSchedulesPage() {
 
 
 
-React.useEffect(() => {
-    const fallbackSectionId = filteredScopedSections[0]?.$id || ""
+    React.useEffect(() => {
+        const fallbackSectionId = filteredScopedSections[0]?.$id || ""
 
-    if (!fallbackSectionId) {
-        if (formSectionId) setFormSectionId("")
-        return
-    }
-
-    if (filteredScopedSections.some((section) => section.$id === formSectionId)) return
-    setFormSectionId(fallbackSectionId)
-}, [filteredScopedSections, formSectionId])
-
-const selectedFormSection = React.useMemo(
-    () => filteredScopedSections.find((section) => section.$id === formSectionId) || filteredScopedSections[0] || null,
-    [filteredScopedSections, formSectionId]
-)
-
-const normalizedSubjectSectionFilters = React.useMemo(
-    () => subjectSectionFilters.map((value) => normalizeDisplayValue(value)).filter(Boolean),
-    [normalizeDisplayValue, subjectSectionFilters]
-)
-
-const targetSectionsForSave = React.useMemo(() => {
-    if (editingEntry) {
-        const editingSectionId = normalizeDisplayValue(editingEntry.sectionId)
-        const selectedSectionId = normalizeDisplayValue(formSectionId)
-        const resolvedSection =
-            (selectedSectionId
-                ? filteredScopedSections.find((section) => normalizeDisplayValue(section.$id) === selectedSectionId) || null
-                : null) ||
-            (editingSectionId
-                ? sections.find((section) => normalizeDisplayValue(section.$id) === editingSectionId) || null
-                : null) ||
-            selectedFormSection
-
-        return resolvedSection ? [resolvedSection] : []
-    }
-
-    if (normalizedSubjectSectionFilters.length > 0) {
-        return filteredScopedSections.filter((section) =>
-            normalizedSubjectSectionFilters.includes(normalizeDisplayValue(section.$id))
-        )
-    }
-
-    const selectedSectionId = normalizeDisplayValue(formSectionId)
-    if (selectedSectionId) {
-        const resolvedSection = filteredScopedSections.find(
-            (section) => normalizeDisplayValue(section.$id) === selectedSectionId
-        )
-        if (resolvedSection) {
-            return [resolvedSection]
+        if (!fallbackSectionId) {
+            if (formSectionId) setFormSectionId("")
+            return
         }
-    }
 
-    return filteredScopedSections.length === 1 ? filteredScopedSections : []
-}, [
-    editingEntry,
-    filteredScopedSections,
-    formSectionId,
-    normalizeDisplayValue,
-    normalizedSubjectSectionFilters,
-    sections,
-    selectedFormSection,
-])
+        if (filteredScopedSections.some((section) => section.$id === formSectionId)) return
+        setFormSectionId(fallbackSectionId)
+    }, [filteredScopedSections, formSectionId])
 
-const targetSectionIdsForConflict = React.useMemo(
-    () => new Set(targetSectionsForSave.map((section) => normalizeDisplayValue(section.$id)).filter(Boolean)),
-    [normalizeDisplayValue, targetSectionsForSave]
-)
+    const selectedFormSection = React.useMemo(
+        () => filteredScopedSections.find((section) => section.$id === formSectionId) || filteredScopedSections[0] || null,
+        [filteredScopedSections, formSectionId]
+    )
 
-const sectionScopedSubjects = React.useMemo(
-    () => filterSubjectsForSections(subjects, filteredScopedSections),
-    [filteredScopedSections, subjects]
-)
+    const normalizedSubjectSectionFilters = React.useMemo(
+        () => subjectSectionFilters.map((value) => normalizeDisplayValue(value)).filter(Boolean),
+        [normalizeDisplayValue, subjectSectionFilters]
+    )
+
+    const targetSectionsForSave = React.useMemo(() => {
+        if (editingEntry) {
+            const editingSectionId = normalizeDisplayValue(editingEntry.sectionId)
+            const selectedSectionId = normalizeDisplayValue(formSectionId)
+            const resolvedSection =
+                (selectedSectionId
+                    ? filteredScopedSections.find((section) => normalizeDisplayValue(section.$id) === selectedSectionId) || null
+                    : null) ||
+                (editingSectionId
+                    ? sections.find((section) => normalizeDisplayValue(section.$id) === editingSectionId) || null
+                    : null) ||
+                selectedFormSection
+
+            return resolvedSection ? [resolvedSection] : []
+        }
+
+        if (normalizedSubjectSectionFilters.length > 0) {
+            return filteredScopedSections.filter((section) =>
+                normalizedSubjectSectionFilters.includes(normalizeDisplayValue(section.$id))
+            )
+        }
+
+        const selectedSectionId = normalizeDisplayValue(formSectionId)
+        if (selectedSectionId) {
+            const resolvedSection = filteredScopedSections.find(
+                (section) => normalizeDisplayValue(section.$id) === selectedSectionId
+            )
+            if (resolvedSection) {
+                return [resolvedSection]
+            }
+        }
+
+        return filteredScopedSections.length === 1 ? filteredScopedSections : []
+    }, [
+        editingEntry,
+        filteredScopedSections,
+        formSectionId,
+        normalizeDisplayValue,
+        normalizedSubjectSectionFilters,
+        sections,
+        selectedFormSection,
+    ])
+
+    const targetSectionIdsForConflict = React.useMemo(
+        () => new Set(targetSectionsForSave.map((section) => normalizeDisplayValue(section.$id)).filter(Boolean)),
+        [normalizeDisplayValue, targetSectionsForSave]
+    )
+
+    const sectionScopedSubjects = React.useMemo(
+        () => filterSubjectsForSections(subjects, filteredScopedSections),
+        [filteredScopedSections, subjects]
+    )
 
     const getSubjectCollegeNameValues = React.useCallback(
         (subject?: SubjectDoc | null) => {
@@ -2385,28 +2372,39 @@ const sectionScopedSubjects = React.useMemo(
                                 </div>
                             </div>
 
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <div className="flex flex-col gap-2">
                                 <Popover open={termScopePopoverOpen} onOpenChange={setTermScopePopoverOpen}>
                                     <PopoverTrigger asChild>
-                                        <Button type="button" variant="outline" className="min-w-0 w-full justify-between rounded-xl sm:min-w-65 sm:w-auto">
-                                            <span className="block min-w-0 flex-1 truncate text-left">{selectedAcademicTermScopeLabel}</span>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="min-w-0 w-full justify-between rounded-xl"
+                                        >
+                                            <span className="block min-w-0 flex-1 truncate text-left">
+                                                {selectedAcademicTermScopeLabel}
+                                            </span>
                                             <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent align="end" className="w-[320px] max-h-75 overflow-auto p-0">
+
+                                    <PopoverContent align="start" className="w-[320px] max-h-75 overflow-auto p-0">
                                         <div className="border-b px-4 py-3">
                                             <div className="text-sm font-medium wrap-anywhere">Select active semesters</div>
                                             <div className="text-xs text-muted-foreground wrap-anywhere">
                                                 Multiple semesters can stay active at the same time.
                                             </div>
                                         </div>
+
                                         <ScrollArea className="max-h-72">
                                             <div className="space-y-2 p-3">
                                                 {academicTermScopeOptions.length === 0 ? (
-                                                    <div className="text-sm text-muted-foreground wrap-anywhere">No semesters available.</div>
+                                                    <div className="text-sm text-muted-foreground wrap-anywhere">
+                                                        No semesters available.
+                                                    </div>
                                                 ) : (
                                                     academicTermScopeOptions.map((term) => {
                                                         const checked = termScopeSelection.includes(term.$id)
+
                                                         return (
                                                             <label
                                                                 key={term.$id}
@@ -2418,19 +2416,29 @@ const sectionScopedSubjects = React.useMemo(
                                                                     checked={checked}
                                                                     onCheckedChange={(value) => {
                                                                         const nextChecked = Boolean(value)
+
                                                                         setTermScopeSelection((current) => {
                                                                             if (nextChecked) {
-                                                                                return current.includes(term.$id) ? current : [...current, term.$id]
+                                                                                return current.includes(term.$id)
+                                                                                    ? current
+                                                                                    : [...current, term.$id]
                                                                             }
+
                                                                             return current.filter((item) => item !== term.$id)
                                                                         })
                                                                     }}
                                                                 />
+
                                                                 <div className="min-w-0 flex-1">
                                                                     <div className="flex items-center gap-2 font-medium">
-                                                                        <span className="block min-w-0 flex-1 truncate">{term.label}</span>
-                                                                        {term.isActive ? <Check className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+                                                                        <span className="block min-w-0 flex-1 truncate">
+                                                                            {term.label}
+                                                                        </span>
+                                                                        {term.isActive ? (
+                                                                            <Check className="size-3.5 shrink-0 text-muted-foreground" />
+                                                                        ) : null}
                                                                     </div>
+
                                                                     <div className="text-xs text-muted-foreground wrap-anywhere">
                                                                         {term.isActive ? "Currently active" : "Currently inactive"}
                                                                     </div>
@@ -2441,30 +2449,32 @@ const sectionScopedSubjects = React.useMemo(
                                                 )}
                                             </div>
                                         </ScrollArea>
+                                        <div className="flex flex-col items-stretch gap-2">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setTermScopeSelection(activeAcademicTermIds)}
+                                                disabled={termScopeSaving}
+                                                className="w-full text-primary whitespace-normal wrap-anywhere"
+                                            >
+                                                Reset
+                                            </Button>
 
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={() => void applySelectedAcademicTerms()}
+                                                disabled={termScopeSaving}
+                                                className="w-full whitespace-normal wrap-anywhere"
+                                            >
+                                                {termScopeSaving ? "Saving..." : "Apply Active Terms"}
+                                            </Button>
+                                        </div>
                                     </PopoverContent>
-                                    <div className="flex-col-1 flex flex-col items-stretch justify-end gap-2 px-3 py-3 sm:flex-row sm:items-center">
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setTermScopeSelection(activeAcademicTermIds)}
-                                            disabled={termScopeSaving}
-                                            className="w-full text-primary whitespace-normal wrap-anywhere sm:w-auto"
-                                        >
-                                            Reset
-                                        </Button>
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            onClick={() => void applySelectedAcademicTerms()}
-                                            disabled={termScopeSaving}
-                                            className="w-full whitespace-normal wrap-anywhere sm:w-auto"
-                                        >
-                                            {termScopeSaving ? "Saving..." : "Apply Active Terms"}
-                                        </Button>
-                                    </div>
                                 </Popover>
+
+
                             </div>
                         </CardContent>
                     </Card>
@@ -2492,10 +2502,10 @@ const sectionScopedSubjects = React.useMemo(
                             </div>
                         </div>
 
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <div className="flex w-full max-w-sm flex-col items-stretch gap-2 self-start">
                             <Popover open={termScopePopoverOpen} onOpenChange={setTermScopePopoverOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button type="button" variant="outline" className="min-w-0 w-full justify-between rounded-xl sm:min-w-65 sm:w-auto">
+                                    <Button type="button" variant="outline" className="min-w-0 w-full justify-between rounded-xl">
                                         <span className="block min-w-0 flex-1 truncate text-left">{selectedAcademicTermScopeLabel}</span>
                                         <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
                                     </Button>
@@ -2550,14 +2560,14 @@ const sectionScopedSubjects = React.useMemo(
                                     </ScrollArea>
 
                                 </PopoverContent>
-                                <div className="flex-col-1 flex flex-col items-stretch justify-end gap-2 px-3 py-3 sm:flex-row sm:items-center">
+                                <div className="flex flex-col items-stretch justify-end gap-2 px-3 py-3">
                                     <Button
                                         type="button"
                                         variant="outline"
                                         size="sm"
                                         onClick={() => setTermScopeSelection(activeAcademicTermIds)}
                                         disabled={termScopeSaving}
-                                        className="w-full text-primary whitespace-normal wrap-anywhere sm:w-auto"
+                                        className="w-full text-primary whitespace-normal wrap-anywhere"
                                     >
                                         Reset
                                     </Button>
@@ -2566,7 +2576,7 @@ const sectionScopedSubjects = React.useMemo(
                                         size="sm"
                                         onClick={() => void applySelectedAcademicTerms()}
                                         disabled={termScopeSaving}
-                                        className="w-full whitespace-normal wrap-anywhere sm:w-auto"
+                                        className="w-full whitespace-normal wrap-anywhere"
                                     >
                                         {termScopeSaving ? "Saving..." : "Apply Active Terms"}
                                     </Button>
