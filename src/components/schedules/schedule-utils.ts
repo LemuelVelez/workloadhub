@@ -389,6 +389,37 @@ export type SectionScopeFilterParams = {
     subjectSectionFilters?: string[]
 }
 
+
+function getSectionYearLevelAliases(section?: SectionDoc | null) {
+    if (!section) return new Set<string>()
+
+    const aliases = new Set<string>()
+    const rawValues = [
+        section.yearLevel,
+        (section as any)?.yearLevelLabel,
+        (section as any)?.yearLevelName,
+        [section.yearLevel, (section as any)?.yearLevelLabel].filter(Boolean).join(" - "),
+        [section.yearLevel, section.label].filter(Boolean).join(" - "),
+        [section.yearLevel, section.name].filter(Boolean).join(" - "),
+        section.label,
+    ]
+
+    for (const rawValue of rawValues) {
+        const yearToken = extractYearLevelToken(rawValue)
+        if (!yearToken) continue
+
+        aliases.add(normalizeToken(yearToken))
+        aliases.add(normalizeToken(formatYearLevelFilterLabel(yearToken)))
+    }
+
+    if (aliases.size === 0) {
+        const fallbackValue = normalizeToken(formatYearLevelFilterLabel(section.yearLevel))
+        if (fallbackValue) aliases.add(fallbackValue)
+    }
+
+    return aliases
+}
+
 export function sectionMatchesSubjectFilters({
     section,
     subjectCollegeFilter,
@@ -421,9 +452,7 @@ export function sectionMatchesSubjectFilters({
         .map(normalizeToken)
         .filter(Boolean)
 
-    const sectionYearLevelTokens = [section.yearLevel, section.label, section.name, [section.yearLevel, section.name].filter(Boolean).join(" - ")]
-        .map((value) => normalizeToken(String(value ?? "")))
-        .filter(Boolean)
+    const sectionYearLevelTokens = Array.from(getSectionYearLevelAliases(section))
 
     const sectionAcademicTermTokens = [section.academicTermLabel, section.semester, schoolYear, combinedAcademicTerm]
         .map(normalizeToken)
