@@ -160,7 +160,7 @@ export function MasterDataFacultyTab({ vm }: Props) {
                                 return (
                                     <AccordionItem key={f.$id} value={f.$id} className="px-4">
                                         <AccordionTrigger className="hover:no-underline">
-                                            <div className="flex min-w-0 flex-1 flex-col text-left">
+                                            <div className="flex min-w-0 flex-1 flex-col pr-2 text-left">
                                                 <div className="truncate text-sm font-semibold">
                                                     {facultyName}
                                                 </div>

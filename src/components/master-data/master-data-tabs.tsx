@@ -163,11 +163,13 @@ export function MasterDataTabs({ vm }: Props) {
     return (
         <>
             <div className="sm:hidden">
-                <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border bg-card text-card-foreground">
+                <div className="overflow-hidden rounded-md border bg-card text-card-foreground">
                     <Accordion type="single" collapsible className="w-full">
                         <AccordionItem value="master-data-summary" className="border-b-0">
                             <AccordionTrigger className="px-4 py-3 text-left hover:no-underline">
-                                <div className="text-sm font-semibold">Master Data Summary</div>
+                                <div className="min-w-0 flex-1 pr-2">
+                                    <div className="truncate text-sm font-semibold">Master Data Summary</div>
+                                </div>
                             </AccordionTrigger>
                             <AccordionContent className="px-4 pb-4">
                                 <div className="space-y-2">
@@ -206,7 +208,7 @@ export function MasterDataTabs({ vm }: Props) {
                 ))}
             </div>
 
-            <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border bg-card text-card-foreground shadow-sm sm:max-w-none">
+            <div className="overflow-hidden rounded-md border bg-card text-card-foreground shadow-sm">
                 <Accordion
                     type="single"
                     collapsible
@@ -234,7 +236,9 @@ export function MasterDataTabs({ vm }: Props) {
                         </div>
 
                         <AccordionTrigger className="px-4 py-3 text-left hover:no-underline sm:hidden">
-                            <div className="text-sm font-semibold">Manage Records</div>
+                            <div className="min-w-0 flex-1 pr-2">
+                                <div className="truncate text-sm font-semibold">Manage Records</div>
+                            </div>
                         </AccordionTrigger>
 
                         <AccordionContent className="px-4 pb-4 sm:px-6 sm:py-6">

@@ -66,12 +66,12 @@ export function MasterDataProgramsTab({ vm }: Props) {
                 <div className="text-sm text-muted-foreground">No programs found.</div>
             ) : (
                 <>
-                    <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border sm:hidden">
+                    <div className="overflow-hidden rounded-md border sm:hidden">
                         <Accordion type="single" collapsible className="w-full">
                             {vm.filteredPrograms.map((p) => (
                                 <AccordionItem key={p.$id} value={p.$id} className="px-4">
                                     <AccordionTrigger className="text-left hover:no-underline">
-                                        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                        <div className="min-w-0 flex-1 truncate pr-2 text-sm font-semibold">
                                             {p.name || p.code || "Program"}
                                         </div>
                                     </AccordionTrigger>

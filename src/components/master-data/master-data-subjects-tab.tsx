@@ -1110,7 +1110,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     type="multiple"
                     value={expandedGroups}
                     onValueChange={setExpandedGroups}
-                    className="mx-auto w-full max-w-xs space-y-4 sm:max-w-none"
+                    className="space-y-4"
                 >
                     {groupedSubjects.map((group) => {
                         const groupSubjectIds = group.subjects.map((subject) =>
@@ -1133,22 +1133,23 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         >
                             <div className="border-b bg-muted/30">
                                 <AccordionTrigger className="px-4 py-3 text-left hover:no-underline sm:py-4">
-                                    <div className="space-y-1 pr-4">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <div className="font-medium">
+                                    <div className="min-w-0 flex-1 space-y-1 pr-2 sm:pr-4">
+                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                            <div className="min-w-0 truncate font-medium">
                                                 {group.title}
                                             </div>
-                                            <Badge variant="secondary">
+                                            <Badge variant="secondary" className="shrink-0">
                                                 {group.subjects.length}
                                             </Badge>
                                             <Badge
                                                 variant={selectedGroupCount > 0 ? "default" : "outline"}
+                                                className="shrink-0"
                                             >
                                                 {selectedGroupCount} selected
                                             </Badge>
                                         </div>
 
-                                        <div className="text-xs text-muted-foreground">
+                                        <div className="min-w-0 wrap-break-word pr-2 text-xs text-muted-foreground">
                                             {group.linkedCount} linked subject
                                             {group.linkedCount === 1 ? "" : "s"} •{" "}
                                             {group.inheritedCount} subject
@@ -1268,7 +1269,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
                             <AccordionContent className="pb-0">
                                 <div className="sm:hidden">
-                                    <Accordion type="single" collapsible className="mx-auto w-full max-w-xs border-t">
+                                    <Accordion type="single" collapsible className="w-full border-t">
                                         {group.subjects.map((subject) => {
                                             const subjectValue = String(subject.$id)
                                             const isSelected = selectedSubjectIdSet.has(subjectValue)
@@ -1276,7 +1277,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                             return (
                                                 <AccordionItem key={subjectValue} value={subjectValue} className="px-4">
                                                     <AccordionTrigger className="text-left hover:no-underline">
-                                                        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                                        <div className="min-w-0 flex-1 truncate pr-2 text-sm font-semibold">
                                                             {subject.code} — {subject.title}
                                                         </div>
                                                     </AccordionTrigger>
