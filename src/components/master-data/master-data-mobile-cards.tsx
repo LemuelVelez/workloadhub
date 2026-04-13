@@ -1,10 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
+import * as React from "react"
 import { Pencil, Trash2 } from "lucide-react"
 
 import type { MasterDataManagementVM } from "./use-master-data"
 
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,6 +21,14 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 
 type Props = {
     vm: MasterDataManagementVM
@@ -190,115 +205,140 @@ export function RecordMobileCards({
     conflictRecordIds,
     onEdit,
 }: RecordCardsProps) {
+    const [selectedRecord, setSelectedRecord] = React.useState<any | null>(null)
+
+    const selectedRecordId = selectedRecord ? safeRecordId(selectedRecord) : ""
+    const selectedHasConflict = selectedRecordId
+        ? conflictRecordIds.has(selectedRecordId)
+        : false
+
     return (
-        <div className="space-y-2">
-            {rows.map((r, idx) => {
-                const recordId = safeRecordId(r) || `record-${idx}`
-                const hasConflict = recordId ? conflictRecordIds.has(recordId) : false
+        <>
+            <div className="overflow-hidden rounded-md border">
+                <Accordion type="single" collapsible className="w-full">
+                    {rows.map((r, idx) => {
+                        const recordId = safeRecordId(r) || `record-${idx}`
+                        const hasConflict = recordId ? conflictRecordIds.has(recordId) : false
 
-                return (
-                    <Card key={recordId} className="min-w-0 w-full max-w-full overflow-hidden">
-                        <CardHeader className="space-y-2 px-3 py-3">
-                            <div className="flex min-w-0 flex-col gap-2">
-                                <div className="min-w-0 space-y-1">
-                                    <CardTitle className="wrap-break-word text-sm leading-5">
-                                        {r.subjectCode || "TBA"}
-                                    </CardTitle>
-                                    <CardDescription className="wrap-break-word text-xs leading-5">
-                                        {r.subjectTitle || "Unknown Subject"}
-                                    </CardDescription>
-                                </div>
-
-                                <Badge
-                                    variant={hasConflict ? "destructive" : "secondary"}
-                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
-                                >
-                                    {hasConflict ? "Conflict" : "Clear"}
-                                </Badge>
-                            </div>
-
-                            <div className="flex min-w-0 flex-col gap-2">
-                                <Badge
-                                    variant="outline"
-                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
-                                >
-                                    {resolveTermLabel(r)}
-                                </Badge>
-                                <Badge
-                                    variant="outline"
-                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
-                                >
-                                    {r.dayOfWeek || "—"}
-                                </Badge>
-                                <Badge
-                                    variant="outline"
-                                    className="h-auto w-fit max-w-full wrap-break-word whitespace-normal px-2 py-1 text-left text-xs leading-5"
-                                >
-                                    {r.units ?? "—"} unit{Number(r.units) > 1 ? "s" : ""}
-                                </Badge>
-                            </div>
-                        </CardHeader>
-
-                        <CardContent className="space-y-2 px-3 pb-3 pt-0">
-                            <div className="flex min-w-0 flex-col gap-2 rounded-lg border p-2.5 text-sm">
-                                <div className="grid min-w-0 gap-1">
-                                    <div className="text-xs font-medium text-muted-foreground">Time</div>
-                                    <div className="wrap-break-word text-sm leading-5">
-                                        {formatTimeAmPm(r.startTime)} - {formatTimeAmPm(r.endTime)}
+                        return (
+                            <AccordionItem key={recordId} value={recordId} className="px-4">
+                                <AccordionTrigger className="text-left hover:no-underline">
+                                    <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                        {r.subjectCode || r.subjectTitle || `Record ${idx + 1}`}
                                     </div>
-                                </div>
-
-                                <div className="grid min-w-0 gap-1">
-                                    <div className="text-xs font-medium text-muted-foreground">Room</div>
-                                    <div className="wrap-break-word text-sm leading-5">
-                                        {r.roomLabel || "—"}
+                                </AccordionTrigger>
+                                <AccordionContent className="space-y-3 pb-4">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Badge variant={hasConflict ? "destructive" : "secondary"}>
+                                            {hasConflict ? "Conflict" : "Clear"}
+                                        </Badge>
+                                        <Badge variant="outline">{resolveTermLabel(r)}</Badge>
+                                        <Badge variant="outline">{r.dayOfWeek || "—"}</Badge>
                                     </div>
-                                </div>
 
-                                <div className="grid min-w-0 gap-1">
-                                    <div className="text-xs font-medium text-muted-foreground">College</div>
-                                    <div className="wrap-break-word text-sm leading-5">
-                                        {r.collegeLabel || "—"}
+                                    <div className="flex justify-end">
+                                        <Button size="sm" onClick={() => setSelectedRecord(r)}>
+                                            Details
+                                        </Button>
                                     </div>
-                                </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        )
+                    })}
+                </Accordion>
+            </div>
 
-                                <div className="grid min-w-0 gap-1">
-                                    <div className="text-xs font-medium text-muted-foreground">Program</div>
-                                    <div className="wrap-break-word text-sm leading-5">
-                                        {r.programLabel || "—"}
-                                    </div>
-                                </div>
+            <Dialog
+                open={Boolean(selectedRecord)}
+                onOpenChange={(open) => {
+                    if (!open) setSelectedRecord(null)
+                }}
+            >
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {selectedRecord?.subjectCode || selectedRecord?.subjectTitle || "Record Details"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            View the selected record details.
+                        </DialogDescription>
+                    </DialogHeader>
 
-                                <div className="grid min-w-0 gap-1">
-                                    <div className="text-xs font-medium text-muted-foreground">Section</div>
-                                    <div className="wrap-break-word text-sm leading-5">
-                                        {r.sectionLabel || "—"}
-                                    </div>
-                                </div>
-
-                                <div className="grid min-w-0 gap-1">
-                                    <div className="text-xs font-medium text-muted-foreground">Class Code</div>
-                                    <div className="wrap-break-word text-sm leading-5">
-                                        {r.classCode || "—"}
-                                    </div>
+                    {selectedRecord ? (
+                        <div className="grid gap-3 text-sm">
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Subject</div>
+                                <div className="font-medium">{selectedRecord.subjectCode || "TBA"}</div>
+                                <div className="text-muted-foreground">
+                                    {selectedRecord.subjectTitle || "Unknown Subject"}
                                 </div>
                             </div>
-
-                            <div className="flex flex-col gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9 w-full justify-start px-3"
-                                    onClick={() => onEdit(r)}
-                                >
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    Edit
-                                </Button>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Term</div>
+                                <div>{resolveTermLabel(selectedRecord)}</div>
                             </div>
-                        </CardContent>
-                    </Card>
-                )
-            })}
-        </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Day</div>
+                                <div>{selectedRecord.dayOfWeek || "—"}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Time</div>
+                                <div>
+                                    {formatTimeAmPm(selectedRecord.startTime)} - {formatTimeAmPm(selectedRecord.endTime)}
+                                </div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Room</div>
+                                <div>{selectedRecord.roomLabel || "—"}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">College</div>
+                                <div>{selectedRecord.collegeLabel || "—"}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Program</div>
+                                <div>{selectedRecord.programLabel || "—"}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Section</div>
+                                <div>{selectedRecord.sectionLabel || "—"}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Class Code</div>
+                                <div>{selectedRecord.classCode || "—"}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Units</div>
+                                <div>{selectedRecord.units ?? "—"}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Conflict Status</div>
+                                <div>
+                                    <Badge variant={selectedHasConflict ? "destructive" : "secondary"}>
+                                        {selectedHasConflict ? "Conflict" : "Clear"}
+                                    </Badge>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setSelectedRecord(null)}>
+                            Close
+                        </Button>
+                        <Button
+                            onClick={() => {
+                                if (!selectedRecord) return
+                                onEdit(selectedRecord)
+                                setSelectedRecord(null)
+                            }}
+                        >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     )
 }

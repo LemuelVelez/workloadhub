@@ -27,6 +27,14 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TabsContent } from "@/components/ui/tabs"
@@ -58,6 +66,21 @@ export function MasterDataFacultyTab({ vm }: Props) {
 
         return map
     }, [sourceRecordRows, vm.filteredFaculty, vm.subjects])
+
+    const [selectedFacultyDetail, setSelectedFacultyDetail] = React.useState<any | null>(null)
+
+    const selectedFacultyUser = selectedFacultyDetail
+        ? vm.facultyUserMap.get(String(selectedFacultyDetail.userId ?? "").trim()) ?? null
+        : null
+    const selectedFacultyName = selectedFacultyUser
+        ? vm.facultyDisplay(selectedFacultyUser)
+        : "Unknown faculty"
+    const selectedFacultyCollegeName = selectedFacultyDetail
+        ? vm.collegeLabel(vm.colleges, selectedFacultyDetail.departmentId)
+        : "—"
+    const selectedFacultyLoad = selectedFacultyDetail
+        ? facultyAssignedLoadMap.get(normalizeGroupKey(selectedFacultyDetail.userId)) ?? EMPTY_FACULTY_LOAD
+        : EMPTY_FACULTY_LOAD
 
     return (
         <TabsContent value="faculty" className="space-y-4">
@@ -92,104 +115,35 @@ export function MasterDataFacultyTab({ vm }: Props) {
                 <div className="text-sm text-muted-foreground">No faculty found.</div>
             ) : (
                 <>
-                    <div className="space-y-3 sm:hidden">
-                        {vm.filteredFaculty.map((f) => {
-                            const u =
-                                vm.facultyUserMap.get(String(f.userId ?? "").trim()) ?? null
-                            const facultyName = u ? vm.facultyDisplay(u) : "Unknown faculty"
-                            const collegeName = vm.collegeLabel(vm.colleges, f.departmentId)
-                            const load =
-                                facultyAssignedLoadMap.get(normalizeGroupKey(f.userId)) ??
-                                EMPTY_FACULTY_LOAD
+                    <div className="overflow-hidden rounded-md border sm:hidden">
+                        <Accordion type="single" collapsible className="w-full">
+                            {vm.filteredFaculty.map((f) => {
+                                const u =
+                                    vm.facultyUserMap.get(String(f.userId ?? "").trim()) ?? null
+                                const facultyName = u ? vm.facultyDisplay(u) : "Unknown faculty"
 
-                            return (
-                                <Card key={f.$id}>
-                                    <CardHeader className="space-y-2">
-                                        <CardTitle className="text-base">{facultyName}</CardTitle>
-                                        <CardDescription>{collegeName}</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-4">
-                                        <div className="grid gap-2 text-sm">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">
-                                                    Employee No
-                                                </span>
-                                                <span className="font-medium">
-                                                    {f.employeeNo || "—"}
-                                                </span>
+                                return (
+                                    <AccordionItem key={f.$id} value={f.$id} className="px-4">
+                                        <AccordionTrigger className="text-left hover:no-underline">
+                                            <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                                {facultyName}
                                             </div>
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">Rank</span>
-                                                <span className="font-medium text-right">
-                                                    {f.rank || "—"}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">
-                                                    Subjects
-                                                </span>
-                                                <span className="font-medium">
-                                                    {load.assignedSubjectCount}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">
-                                                    Records
-                                                </span>
-                                                <span className="font-medium">
-                                                    {load.assignedRecordCount}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">Units</span>
-                                                <span className="font-medium">
-                                                    {formatLoadNumber(load.totalUnits)}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">Hours</span>
-                                                <span className="font-medium">
-                                                    {formatLoadNumber(load.totalHours)}
-                                                </span>
-                                            </div>
-                                        </div>
+                                        </AccordionTrigger>
 
-                                        <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                                            Teaching load is computed automatically from the faculty
-                                            member&apos;s assigned subjects and records.
-                                        </div>
-
-                                        <div className="flex justify-end gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => {
-                                                    vm.setFacultyEditing(f)
-                                                    vm.setFacultyOpen(true)
-                                                }}
-                                            >
-                                                <Pencil className="mr-2 h-4 w-4" />
-                                                Edit
-                                            </Button>
-
-                                            <Button
-                                                variant="destructive"
-                                                size="sm"
-                                                onClick={() =>
-                                                    vm.setDeleteIntent({
-                                                        type: "faculty",
-                                                        doc: f,
-                                                    })
-                                                }
-                                            >
-                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                Delete
-                                            </Button>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            )
-                        })}
+                                        <AccordionContent className="pb-4">
+                                            <div className="flex justify-end">
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => setSelectedFacultyDetail(f)}
+                                                >
+                                                    Details
+                                                </Button>
+                                            </div>
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                )
+                            })}
+                        </Accordion>
                     </div>
 
                     <div className="hidden overflow-hidden rounded-md border sm:block">
@@ -392,6 +346,130 @@ export function MasterDataFacultyTab({ vm }: Props) {
                             })}
                         </Accordion>
                     </div>
+
+                    <Dialog
+                        open={Boolean(selectedFacultyDetail)}
+                        onOpenChange={(open) => {
+                            if (!open) setSelectedFacultyDetail(null)
+                        }}
+                    >
+                        <DialogContent className="sm:max-w-xl">
+                            <DialogHeader>
+                                <DialogTitle>{selectedFacultyName}</DialogTitle>
+                                <DialogDescription>
+                                    View the selected faculty profile and teaching load.
+                                </DialogDescription>
+                            </DialogHeader>
+
+                            {selectedFacultyDetail ? (
+                                <div className="grid gap-4 lg:grid-cols-2">
+                                    <div className="rounded-md border p-4">
+                                        <div className="mb-3 text-sm font-medium">Faculty Details</div>
+                                        <div className="grid gap-3 text-sm">
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Faculty</div>
+                                                <div className="font-medium">{selectedFacultyName}</div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">User ID</div>
+                                                <div className="break-all text-muted-foreground">
+                                                    {selectedFacultyDetail.userId}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Employee No</div>
+                                                <div className="text-muted-foreground">
+                                                    {selectedFacultyDetail.employeeNo || "—"}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">College</div>
+                                                <div className="text-muted-foreground">{selectedFacultyCollegeName}</div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Rank</div>
+                                                <div className="text-muted-foreground">
+                                                    {selectedFacultyDetail.rank || "—"}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Notes</div>
+                                                <div className="whitespace-pre-wrap text-muted-foreground">
+                                                    {selectedFacultyDetail.notes || "—"}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-md border p-4">
+                                        <div className="mb-3 text-sm font-medium">Auto-Calculated Teaching Load</div>
+                                        <div className="grid gap-3 text-sm">
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Assigned Subjects</div>
+                                                <div className="text-muted-foreground">
+                                                    {selectedFacultyLoad.assignedSubjectCount}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Assigned Records</div>
+                                                <div className="text-muted-foreground">
+                                                    {selectedFacultyLoad.assignedRecordCount}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Total Units</div>
+                                                <div className="text-muted-foreground">
+                                                    {formatLoadNumber(selectedFacultyLoad.totalUnits)}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <div className="text-xs font-medium text-muted-foreground">Total Hours</div>
+                                                <div className="text-muted-foreground">
+                                                    {formatLoadNumber(selectedFacultyLoad.totalHours)}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                                                Teaching load is computed automatically from the faculty
+                                                member&apos;s assigned subjects and records.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
+
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setSelectedFacultyDetail(null)}>
+                                    Close
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        if (!selectedFacultyDetail) return
+                                        vm.setFacultyEditing(selectedFacultyDetail)
+                                        vm.setFacultyOpen(true)
+                                        setSelectedFacultyDetail(null)
+                                    }}
+                                >
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Edit
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    onClick={() => {
+                                        if (!selectedFacultyDetail) return
+                                        vm.setDeleteIntent({
+                                            type: "faculty",
+                                            doc: selectedFacultyDetail,
+                                        })
+                                        setSelectedFacultyDetail(null)
+                                    }}
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Delete
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </>
             )}
 

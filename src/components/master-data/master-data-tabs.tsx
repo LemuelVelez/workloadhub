@@ -13,8 +13,14 @@ import { MasterDataSectionsTab } from "./master-data-sections-tab"
 import { MasterDataRecordsTab } from "./master-data-records-tab"
 import { MasterDataRecordEditDialog } from "./master-data-record-edit-dialog"
 import { isUnknownLabel } from "./master-data-utils"
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
@@ -66,9 +72,127 @@ export function MasterDataTabs({ vm }: Props) {
         [vm]
     )
 
+    const tabsContent = (
+        <>
+            <Tabs
+                value={vm.tab}
+                onValueChange={(value) => vm.setTab(value as any)}
+                className="w-full"
+            >
+                <div className="sm:hidden">
+                    <Select
+                        value={vm.tab}
+                        onValueChange={(value) => vm.setTab(value as any)}
+                    >
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select section" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {TAB_OPTIONS.map((tab) => (
+                                <SelectItem key={tab.value} value={tab.value}>
+                                    {tab.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <TabsList className="hidden w-full grid-cols-2 sm:grid lg:grid-cols-6">
+                    <TabsTrigger
+                        value="colleges"
+                        className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                    >
+                        Colleges
+                    </TabsTrigger>
+                    <TabsTrigger
+                        value="programs"
+                        className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                    >
+                        Programs/Courses
+                    </TabsTrigger>
+                    <TabsTrigger
+                        value="subjects"
+                        className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                    >
+                        Subjects
+                    </TabsTrigger>
+                    <TabsTrigger
+                        value="faculty"
+                        className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                    >
+                        Faculty
+                    </TabsTrigger>
+                    <TabsTrigger
+                        value="sections"
+                        className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                    >
+                        Sections
+                    </TabsTrigger>
+                    <TabsTrigger
+                        value="records"
+                        className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
+                    >
+                        List of Records
+                    </TabsTrigger>
+                </TabsList>
+
+                <Separator className="my-4" />
+
+                <MasterDataCollegesTab vm={vm} />
+                <MasterDataProgramsTab vm={vm} />
+                <MasterDataSubjectsTab vm={vm} />
+                <MasterDataFacultyTab vm={vm} />
+                <MasterDataSectionsTab vm={vm} />
+                <MasterDataRecordsTab
+                    vm={vm}
+                    resolveTermLabel={resolveTermLabel}
+                    onEditRecord={openEditRecord}
+                />
+            </Tabs>
+
+            <MasterDataRecordEditDialog
+                vm={vm}
+                open={recordEditOpen}
+                onOpenChange={setRecordEditOpen}
+                editingRow={recordEditingRow}
+                onEditingRowChange={setRecordEditingRow}
+            />
+        </>
+    )
+
     return (
         <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="sm:hidden">
+                <div className="overflow-hidden rounded-md border bg-card text-card-foreground">
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="master-data-summary" className="border-b-0">
+                            <AccordionTrigger className="px-4 py-3 text-left hover:no-underline">
+                                <div className="text-sm font-semibold">Master Data Summary</div>
+                            </AccordionTrigger>
+                            <AccordionContent className="px-4 pb-4">
+                                <div className="space-y-2">
+                                    {vm.stats.map((s) => (
+                                        <div
+                                            key={s.label}
+                                            className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                                        >
+                                            <div className="min-w-0">
+                                                <div className="text-sm font-medium">{s.label}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-lg font-semibold">{s.value}</div>
+                                                <Badge variant="secondary">Total</Badge>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
+                </div>
+            </div>
+
+            <div className="hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-5">
                 {vm.stats.map((s) => (
                     <Card key={s.label}>
                         <CardHeader className="pb-2">
@@ -82,110 +206,51 @@ export function MasterDataTabs({ vm }: Props) {
                 ))}
             </div>
 
-            <Card>
-                <CardHeader className="space-y-2">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <CardTitle>Manage Records</CardTitle>
+            <div className="overflow-hidden rounded-md border bg-card text-card-foreground shadow-sm">
+                <Accordion
+                    type="single"
+                    collapsible
+                    defaultValue="manage-records"
+                    className="w-full"
+                >
+                    <AccordionItem value="manage-records" className="border-b-0">
+                        <div className="hidden border-b px-6 py-6 sm:block">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div className="text-lg font-semibold leading-none tracking-tight">
+                                        Manage Records
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        value={vm.search}
+                                        onChange={(e) => vm.setSearch(e.target.value)}
+                                        placeholder="Search code / name..."
+                                        className="sm:w-80"
+                                    />
+                                </div>
+                            </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <Input
-                                value={vm.search}
-                                onChange={(e) => vm.setSearch(e.target.value)}
-                                placeholder="Search code / name..."
-                                className="sm:w-80"
-                            />
-                        </div>
-                    </div>
-                </CardHeader>
+                        <AccordionTrigger className="px-4 py-3 text-left hover:no-underline sm:hidden">
+                            <div className="text-sm font-semibold">Manage Records</div>
+                        </AccordionTrigger>
 
-                <CardContent>
-                    <Tabs
-                        value={vm.tab}
-                        onValueChange={(value) => vm.setTab(value as any)}
-                        className="w-full"
-                    >
-                        <div className="sm:hidden">
-                            <Select
-                                value={vm.tab}
-                                onValueChange={(value) => vm.setTab(value as any)}
-                            >
-                                <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Select section" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {TAB_OPTIONS.map((tab) => (
-                                        <SelectItem key={tab.value} value={tab.value}>
-                                            {tab.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
+                        <AccordionContent className="px-4 pb-4 sm:px-6 sm:py-6">
+                            <div className="mb-4 sm:hidden">
+                                <Input
+                                    value={vm.search}
+                                    onChange={(e) => vm.setSearch(e.target.value)}
+                                    placeholder="Search code / name..."
+                                />
+                            </div>
 
-                        <TabsList className="hidden w-full grid-cols-2 sm:grid lg:grid-cols-6">
-                            <TabsTrigger
-                                value="colleges"
-                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
-                            >
-                                Colleges
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="programs"
-                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
-                            >
-                                Programs/Courses
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="subjects"
-                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
-                            >
-                                Subjects
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="faculty"
-                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
-                            >
-                                Faculty
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="sections"
-                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
-                            >
-                                Sections
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="records"
-                                className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
-                            >
-                                List of Records
-                            </TabsTrigger>
-                        </TabsList>
-
-                        <Separator className="my-4" />
-
-                        <MasterDataCollegesTab vm={vm} />
-                        <MasterDataProgramsTab vm={vm} />
-                        <MasterDataSubjectsTab vm={vm} />
-                        <MasterDataFacultyTab vm={vm} />
-                        <MasterDataSectionsTab vm={vm} />
-                        <MasterDataRecordsTab
-                            vm={vm}
-                            resolveTermLabel={resolveTermLabel}
-                            onEditRecord={openEditRecord}
-                        />
-                    </Tabs>
-
-                    <MasterDataRecordEditDialog
-                        vm={vm}
-                        open={recordEditOpen}
-                        onOpenChange={setRecordEditOpen}
-                        editingRow={recordEditingRow}
-                        onEditingRowChange={setRecordEditingRow}
-                    />
-                </CardContent>
-            </Card>
+                            {tabsContent}
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            </div>
         </>
     )
 }

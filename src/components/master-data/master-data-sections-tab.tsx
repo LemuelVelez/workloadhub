@@ -9,6 +9,12 @@ import { toast } from "sonner"
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
 import type { MasterDataManagementVM } from "./use-master-data"
 
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -280,6 +286,19 @@ export function MasterDataSectionsTab({ vm }: Props) {
     const selectedSectionSubjectDetails = React.useMemo(
         () => buildSectionSubjectDetails(vm, selectedSectionForSubjects),
         [selectedSectionForSubjects, vm]
+    )
+    const [selectedSectionDetail, setSelectedSectionDetail] = React.useState<any | null>(null)
+
+    const sortedSections = React.useMemo(
+        () =>
+            vm.filteredSections
+                .slice()
+                .sort((a, b) => {
+                    const left = `${a.departmentId}-${a.yearLevel}-${a.name}`
+                    const right = `${b.departmentId}-${b.yearLevel}-${b.name}`
+                    return left.localeCompare(right)
+                }),
+        [vm.filteredSections]
     )
 
     const bulkProgramOptions = React.useMemo(() => {
@@ -559,29 +578,47 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     No sections found for this semester.
                 </div>
             ) : (
-                <div className="overflow-hidden rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead className="w-40">Section</TableHead>
-                                <TableHead className="w-72">College</TableHead>
-                                <TableHead>Program (optional)</TableHead>
-                                <TableHead>Subjects</TableHead>
-                                <TableHead className="w-44">Semester</TableHead>
-                                <TableHead className="w-32">Students</TableHead>
-                                <TableHead className="w-24">Active</TableHead>
-                                <TableHead className="w-40 text-right">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {vm.filteredSections
-                                .slice()
-                                .sort((a, b) => {
-                                    const left = `${a.departmentId}-${a.yearLevel}-${a.name}`
-                                    const right = `${b.departmentId}-${b.yearLevel}-${b.name}`
-                                    return left.localeCompare(right)
-                                })
-                                .map((s) => (
+                <>
+                    <div className="overflow-hidden rounded-md border sm:hidden">
+                        <Accordion type="single" collapsible className="w-full">
+                            {sortedSections.map((s) => (
+                                <AccordionItem key={s.$id} value={s.$id} className="px-4">
+                                    <AccordionTrigger className="text-left hover:no-underline">
+                                        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                            {buildSectionDisplayLabel(vm, s)}
+                                        </div>
+                                    </AccordionTrigger>
+                                    <AccordionContent className="pb-4">
+                                        <div className="flex justify-end">
+                                            <Button
+                                                size="sm"
+                                                onClick={() => setSelectedSectionDetail(s)}
+                                            >
+                                                Details
+                                            </Button>
+                                        </div>
+                                    </AccordionContent>
+                                </AccordionItem>
+                            ))}
+                        </Accordion>
+                    </div>
+
+                    <div className="hidden overflow-hidden rounded-md border sm:block">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead className="w-40">Section</TableHead>
+                                    <TableHead className="w-72">College</TableHead>
+                                    <TableHead>Program (optional)</TableHead>
+                                    <TableHead>Subjects</TableHead>
+                                    <TableHead className="w-44">Semester</TableHead>
+                                    <TableHead className="w-32">Students</TableHead>
+                                    <TableHead className="w-24">Active</TableHead>
+                                    <TableHead className="w-40 text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {sortedSections.map((s) => (
                                     <TableRow key={s.$id}>
                                         <TableCell className="font-medium">
                                             {buildSectionDisplayLabel(vm, s)}
@@ -647,10 +684,117 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                         </TableCell>
                                     </TableRow>
                                 ))}
-                        </TableBody>
-                    </Table>
-                </div>
+                            </TableBody>
+                        </Table>
+                    </div>
+                </>
             )}
+
+            <Dialog
+                open={Boolean(selectedSectionDetail)}
+                onOpenChange={(open) => {
+                    if (!open) setSelectedSectionDetail(null)
+                }}
+            >
+                <DialogContent className="sm:max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {selectedSectionDetail ? buildSectionDisplayLabel(vm, selectedSectionDetail) : "Section Details"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            View the selected section details.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {selectedSectionDetail ? (
+                        <div className="grid gap-3 text-sm">
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Section</div>
+                                <div className="font-medium">
+                                    {buildSectionDisplayLabel(vm, selectedSectionDetail)}
+                                </div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">College</div>
+                                <div>{vm.collegeLabel(vm.colleges, selectedSectionDetail.departmentId)}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Program</div>
+                                <div>{vm.programLabel(vm.programs, selectedSectionDetail.programId ?? null)}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Semester</div>
+                                <div>
+                                    {selectedSectionDetail.academicTermLabel ||
+                                        vm.termLabel(vm.terms, selectedSectionDetail.termId) ||
+                                        selectedSectionDetail.semester ||
+                                        "—"}
+                                </div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Students</div>
+                                <div>
+                                    {selectedSectionDetail.studentCount != null ? selectedSectionDetail.studentCount : "—"}
+                                </div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Linked Subjects</div>
+                                <div>{resolveSectionSubjectIds(selectedSectionDetail).length}</div>
+                            </div>
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Active</div>
+                                <div>
+                                    <Badge variant={selectedSectionDetail.isActive ? "default" : "secondary"}>
+                                        {selectedSectionDetail.isActive ? "Yes" : "No"}
+                                    </Badge>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setSelectedSectionDetail(null)}>
+                            Close
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                if (!selectedSectionDetail) return
+                                setSelectedSectionForSubjects(selectedSectionDetail)
+                                setSectionSubjectsOpen(true)
+                            }}
+                        >
+                            Subjects ({selectedSectionDetail ? resolveSectionSubjectIds(selectedSectionDetail).length : 0})
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                if (!selectedSectionDetail) return
+                                vm.setSectionEditing(selectedSectionDetail)
+                                vm.setSectionOpen(true)
+                                setSelectedSectionDetail(null)
+                            }}
+                        >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => {
+                                if (!selectedSectionDetail) return
+                                vm.setDeleteIntent({
+                                    type: "section",
+                                    doc: selectedSectionDetail,
+                                })
+                                setSelectedSectionDetail(null)
+                            }}
+                        >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog
                 open={sectionSubjectsOpen}
