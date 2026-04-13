@@ -226,6 +226,22 @@ function buildSectionSubjectSummary(
     return labels.length > 0 ? labels.join(", ") : "—"
 }
 
+function buildSectionSubjectDetails(
+    vm: MasterDataManagementVM,
+    section: { subjectId?: string | null; subjectIds?: string[] | null } | null
+) {
+    if (!section) return []
+
+    return resolveSectionSubjectIds(section).map((subjectId) => {
+        const subject = vm.subjects.find((item) => item.$id === subjectId)
+
+        return {
+            id: subjectId,
+            label: subject ? `${subject.code} — ${subject.title}` : subjectId,
+        }
+    })
+}
+
 function formatSectionBulkEditError(error: any) {
     const message = String(error?.message ?? "").trim()
 
@@ -243,6 +259,8 @@ export function MasterDataSectionsTab({ vm }: Props) {
     const [bulkEditSubjectIds, setBulkEditSubjectIds] = React.useState<string[]>([])
     const [bulkEditSectionIds, setBulkEditSectionIds] = React.useState<string[]>([])
     const [bulkEditing, setBulkEditing] = React.useState(false)
+    const [sectionSubjectsOpen, setSectionSubjectsOpen] = React.useState(false)
+    const [selectedSectionForSubjects, setSelectedSectionForSubjects] = React.useState<any | null>(null)
 
     const eligibleSections = React.useMemo(
         () =>
@@ -257,6 +275,11 @@ export function MasterDataSectionsTab({ vm }: Props) {
     const eligibleSectionMap = React.useMemo(
         () => new Map(eligibleSections.map((section) => [String(section.$id), section])),
         [eligibleSections]
+    )
+
+    const selectedSectionSubjectDetails = React.useMemo(
+        () => buildSectionSubjectDetails(vm, selectedSectionForSubjects),
+        [selectedSectionForSubjects, vm]
     )
 
     const bulkProgramOptions = React.useMemo(() => {
@@ -569,8 +592,19 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                         <TableCell className="text-muted-foreground">
                                             {vm.programLabel(vm.programs, s.programId ?? null)}
                                         </TableCell>
-                                        <TableCell className="text-muted-foreground">
-                                            {buildSectionSubjectSummary(vm, s)}
+                                        <TableCell>
+                                            <Button
+                                                type="button"
+                                                variant="default"
+                                                size="sm"
+                                                className="h-8 px-3"
+                                                onClick={() => {
+                                                    setSelectedSectionForSubjects(s)
+                                                    setSectionSubjectsOpen(true)
+                                                }}
+                                            >
+                                                Subjects ({resolveSectionSubjectIds(s).length})
+                                            </Button>
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
                                             {s.academicTermLabel || vm.termLabel(vm.terms, s.termId) || s.semester || "—"}
@@ -617,6 +651,61 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     </Table>
                 </div>
             )}
+
+            <Dialog
+                open={sectionSubjectsOpen}
+                onOpenChange={(open) => {
+                    setSectionSubjectsOpen(open)
+
+                    if (!open) {
+                        setSelectedSectionForSubjects(null)
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>
+                            Section Subjects
+                            {selectedSectionForSubjects ? ` • ${buildSectionDisplayLabel(vm, selectedSectionForSubjects)}` : ""}
+                        </DialogTitle>
+                        <DialogDescription>
+                            All linked subjects for the selected section.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <ScrollArea className="max-h-[60svh] rounded-md border">
+                        <div className="space-y-2 p-3">
+                            {selectedSectionSubjectDetails.length === 0 ? (
+                                <div className="text-sm text-muted-foreground">
+                                    No linked subjects found for this section.
+                                </div>
+                            ) : (
+                                selectedSectionSubjectDetails.map((subject) => (
+                                    <div
+                                        key={subject.id}
+                                        className="rounded-md border px-3 py-2 text-sm"
+                                    >
+                                        {subject.label}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </ScrollArea>
+
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setSectionSubjectsOpen(false)
+                                setSelectedSectionForSubjects(null)
+                            }}
+                        >
+                            Close
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={bulkEditOpen} onOpenChange={handleBulkEditOpenChange}>
                 <DialogContent className="sm:max-w-3xl max-h-[95svh] overflow-auto">
