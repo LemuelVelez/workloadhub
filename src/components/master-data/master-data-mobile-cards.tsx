@@ -222,8 +222,8 @@ export function RecordMobileCards({
 
                         return (
                             <AccordionItem key={recordId} value={recordId} className="px-4">
-                                <AccordionTrigger className="text-left hover:no-underline">
-                                    <div className="min-w-0 flex-1 truncate pr-2 text-sm font-semibold">
+                                <AccordionTrigger className="min-w-0 gap-2 text-left hover:no-underline">
+                                    <div className="min-w-0 flex-1 overflow-hidden truncate pr-2 text-sm font-semibold">
                                         {r.subjectCode || r.subjectTitle || `Record ${idx + 1}`}
                                     </div>
                                 </AccordionTrigger>

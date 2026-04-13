@@ -278,8 +278,8 @@ export function MasterDataRecordsTab({
                                 className="px-3 sm:px-4"
                             >
                                 <AccordionTrigger className="min-w-0 gap-2 py-3 text-left hover:no-underline sm:gap-4">
-                                    <div className="flex min-w-0 flex-1 flex-col pr-2 text-left">
-                                        <div className="wrap-break-word text-sm font-semibold leading-5 sm:truncate">
+                                    <div className="flex min-w-0 flex-1 overflow-hidden flex-col pr-2 text-left">
+                                        <div className="truncate text-sm font-semibold leading-5">
                                             {group.facultyLabel}
                                         </div>
 

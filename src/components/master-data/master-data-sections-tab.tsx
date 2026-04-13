@@ -583,8 +583,8 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         <Accordion type="single" collapsible className="w-full">
                             {sortedSections.map((s) => (
                                 <AccordionItem key={s.$id} value={s.$id} className="px-4">
-                                    <AccordionTrigger className="text-left hover:no-underline">
-                                        <div className="min-w-0 flex-1 truncate pr-2 text-sm font-semibold">
+                                    <AccordionTrigger className="min-w-0 gap-2 text-left hover:no-underline">
+                                        <div className="min-w-0 flex-1 overflow-hidden truncate pr-2 text-sm font-semibold">
                                             {buildSectionDisplayLabel(vm, s)}
                                         </div>
                                     </AccordionTrigger>

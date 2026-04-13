@@ -70,8 +70,8 @@ export function MasterDataProgramsTab({ vm }: Props) {
                         <Accordion type="single" collapsible className="w-full">
                             {vm.filteredPrograms.map((p) => (
                                 <AccordionItem key={p.$id} value={p.$id} className="px-4">
-                                    <AccordionTrigger className="text-left hover:no-underline">
-                                        <div className="min-w-0 flex-1 truncate pr-2 text-sm font-semibold">
+                                    <AccordionTrigger className="min-w-0 gap-2 text-left hover:no-underline">
+                                        <div className="min-w-0 flex-1 overflow-hidden truncate pr-2 text-sm font-semibold">
                                             {p.name || p.code || "Program"}
                                         </div>
                                     </AccordionTrigger>

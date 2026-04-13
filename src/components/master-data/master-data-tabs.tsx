@@ -166,8 +166,8 @@ export function MasterDataTabs({ vm }: Props) {
                 <div className="overflow-hidden rounded-md border bg-card text-card-foreground">
                     <Accordion type="single" collapsible className="w-full">
                         <AccordionItem value="master-data-summary" className="border-b-0">
-                            <AccordionTrigger className="px-4 py-3 text-left hover:no-underline">
-                                <div className="min-w-0 flex-1 pr-2">
+                            <AccordionTrigger className="min-w-0 gap-2 px-4 py-3 text-left hover:no-underline">
+                                <div className="min-w-0 flex-1 overflow-hidden pr-2">
                                     <div className="truncate text-sm font-semibold">Master Data Summary</div>
                                 </div>
                             </AccordionTrigger>
@@ -235,8 +235,8 @@ export function MasterDataTabs({ vm }: Props) {
                             </div>
                         </div>
 
-                        <AccordionTrigger className="px-4 py-3 text-left hover:no-underline sm:hidden">
-                            <div className="min-w-0 flex-1 pr-2">
+                        <AccordionTrigger className="min-w-0 gap-2 px-4 py-3 text-left hover:no-underline sm:hidden">
+                            <div className="min-w-0 flex-1 overflow-hidden pr-2">
                                 <div className="truncate text-sm font-semibold">Manage Records</div>
                             </div>
                         </AccordionTrigger>

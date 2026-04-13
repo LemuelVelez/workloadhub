@@ -1132,8 +1132,8 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             className="overflow-hidden rounded-lg border"
                         >
                             <div className="border-b bg-muted/30">
-                                <AccordionTrigger className="px-4 py-3 text-left hover:no-underline sm:py-4">
-                                    <div className="min-w-0 flex-1 space-y-1 pr-2 sm:pr-4">
+                                <AccordionTrigger className="min-w-0 gap-2 px-4 py-3 text-left hover:no-underline sm:py-4">
+                                    <div className="min-w-0 flex-1 overflow-hidden space-y-1 pr-2 sm:pr-4">
                                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                                             <div className="min-w-0 truncate font-medium">
                                                 {group.title}
@@ -1276,8 +1276,8 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
                                             return (
                                                 <AccordionItem key={subjectValue} value={subjectValue} className="px-4">
-                                                    <AccordionTrigger className="text-left hover:no-underline">
-                                                        <div className="min-w-0 flex-1 truncate pr-2 text-sm font-semibold">
+                                                    <AccordionTrigger className="min-w-0 gap-2 text-left hover:no-underline">
+                                                        <div className="min-w-0 flex-1 overflow-hidden truncate pr-2 text-sm font-semibold">
                                                             {subject.code} — {subject.title}
                                                         </div>
                                                     </AccordionTrigger>

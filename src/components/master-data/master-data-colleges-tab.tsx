@@ -70,8 +70,8 @@ export function MasterDataCollegesTab({ vm }: Props) {
                         <Accordion type="single" collapsible className="w-full">
                             {vm.filteredColleges.map((d) => (
                                 <AccordionItem key={d.$id} value={d.$id} className="px-4">
-                                    <AccordionTrigger className="text-left hover:no-underline">
-                                        <div className="min-w-0 flex-1 truncate pr-2 text-sm font-semibold">
+                                    <AccordionTrigger className="min-w-0 gap-2 text-left hover:no-underline">
+                                        <div className="min-w-0 flex-1 overflow-hidden truncate pr-2 text-sm font-semibold">
                                             {d.name || d.code || "College"}
                                         </div>
                                     </AccordionTrigger>
