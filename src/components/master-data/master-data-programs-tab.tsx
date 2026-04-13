@@ -66,7 +66,7 @@ export function MasterDataProgramsTab({ vm }: Props) {
                 <div className="text-sm text-muted-foreground">No programs found.</div>
             ) : (
                 <>
-                    <div className="overflow-hidden rounded-md border sm:hidden">
+                    <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border sm:hidden">
                         <Accordion type="single" collapsible className="w-full">
                             {vm.filteredPrograms.map((p) => (
                                 <AccordionItem key={p.$id} value={p.$id} className="px-4">

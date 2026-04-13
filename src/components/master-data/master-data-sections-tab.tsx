@@ -579,7 +579,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 </div>
             ) : (
                 <>
-                    <div className="overflow-hidden rounded-md border sm:hidden">
+                    <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border sm:hidden">
                         <Accordion type="single" collapsible className="w-full">
                             {sortedSections.map((s) => (
                                 <AccordionItem key={s.$id} value={s.$id} className="px-4">

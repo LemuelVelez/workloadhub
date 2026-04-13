@@ -163,7 +163,7 @@ export function MasterDataTabs({ vm }: Props) {
     return (
         <>
             <div className="sm:hidden">
-                <div className="overflow-hidden rounded-md border bg-card text-card-foreground">
+                <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border bg-card text-card-foreground">
                     <Accordion type="single" collapsible className="w-full">
                         <AccordionItem value="master-data-summary" className="border-b-0">
                             <AccordionTrigger className="px-4 py-3 text-left hover:no-underline">
@@ -206,7 +206,7 @@ export function MasterDataTabs({ vm }: Props) {
                 ))}
             </div>
 
-            <div className="overflow-hidden rounded-md border bg-card text-card-foreground shadow-sm">
+            <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border bg-card text-card-foreground shadow-sm sm:max-w-none">
                 <Accordion
                     type="single"
                     collapsible

@@ -344,6 +344,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkLinkSourceSubjectIds, setBulkLinkSourceSubjectIds] = React.useState<string[]>([])
     const [bulkLinking, setBulkLinking] = React.useState(false)
     const [bulkUnlinking, setBulkUnlinking] = React.useState(false)
+    const [selectedSubjectDetail, setSelectedSubjectDetail] = React.useState<LooseSubjectDoc | null>(null)
     const [expandedGroups, setExpandedGroups] = React.useState<string[]>([])
 
     const [bulkCollegeOpen, setBulkCollegeOpen] = React.useState(false)
@@ -964,6 +965,35 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         [vm.terms]
     )
 
+    const selectedSubjectDetailLinkedTermId = selectedSubjectDetail
+        ? resolveSubjectTermId(selectedSubjectDetail)
+        : ""
+
+    const selectedSubjectDetailSemesterLabel = selectedSubjectDetail
+        ? resolveSubjectSemester(selectedSubjectDetail, termMap) || INHERIT_SEMESTER_LABEL
+        : "—"
+
+    const selectedSubjectDetailTermLabel = selectedSubjectDetail
+        ? selectedSubjectDetailLinkedTermId
+            ? vm.termLabel(vm.terms, selectedSubjectDetailLinkedTermId)
+            : "No direct semester link. Semester scope is still saved on the subject."
+        : "—"
+
+    const selectedSubjectDetailProgramLabels = selectedSubjectDetail
+        ? formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(selectedSubjectDetail))
+        : []
+
+    const selectedSubjectDetailYearLevels = selectedSubjectDetail
+        ? formatYearLevelScopeLabels(resolveSubjectYearLevels(selectedSubjectDetail))
+        : []
+
+    const selectedSubjectDetailTotalHours = selectedSubjectDetail
+        ? Number.isFinite(Number(selectedSubjectDetail.totalHours))
+            ? selectedSubjectDetail.totalHours
+            : Number(selectedSubjectDetail.lectureHours ?? 0) +
+              Number(selectedSubjectDetail.labHours ?? 0)
+        : "—"
+
     return (
         <TabsContent value="subjects" className="space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1080,7 +1110,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     type="multiple"
                     value={expandedGroups}
                     onValueChange={setExpandedGroups}
-                    className="space-y-4"
+                    className="mx-auto w-full max-w-xs space-y-4 sm:max-w-none"
                 >
                     {groupedSubjects.map((group) => {
                         const groupSubjectIds = group.subjects.map((subject) =>
@@ -1237,198 +1267,372 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             </div>
 
                             <AccordionContent className="pb-0">
-                                <div className="border-b px-4 py-2 text-xs text-muted-foreground">
-                                    Drag horizontally on the table to view more columns.
-                                </div>
-
-                                <Table className="min-w-max">
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-14">
-                                                <div
-                                                    className="flex items-center justify-center"
-                                                    onPointerDown={stopActionAreaInteraction}
-                                                    onMouseDown={stopActionAreaInteraction}
-                                                    onTouchStart={stopActionAreaInteraction}
-                                                >
-                                                    <Checkbox
-                                                        checked={
-                                                            allVisibleSelected
-                                                                ? true
-                                                                : someVisibleSelected
-                                                                    ? "indeterminate"
-                                                                    : false
-                                                        }
-                                                        onCheckedChange={(value) =>
-                                                            toggleVisibleSubjectSelection(
-                                                                Boolean(value)
-                                                            )
-                                                        }
-                                                        aria-label="Select all visible subjects"
-                                                    />
-                                                </div>
-                                            </TableHead>
-                                            <TableHead className="w-40">Code</TableHead>
-                                            <TableHead>Title</TableHead>
-                                            <TableHead className="w-72">College</TableHead>
-                                            <TableHead className="w-72">Program</TableHead>
-                                            <TableHead className="w-36">Year Level</TableHead>
-                                            <TableHead className="w-60">Semester / Term</TableHead>
-                                            <TableHead className="w-44">Units / Hours</TableHead>
-                                            <TableHead className="w-32 text-right">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-
-                                    <TableBody>
+                                <div className="sm:hidden">
+                                    <Accordion type="single" collapsible className="mx-auto w-full max-w-xs border-t">
                                         {group.subjects.map((subject) => {
-                                            const linkedTermId = resolveSubjectTermId(subject)
-                                            const semesterLabel =
-                                                resolveSubjectSemester(subject, termMap) ||
-                                                INHERIT_SEMESTER_LABEL
-
-                                            const termLabel = linkedTermId
-                                                ? vm.termLabel(vm.terms, linkedTermId)
-                                                : "No direct semester link. Semester scope is still saved on the subject."
+                                            const subjectValue = String(subject.$id)
+                                            const isSelected = selectedSubjectIdSet.has(subjectValue)
 
                                             return (
-                                                <TableRow key={subject.$id}>
-                                                    <TableCell className="align-middle">
-                                                        <div
-                                                            className="flex items-center justify-center"
-                                                            onPointerDown={stopActionAreaInteraction}
-                                                            onMouseDown={stopActionAreaInteraction}
-                                                            onTouchStart={stopActionAreaInteraction}
-                                                        >
-                                                            <Checkbox
-                                                                checked={selectedSubjectIdSet.has(String(subject.$id))}
-                                                                onCheckedChange={(value) =>
-                                                                    toggleSubjectSelection(
-                                                                        String(subject.$id),
-                                                                        Boolean(value)
-                                                                    )
-                                                                }
-                                                                aria-label={`Select ${subject.code} ${subject.title}`}
-                                                            />
+                                                <AccordionItem key={subjectValue} value={subjectValue} className="px-4">
+                                                    <AccordionTrigger className="text-left hover:no-underline">
+                                                        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                                            {subject.code} — {subject.title}
                                                         </div>
-                                                    </TableCell>
-
-                                                    <TableCell className="font-medium">
-                                                        {subject.code}
-                                                    </TableCell>
-
-                                                    <TableCell>{subject.title}</TableCell>
-
-                                                    <TableCell className="text-muted-foreground">
-                                                        {vm.collegeLabel(
-                                                            vm.colleges,
-                                                            (subject.departmentId as string | null) ??
-                                                                null
-                                                        )}
-                                                    </TableCell>
-
-                                                    <TableCell className="text-muted-foreground">
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).length === 0 ? (
-                                                                <span>—</span>
-                                                            ) : (
-                                                                formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).map((label) => (
-                                                                    <Badge key={label} variant="outline">{label}</Badge>
-                                                                ))
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
-
-                                                    <TableCell className="text-muted-foreground">
-                                                        {formatYearLevelScopeLabels(resolveSubjectYearLevels(subject)).join(", ") || "—"}
-                                                    </TableCell>
-
-                                                    <TableCell>
-                                                        <div className="flex flex-col gap-1">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <Badge
-                                                                    variant={
-                                                                        linkedTermId
-                                                                            ? "secondary"
-                                                                            : "outline"
-                                                                    }
-                                                                >
-                                                                    {semesterLabel}
-                                                                </Badge>
-                                                            </div>
-
-                                                            <div className="text-xs text-muted-foreground">
-                                                                {termLabel}
-                                                            </div>
-                                                        </div>
-                                                    </TableCell>
-
-                                                    <TableCell>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Units:{" "}
-                                                            <span className="font-medium text-foreground">
-                                                                {subject.units}
-                                                            </span>
-                                                        </div>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Lec {subject.lectureHours} / Lab{" "}
-                                                            {subject.labHours} ={" "}
-                                                            <span className="font-medium text-foreground">
-                                                                {Number.isFinite(
-                                                                    Number(subject.totalHours)
-                                                                )
-                                                                    ? subject.totalHours
-                                                                    : Number(subject.lectureHours ?? 0) +
-                                                                      Number(subject.labHours ?? 0)}
-                                                            </span>
-                                                        </div>
-                                                    </TableCell>
-
-                                                    <TableCell className="text-right">
-                                                        <div
-                                                            className="flex flex-wrap justify-end gap-2"
-                                                            onPointerDown={stopActionAreaInteraction}
-                                                            onMouseDown={stopActionAreaInteraction}
-                                                            onTouchStart={stopActionAreaInteraction}
-                                                        >
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={handleTableActionClick(() => {
-                                                                    vm.setSubjectEditing(subject as any)
-                                                                    vm.setSubjectOpen(true)
-                                                                })}
+                                                    </AccordionTrigger>
+                                                    <AccordionContent className="pb-4">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div
+                                                                className="flex items-center gap-2 text-sm"
+                                                                onPointerDown={stopActionAreaInteraction}
+                                                                onMouseDown={stopActionAreaInteraction}
+                                                                onTouchStart={stopActionAreaInteraction}
                                                             >
-                                                                <Pencil className="mr-2 h-4 w-4" />
-                                                                Edit
-                                                            </Button>
+                                                                <Checkbox
+                                                                    checked={isSelected}
+                                                                    onCheckedChange={(value) =>
+                                                                        toggleSubjectSelection(
+                                                                            subjectValue,
+                                                                            Boolean(value)
+                                                                        )
+                                                                    }
+                                                                    aria-label={`Select ${subject.code} ${subject.title}`}
+                                                                />
+                                                                <span className="text-muted-foreground">Select</span>
+                                                            </div>
 
                                                             <Button
                                                                 type="button"
-                                                                variant="destructive"
                                                                 size="sm"
                                                                 onClick={handleTableActionClick(() =>
-                                                                    vm.setDeleteIntent({
-                                                                        type: "subject",
-                                                                        doc: subject as any,
-                                                                    })
+                                                                    setSelectedSubjectDetail(subject)
                                                                 )}
                                                             >
-                                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                                Delete
+                                                                Details
                                                             </Button>
                                                         </div>
-                                                    </TableCell>
-                                                </TableRow>
+                                                    </AccordionContent>
+                                                </AccordionItem>
                                             )
                                         })}
-                                    </TableBody>
-                                </Table>
+                                    </Accordion>
+                                </div>
+
+                                <div className="hidden sm:block">
+                                    <div className="border-b px-4 py-2 text-xs text-muted-foreground">
+                                        Drag horizontally on the table to view more columns.
+                                    </div>
+
+                                    <Table className="min-w-max">
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="w-14">
+                                                    <div
+                                                        className="flex items-center justify-center"
+                                                        onPointerDown={stopActionAreaInteraction}
+                                                        onMouseDown={stopActionAreaInteraction}
+                                                        onTouchStart={stopActionAreaInteraction}
+                                                    >
+                                                        <Checkbox
+                                                            checked={
+                                                                allVisibleSelected
+                                                                    ? true
+                                                                    : someVisibleSelected
+                                                                        ? "indeterminate"
+                                                                        : false
+                                                            }
+                                                            onCheckedChange={(value) =>
+                                                                toggleVisibleSubjectSelection(
+                                                                    Boolean(value)
+                                                                )
+                                                            }
+                                                            aria-label="Select all visible subjects"
+                                                        />
+                                                    </div>
+                                                </TableHead>
+                                                <TableHead className="w-40">Code</TableHead>
+                                                <TableHead>Title</TableHead>
+                                                <TableHead className="w-72">College</TableHead>
+                                                <TableHead className="w-72">Program</TableHead>
+                                                <TableHead className="w-36">Year Level</TableHead>
+                                                <TableHead className="w-60">Semester / Term</TableHead>
+                                                <TableHead className="w-44">Units / Hours</TableHead>
+                                                <TableHead className="w-32 text-right">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+
+                                        <TableBody>
+                                            {group.subjects.map((subject) => {
+                                                const linkedTermId = resolveSubjectTermId(subject)
+                                                const semesterLabel =
+                                                    resolveSubjectSemester(subject, termMap) ||
+                                                    INHERIT_SEMESTER_LABEL
+
+                                                const termLabel = linkedTermId
+                                                    ? vm.termLabel(vm.terms, linkedTermId)
+                                                    : "No direct semester link. Semester scope is still saved on the subject."
+
+                                                return (
+                                                    <TableRow key={subject.$id}>
+                                                        <TableCell className="align-middle">
+                                                            <div
+                                                                className="flex items-center justify-center"
+                                                                onPointerDown={stopActionAreaInteraction}
+                                                                onMouseDown={stopActionAreaInteraction}
+                                                                onTouchStart={stopActionAreaInteraction}
+                                                            >
+                                                                <Checkbox
+                                                                    checked={selectedSubjectIdSet.has(String(subject.$id))}
+                                                                    onCheckedChange={(value) =>
+                                                                        toggleSubjectSelection(
+                                                                            String(subject.$id),
+                                                                            Boolean(value)
+                                                                        )
+                                                                    }
+                                                                    aria-label={`Select ${subject.code} ${subject.title}`}
+                                                                />
+                                                            </div>
+                                                        </TableCell>
+
+                                                        <TableCell className="font-medium">
+                                                            {subject.code}
+                                                        </TableCell>
+
+                                                        <TableCell>{subject.title}</TableCell>
+
+                                                        <TableCell className="text-muted-foreground">
+                                                            {vm.collegeLabel(
+                                                                vm.colleges,
+                                                                (subject.departmentId as string | null) ??
+                                                                    null
+                                                            )}
+                                                        </TableCell>
+
+                                                        <TableCell className="text-muted-foreground">
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).length === 0 ? (
+                                                                    <span>—</span>
+                                                                ) : (
+                                                                    formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).map((label) => (
+                                                                        <Badge key={label} variant="outline">{label}</Badge>
+                                                                    ))
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+
+                                                        <TableCell className="text-muted-foreground">
+                                                            {formatYearLevelScopeLabels(resolveSubjectYearLevels(subject)).join(", ") || "—"}
+                                                        </TableCell>
+
+                                                        <TableCell>
+                                                            <div className="flex flex-col gap-1">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <Badge
+                                                                        variant={
+                                                                            linkedTermId
+                                                                                ? "secondary"
+                                                                                : "outline"
+                                                                        }
+                                                                    >
+                                                                        {semesterLabel}
+                                                                    </Badge>
+                                                                </div>
+
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    {termLabel}
+                                                                </div>
+                                                            </div>
+                                                        </TableCell>
+
+                                                        <TableCell>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                Units:{" "}
+                                                                <span className="font-medium text-foreground">
+                                                                    {subject.units}
+                                                                </span>
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                Lec {subject.lectureHours} / Lab{" "}
+                                                                {subject.labHours} ={" "}
+                                                                <span className="font-medium text-foreground">
+                                                                    {Number.isFinite(
+                                                                        Number(subject.totalHours)
+                                                                    )
+                                                                        ? subject.totalHours
+                                                                        : Number(subject.lectureHours ?? 0) +
+                                                                          Number(subject.labHours ?? 0)}
+                                                                </span>
+                                                            </div>
+                                                        </TableCell>
+
+                                                        <TableCell className="text-right">
+                                                            <div
+                                                                className="flex flex-wrap justify-end gap-2"
+                                                                onPointerDown={stopActionAreaInteraction}
+                                                                onMouseDown={stopActionAreaInteraction}
+                                                                onTouchStart={stopActionAreaInteraction}
+                                                            >
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={handleTableActionClick(() => {
+                                                                        vm.setSubjectEditing(subject as any)
+                                                                        vm.setSubjectOpen(true)
+                                                                    })}
+                                                                >
+                                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                                    Edit
+                                                                </Button>
+
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="destructive"
+                                                                    size="sm"
+                                                                    onClick={handleTableActionClick(() =>
+                                                                        vm.setDeleteIntent({
+                                                                            type: "subject",
+                                                                            doc: subject as any,
+                                                                        })
+                                                                    )}
+                                                                >
+                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                    Delete
+                                                                </Button>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             </AccordionContent>
                         </AccordionItem>
                     )})}
                 </Accordion>
             )}
+
+            <Dialog
+                open={Boolean(selectedSubjectDetail)}
+                onOpenChange={(open) => {
+                    if (!open) setSelectedSubjectDetail(null)
+                }}
+            >
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {selectedSubjectDetail
+                                ? `${selectedSubjectDetail.code} — ${selectedSubjectDetail.title}`
+                                : "Subject Details"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            View the selected subject record.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {selectedSubjectDetail ? (
+                        <div className="grid gap-3 text-sm">
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Subject Code</div>
+                                <div className="font-medium">{selectedSubjectDetail.code || "—"}</div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Subject Title</div>
+                                <div>{selectedSubjectDetail.title || "—"}</div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">College</div>
+                                <div>
+                                    {vm.collegeLabel(
+                                        vm.colleges,
+                                        (selectedSubjectDetail.departmentId as string | null) ?? null
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Programs</div>
+                                <div className="flex flex-wrap gap-1">
+                                    {selectedSubjectDetailProgramLabels.length === 0 ? (
+                                        <span>—</span>
+                                    ) : (
+                                        selectedSubjectDetailProgramLabels.map((label) => (
+                                            <Badge key={label} variant="outline">{label}</Badge>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Year Levels</div>
+                                <div>{selectedSubjectDetailYearLevels.join(", ") || "—"}</div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Semester</div>
+                                <div>
+                                    <Badge variant={selectedSubjectDetailLinkedTermId ? "secondary" : "outline"}>
+                                        {selectedSubjectDetailSemesterLabel}
+                                    </Badge>
+                                </div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Term</div>
+                                <div className="text-muted-foreground">{selectedSubjectDetailTermLabel}</div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <div className="text-xs font-medium text-muted-foreground">Units / Hours</div>
+                                <div className="text-muted-foreground">
+                                    Units: <span className="font-medium text-foreground">{selectedSubjectDetail.units ?? "—"}</span>
+                                </div>
+                                <div className="text-muted-foreground">
+                                    Lec {selectedSubjectDetail.lectureHours ?? 0} / Lab {selectedSubjectDetail.labHours ?? 0} = <span className="font-medium text-foreground">{selectedSubjectDetailTotalHours}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setSelectedSubjectDetail(null)}
+                        >
+                            Close
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                if (!selectedSubjectDetail) return
+                                vm.setSubjectEditing(selectedSubjectDetail as any)
+                                vm.setSubjectOpen(true)
+                                setSelectedSubjectDetail(null)
+                            }}
+                        >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => {
+                                if (!selectedSubjectDetail) return
+                                vm.setDeleteIntent({
+                                    type: "subject",
+                                    doc: selectedSubjectDetail as any,
+                                })
+                                setSelectedSubjectDetail(null)
+                            }}
+                        >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={bulkCollegeOpen} onOpenChange={handleBulkCollegeOpenChange}>
                 <DialogContent className="sm:max-w-3xl">

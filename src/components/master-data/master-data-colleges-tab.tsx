@@ -66,7 +66,7 @@ export function MasterDataCollegesTab({ vm }: Props) {
                 <div className="text-sm text-muted-foreground">No colleges found.</div>
             ) : (
                 <>
-                    <div className="overflow-hidden rounded-md border sm:hidden">
+                    <div className="mx-auto w-full max-w-xs overflow-hidden rounded-md border sm:hidden">
                         <Accordion type="single" collapsible className="w-full">
                             {vm.filteredColleges.map((d) => (
                                 <AccordionItem key={d.$id} value={d.$id} className="px-4">
