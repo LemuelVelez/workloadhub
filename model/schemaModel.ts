@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "015_remove_schedule_version_requirement" as const;
+export const SCHEMA_MIGRATION_ID = "016_make_sections_reusable_across_terms" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -201,6 +201,11 @@ export const ATTR = {
     },
 
     SECTIONS: {
+        /**
+         * Legacy-only section scope fields kept for backwards compatibility with
+         * older documents during the reuse migration. New section records should
+         * not persist term-bound metadata.
+         */
         termId: "termId",
         departmentId: "departmentId",
         programId: "programId",
@@ -350,9 +355,12 @@ export const INDEX = {
         semester: "idx_sections_semester",
         academicTermLabel: "idx_sections_academic_term_label",
 
-        // ✅ unique key (termId + departmentId + yearLevel + name)
-        // yearLevel now stores values like "CS 1" / "IS 1"
+        /**
+         * Legacy unique key kept for compatibility with older migrations.
+         * New reusable sections should use departmentId + yearLevel + name.
+         */
         termDeptYearNameUnique: "idx_sec_term_dept_yr_name_u",
+        deptYearNameUnique: "idx_sec_dept_yr_name_u",
     },
     CLASSES: {
         termDept: "idx_classes_term_dept",
@@ -522,7 +530,11 @@ export type FirstLoginUser = {
 };
 
 export type Section = {
-    termId: string;
+    /**
+     * Reusable sections are no longer term-bound.
+     * Legacy docs may still include termId during the transition.
+     */
+    termId?: string | null;
     departmentId: string;
     programId?: string | null;
     subjectId?: string | null;
@@ -538,8 +550,8 @@ export type Section = {
     yearLevel: SectionYearLevelValue;
 
     /**
-     * ✅ Cached from the linked academic term so section filtering can match
-     * the same Semester and Academic Term controls used by Subjects/Schedules.
+     * Legacy cached academic-term metadata kept only for old records.
+     * New reusable sections should not persist these fields.
      */
     semester?: string | null;
     academicTermLabel?: string | null;

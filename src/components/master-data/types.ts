@@ -46,7 +46,7 @@ export type AcademicTermDoc = {
 
 export type SectionDoc = {
     $id: string
-    termId: string
+    termId?: string | null
     departmentId: string
     programId?: string | null
     subjectId?: string | null

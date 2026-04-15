@@ -465,7 +465,11 @@ export function sectionMatchesSubjectFilters({
     }
 
     if (normalizedAcademicTermFilter && normalizedAcademicTermFilter !== normalizeToken(SUBJECT_FILTER_ALL_VALUE)) {
-        if (!sectionAcademicTermTokens.some((token) => subjectFilterValuesMatch(token, normalizedAcademicTermFilter))) {
+        const hasStoredAcademicTermScope = sectionAcademicTermTokens.length > 0
+        if (
+            hasStoredAcademicTermScope &&
+            !sectionAcademicTermTokens.some((token) => subjectFilterValuesMatch(token, normalizedAcademicTermFilter))
+        ) {
             return false
         }
     }

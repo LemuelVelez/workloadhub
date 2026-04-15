@@ -461,7 +461,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label>Semester</Label>
+                                    <Label>Reference Semester</Label>
                                     <Input value={vm.subjectSemester || "—"} disabled />
                                     <div className="text-xs text-muted-foreground">
                                         Filled automatically from the selected semester.
@@ -686,18 +686,18 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.sectionEditing ? "Edit Section" : "Add Section"}</DialogTitle>
                         <DialogDescription>
-                            Sections are linked to Subject or multiple Subjects, College, Program, Year Level, and Semester so schedules only show the correct sections for the active scope.
+                            Sections are reusable across academic years. Use the reference semester below only to tailor linked subject choices, while the saved section stays reusable every year.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <Label>Semester</Label>
+                            <Label>Reference Semester</Label>
                             {vm.sectionEditing ? (
                                 <div className="grid gap-2">
                                     <Input value={vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
                                     <div className="text-xs text-muted-foreground">
-                                        Semester cannot be changed once created (recommended).
+                                        Used only as a reference for linked subject matching.
                                     </div>
                                 </div>
                             ) : (
@@ -711,7 +711,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                     }}
                                 >
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select Semester" />
+                                        <SelectValue placeholder="Select Reference Semester" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {vm.terms.map((t) => (
@@ -742,16 +742,16 @@ export function MasterDataDialogs({ vm }: Props) {
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="grid gap-2">
-                                <Label>Semester</Label>
-                                <Input value={vm.sectionSemester || "—"} disabled />
+                                <Label>Reference Semester</Label>
+                                <Input value={vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
                                 <div className="text-xs text-muted-foreground">
-                                    Filled automatically from the selected semester.
+                                    Used only to tailor the linked subject list. The saved section remains reusable across school years.
                                 </div>
                             </div>
 
                             <div className="grid gap-2">
-                                <Label>Semester</Label>
-                                <Input value={vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
+                                <Label>Semester Token</Label>
+                                <Input value={vm.sectionSemester || "—"} disabled />
                             </div>
                         </div>
                         <div className="grid gap-2">
@@ -805,7 +805,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                 <div className="space-y-2 p-3">
                                     {vm.sectionSubjectsForSelectedScope.length === 0 ? (
                                         <div className="text-sm text-muted-foreground">
-                                            No matching subjects found.
+                                            No matching subjects found for the selected reusable section scope.
                                         </div>
                                     ) : (
                                         vm.sectionSubjectsForSelectedScope.map((subject) => {

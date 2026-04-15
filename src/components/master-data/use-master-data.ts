@@ -361,15 +361,6 @@ function buildSectionDisplayLabel(
     return `${normalizedYearLevel} - ${normalizedName}`
 }
 
-function formatSectionSubjectPersistenceError(error: any) {
-    const message = str(error?.message)
-
-    if (message && /subjectids/i.test(message) && /(attribute|column|schema|unknown|invalid)/i.test(message)) {
-        return "Backend is missing sections.subjectIds. Run migration 013_add_section_subject_ids, then try again."
-    }
-
-    return message || "Failed to save section."
-}
 
 export function useMasterDataManagement() {
     const [tab, setTab] = React.useState<MasterTab>("colleges")
@@ -1199,7 +1190,10 @@ export function useMasterDataManagement() {
             return
         }
 
-        setSectionTermId(str(sectionEditing.termId))
+        const fallbackReferenceTermId = str(sectionEditing.termId) || str(selectedTermId)
+        const fallbackReferenceTerm = terms.find((term) => str(term.$id) === fallbackReferenceTermId)
+
+        setSectionTermId(fallbackReferenceTermId)
         setSectionCollegeId(str(sectionEditing.departmentId))
         setSectionProgramId(sectionEditing.programId ? str(sectionEditing.programId) : "__none__")
         setSectionSubjectIds(
@@ -1209,8 +1203,10 @@ export function useMasterDataManagement() {
                     ? [str(sectionEditing.subjectId)]
                     : []
         )
-        setSectionSemester(str(sectionEditing.semester))
-        setSectionAcademicTermLabel(str(sectionEditing.academicTermLabel) || termLabel(terms, str(sectionEditing.termId)))
+        setSectionSemester(str(sectionEditing.semester) || str(fallbackReferenceTerm?.semester))
+        setSectionAcademicTermLabel(
+            str(sectionEditing.academicTermLabel) || termLabel(terms, fallbackReferenceTermId)
+        )
         setSectionYear(normalizeSectionYearLevelValue(sectionEditing.yearLevel) || "1")
         setSectionName(normalizeSectionNameValue(sectionEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
         setSectionStudentCount(sectionEditing.studentCount != null ? String(sectionEditing.studentCount) : "")
@@ -1270,22 +1266,15 @@ export function useMasterDataManagement() {
     }, [sectionSubjectIds.length, sectionSubjectsForSelectedScope])
 
     async function saveSection() {
-        const termId = str(sectionTermId)
+        const referenceTermId = str(sectionTermId)
         const departmentId = str(sectionCollegeId)
         const programId = str(sectionProgramId) === "__none__" ? null : str(sectionProgramId)
-        const selectedTerm = terms.find((term) => str(term.$id) === termId)
         const subjectIds = Array.from(new Set(sectionSubjectIds.map((subjectId) => str(subjectId)).filter(Boolean)))
         const primarySubjectId = subjectIds[0] ?? ""
-        const semester = str(selectedTerm?.semester)
-        const academicTermLabel = termLabel(terms, termId)
         const yearLevel = buildStoredSectionYearLevel(sectionYear, programId, programs)
         const yearNumber = extractSectionYearNumber(yearLevel)
         const name = normalizeSectionNameValue(sectionName)
 
-        if (!termId) {
-            toast.error("Semester is required for Sections.")
-            return
-        }
         if (!departmentId) {
             toast.error("College is required for Sections.")
             return
@@ -1315,37 +1304,32 @@ export function useMasterDataManagement() {
         }
 
         const payload: any = {
-            termId,
             departmentId,
             programId,
             ...subjectPayload,
             yearLevel,
-            semester: semester || null,
-            academicTermLabel: academicTermLabel || null,
             name,
             studentCount,
             isActive: Boolean(sectionActive),
         }
 
         try {
-            const duplicateResult = await databases.listDocuments(
-                DATABASE_ID,
-                COLLECTIONS.SECTIONS,
-                [
-                    Query.equal("termId", termId),
-                    Query.equal("departmentId", departmentId),
-                    Query.equal("yearLevel", yearLevel),
-                    Query.equal("name", name),
-                    Query.limit(100),
-                ]
-            )
+            const conflictingSection = sections.find((doc: any) => {
+                if (String(doc?.$id ?? "") === String(editingSectionId ?? "")) return false
+                if (str(doc?.departmentId) !== departmentId) return false
+                if (normalizeSectionYearLevelValue(doc?.yearLevel) !== yearLevel) return false
+                if (normalizeSectionNameValue(doc?.name) !== name) return false
 
-            const conflictingSection = (duplicateResult?.documents ?? []).find(
-                (doc: any) => String(doc?.$id ?? "") !== String(editingSectionId ?? "")
-            )
+                const existingProgramId = str(doc?.programId)
+                if (programId || existingProgramId) {
+                    return existingProgramId === str(programId)
+                }
+
+                return true
+            })
 
             if (conflictingSection) {
-                toast.error("Section already exists for this term/college/year/name.")
+                toast.error("Section already exists for this reusable college/program/year/name scope.")
                 return
             }
 
@@ -1354,14 +1338,18 @@ export function useMasterDataManagement() {
                 toast.success("Section updated.")
             } else {
                 await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), payload)
-                toast.success("Section created.")
+                toast.success(
+                    referenceTermId
+                        ? "Section created. The selected semester was used only as a subject-matching reference."
+                        : "Section created."
+                )
             }
 
             setSectionOpen(false)
             setSectionEditing(null)
             await refreshAll()
         } catch (e: any) {
-            toast.error(formatSectionSubjectPersistenceError(e))
+            toast.error(e?.message || "Failed to save Section.")
         }
     }
 
@@ -1491,11 +1479,7 @@ export function useMasterDataManagement() {
         })
     }, [facultyProfiles, q, facultyUserMap])
 
-    const visibleSectionsByTerm = React.useMemo(() => {
-        const termId = str(selectedTermId)
-        if (!termId) return sections
-        return sections.filter((s) => str(s.termId) === termId)
-    }, [sections, selectedTermId])
+    const visibleSectionsByTerm = React.useMemo(() => sections, [sections])
 
     const filteredSections = React.useMemo(() => {
         const base = visibleSectionsByTerm

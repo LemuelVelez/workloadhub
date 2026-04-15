@@ -259,7 +259,6 @@ function hasLinkedSectionMetadata(section?: SectionDoc | null) {
         : []
 
     return Boolean(
-        String((section as any).termId || "").trim() &&
         String((section as any).departmentId || "").trim() &&
         (String((section as any).programId || "").trim() || sectionName || String((section as any).subjectId || "").trim() || sectionSubjectIds.length > 0) &&
         (String((section as any).yearLevel || "").trim() || sectionName)
@@ -438,9 +437,10 @@ export default function AdminSchedulesPage() {
     const selectedFormTermDoc = React.useMemo(() => {
         const selectedSection = sections.find((section) => section.$id === formSectionId) || null
         const termId = String(selectedSection?.termId || "").trim()
-        if (!termId) return null
-        return termMap.get(termId) ?? null
-    }, [formSectionId, sections, termMap])
+        if (termId) return termMap.get(termId) ?? null
+        if (activeAcademicTerms.length === 1) return activeAcademicTerms[0] ?? null
+        return null
+    }, [activeAcademicTerms, formSectionId, sections, termMap])
 
     const selectedFormDeptDoc = React.useMemo(() => {
         const selectedSection = sections.find((section) => section.$id === formSectionId) || null
@@ -459,7 +459,7 @@ export default function AdminSchedulesPage() {
 
     React.useEffect(() => {
         setTermScopeSelection(activeAcademicTermIds)
-    }, [activeAcademicTermIds])
+    }, [activeAcademicTermIds, activeAcademicTerms])
 
     const academicTermScopeOptions = React.useMemo<AcademicTermScopeOption[]>(
         () =>
@@ -602,9 +602,10 @@ export default function AdminSchedulesPage() {
 
             if (cachedLabel) return cachedLabel
             if (resolvedSchoolYear && resolvedSemester) return `${resolvedSchoolYear} • ${resolvedSemester}`
+            if (selectedAcademicTermCompositeLabel) return selectedAcademicTermCompositeLabel
             return resolvedSchoolYear || resolvedSemester || cachedSemester
         },
-        [normalizeDisplayValue, termMap]
+        [normalizeDisplayValue, selectedAcademicTermCompositeLabel, termMap]
     )
 
     const programNameMap = React.useMemo(() => {
@@ -1383,7 +1384,6 @@ export default function AdminSchedulesPage() {
             const scopedSections = ((secRes?.documents ?? []) as SectionDoc[])
                 .filter((section) => (section as any).isActive !== false)
                 .filter((section) => hasLinkedSectionMetadata(section))
-                .filter((section) => activeTermIdSet.has(String(section.termId || "").trim()))
                 .map((section) => {
                     const relatedTerm = termMap.get(String(section.termId || "").trim()) ?? null
                     const relatedProgram = programById.get(String((section as any).programId || "").trim()) ?? null
@@ -1396,7 +1396,8 @@ export default function AdminSchedulesPage() {
                         String((relatedTerm as any)?.semester || "").trim()
                     const academicTermLabel =
                         String((section as any).academicTermLabel || "").trim() ||
-                        buildAcademicTermOptionLabel(relatedTerm)
+                        buildAcademicTermOptionLabel(relatedTerm) ||
+                        (activeAcademicTerms.length === 1 ? buildAcademicTermOptionLabel(activeAcademicTerms[0]) : "")
 
                     return {
                         ...section,
@@ -1433,7 +1434,7 @@ export default function AdminSchedulesPage() {
         } finally {
             setEntriesLoading(false)
         }
-    }, [activeAcademicTermIds])
+    }, [activeAcademicTermIds, activeAcademicTerms])
 
     React.useEffect(() => {
         void fetchScheduleContext()
@@ -1501,16 +1502,12 @@ export default function AdminSchedulesPage() {
         const nextYearLevel = normalizeYearLevelValueForStorage(value, scopeSection)
         const nextLabel = normalizeDisplayValue(formatYearLevelFilterLabel(nextYearLevel))
 
-        const scopeTermId =
-            normalizeDisplayValue(scopeSection?.termId) ||
-            normalizeDisplayValue(activeAcademicTermIds[0])
-
         const scopeDepartmentId = normalizeDisplayValue(scopeSection?.departmentId)
         const scopeProgramId = normalizeDisplayValue((scopeSection as any)?.programId)
         const sectionName = getYearLevelSectionName(scopeSection)
 
-        if (!scopeTermId || !scopeDepartmentId || !nextYearLevel || !nextLabel) {
-            toast.error("Please select a scoped section or ensure there is an active term before adding a year level.")
+        if (!scopeDepartmentId || !nextYearLevel || !nextLabel) {
+            toast.error("Please select a scoped section with a college before adding a reusable year level.")
             return
         }
 
@@ -1519,7 +1516,6 @@ export default function AdminSchedulesPage() {
                 return false
             }
 
-            if (normalizeDisplayValue(section.termId) !== scopeTermId) return false
             if (normalizeDisplayValue(section.departmentId) !== scopeDepartmentId) return false
 
             const sectionProgramId = normalizeDisplayValue((section as any)?.programId)
@@ -1530,14 +1526,13 @@ export default function AdminSchedulesPage() {
             return true
         })
         if (exists) {
-            toast.error("That year level already exists in sections for the current scope.")
+            toast.error("That reusable year level already exists for the current college/program scope.")
             return
         }
 
         setYearLevelMutating(true)
         try {
             await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), {
-                termId: scopeTermId,
                 departmentId: scopeDepartmentId,
                 programId: scopeProgramId || null,
                 yearLevel: nextYearLevel,
@@ -1545,14 +1540,14 @@ export default function AdminSchedulesPage() {
                 studentCount: null,
                 isActive: true,
             })
-            toast.success("Year level added.")
+            toast.success("Reusable year level added.")
             await fetchScheduleContext()
         } catch (e: any) {
             toast.error(e?.message || "Failed to add year level.")
         } finally {
             setYearLevelMutating(false)
         }
-    }, [activeAcademicTermIds, fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
+    }, [fetchScheduleContext, getYearLevelSectionName, normalizeDisplayValue, normalizeYearLevelValueForStorage, sections, selectedFormSection])
 
     const renameYearLevelSections = React.useCallback(async (currentValue: string, nextValue: string) => {
         const currentLabel = normalizeDisplayValue(currentValue)

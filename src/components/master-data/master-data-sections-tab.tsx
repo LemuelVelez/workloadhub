@@ -195,7 +195,8 @@ function subjectMatchesSectionScope(
 ) {
     const sectionTermId = String(section.termId ?? "").trim()
     const subjectTermId = String(subject.termId ?? "").trim()
-    if (sectionTermId && subjectTermId && sectionTermId !== subjectTermId) return false
+    const hasLegacySectionTermScope = Boolean(sectionTermId)
+    if (hasLegacySectionTermScope && subjectTermId && sectionTermId !== subjectTermId) return false
 
     const sectionDepartmentId = String(section.departmentId ?? "").trim()
     const subjectDepartmentId = String(subject.departmentId ?? "").trim()
@@ -215,7 +216,7 @@ function subjectMatchesSectionScope(
 
     const sectionSemester = String(section.semester ?? "").trim()
     const subjectSemester = String(subject.semester ?? "").trim()
-    if (sectionSemester && subjectSemester && sectionSemester !== subjectSemester) return false
+    if (hasLegacySectionTermScope && sectionSemester && subjectSemester && sectionSemester !== subjectSemester) return false
 
     return true
 }
@@ -511,7 +512,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 <div>
                     <div className="font-medium">Sections</div>
                     <div className="text-sm text-muted-foreground">
-                        Manage class sections per semester (A–Z + Others), including linked college, program, subject or multiple subjects, year level, semester, and student count.
+                        Manage reusable class sections (A–Z + Others), including linked college, program, subject or multiple subjects, year level, optional reference semester, and student count.
                     </div>
                 </div>
 
@@ -519,7 +520,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     <div className="w-full sm:w-80">
                         <Select value={vm.selectedTermId} onValueChange={vm.setSelectedTermId}>
                             <SelectTrigger>
-                                <SelectValue placeholder="Select Semester" />
+                                <SelectValue placeholder="Select Reference Semester" />
                             </SelectTrigger>
                             <SelectContent>
                                 {vm.terms.length === 0 ? (
@@ -575,7 +576,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 </div>
             ) : vm.filteredSections.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
-                    No sections found for this semester.
+                    No reusable sections found.
                 </div>
             ) : (
                 <>
@@ -644,7 +645,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                             </Button>
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
-                                            {s.academicTermLabel || vm.termLabel(vm.terms, s.termId) || s.semester || "—"}
+                                            {s.academicTermLabel || vm.termLabel(vm.terms, s.termId) || s.semester || "Reusable across terms"}
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
                                             {s.studentCount != null ? s.studentCount : "—"}
