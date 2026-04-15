@@ -273,6 +273,69 @@ function buildSectionSubjectSummary(vm: MasterDataManagementVM, section: { subje
     return labels.length > 0 ? labels.join(", ") : "—"
 }
 
+function sortSubjectsByCodeAndTitle(subjects: any[]) {
+    return subjects
+        .slice()
+        .sort((a, b) => `${a?.code ?? ""} ${a?.title ?? ""}`.localeCompare(`${b?.code ?? ""} ${b?.title ?? ""}`))
+}
+
+function buildSectionDialogSubjectOptions(vm: MasterDataManagementVM, sections: any[]) {
+    const targetSections = sections.filter(Boolean)
+    if (targetSections.length === 0) return []
+
+    const linkedSubjectIds = uniqueStrings(targetSections.flatMap((section) => resolveSectionSubjectIds(section)))
+    const departmentIds = uniqueStrings(targetSections.map((section) => String(section?.departmentId ?? "").trim()))
+
+    const exactMatches = vm.subjects.filter((subject) =>
+        targetSections.some((section) =>
+            subjectMatchesSectionScope(subject, {
+                termId: section.termId,
+                departmentId: section.departmentId,
+                programId: section.programId ?? null,
+                yearLevel: section.yearLevel,
+                semester: section.semester ?? null,
+            })
+        )
+    )
+
+    const linkedSubjects = linkedSubjectIds
+        .map((subjectId) => vm.subjects.find((subject) => String(subject.$id) === subjectId))
+        .filter(Boolean) as any[]
+
+    const merged = new Map<string, any>()
+    const addSubjects = (subjects: any[]) => {
+        for (const subject of subjects) {
+            const subjectId = String(subject?.$id ?? "").trim()
+            if (!subjectId || merged.has(subjectId)) continue
+            merged.set(subjectId, subject)
+        }
+    }
+
+    addSubjects(linkedSubjects)
+    addSubjects(exactMatches)
+
+    if (merged.size === 0) {
+        addSubjects(
+            vm.subjects.filter((subject) => {
+                const subjectDepartmentId = String(subject?.departmentId ?? "").trim()
+                if (departmentIds.length === 0) return true
+                return !subjectDepartmentId || departmentIds.includes(subjectDepartmentId)
+            })
+        )
+    }
+
+    return sortSubjectsByCodeAndTitle(Array.from(merged.values()))
+}
+
+function buildSectionDialogTargetLabels(vm: MasterDataManagementVM, sections: any[]) {
+    return uniqueStrings(
+        sections.map((section) => {
+            const label = buildSectionDisplayLabel(vm, section)
+            return label === "—" ? "" : label
+        })
+    ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+}
+
 function formatSectionBulkEditError(error: any) {
     const message = String(error?.message ?? "").trim()
 
@@ -628,24 +691,15 @@ export function MasterDataSectionsTab({ vm }: Props) {
         return vm.programs.filter((program) => departmentIds.includes(String(program.departmentId ?? "").trim()))
     }, [scopeEditTargetSections, vm.programs])
 
-    const scopeEditSubjectOptions = React.useMemo(() => {
-        if (scopeEditTargetSections.length === 0) return []
+    const scopeEditSubjectOptions = React.useMemo(
+        () => buildSectionDialogSubjectOptions(vm, scopeEditTargetSections),
+        [scopeEditTargetSections, vm]
+    )
 
-        return vm.subjects
-            .filter((subject) =>
-                scopeEditTargetSections.some((section) =>
-                    subjectMatchesSectionScope(subject, {
-                        termId: section.termId,
-                        departmentId: section.departmentId,
-                        programId: section.programId ?? null,
-                        yearLevel: section.yearLevel,
-                        semester: section.semester ?? null,
-                    })
-                )
-            )
-            .slice()
-            .sort((a, b) => `${a.code} ${a.title}`.localeCompare(`${b.code} ${b.title}`))
-    }, [scopeEditTargetSections, vm.subjects])
+    const scopeEditTargetLabels = React.useMemo(
+        () => buildSectionDialogTargetLabels(vm, scopeEditTargetSections),
+        [scopeEditTargetSections, vm]
+    )
 
     const linkTargetSections = React.useMemo(
         () =>
@@ -655,24 +709,15 @@ export function MasterDataSectionsTab({ vm }: Props) {
         [linkTargetSectionIds, vm.sections]
     )
 
-    const linkSubjectOptions = React.useMemo(() => {
-        if (linkTargetSections.length === 0) return []
+    const linkSubjectOptions = React.useMemo(
+        () => buildSectionDialogSubjectOptions(vm, linkTargetSections),
+        [linkTargetSections, vm]
+    )
 
-        return vm.subjects
-            .filter((subject) =>
-                linkTargetSections.some((section) =>
-                    subjectMatchesSectionScope(subject, {
-                        termId: section.termId,
-                        departmentId: section.departmentId,
-                        programId: section.programId ?? null,
-                        yearLevel: section.yearLevel,
-                        semester: section.semester ?? null,
-                    })
-                )
-            )
-            .slice()
-            .sort((a, b) => `${a.code} ${a.title}`.localeCompare(`${b.code} ${b.title}`))
-    }, [linkTargetSections, vm.subjects])
+    const linkTargetSectionLabels = React.useMemo(
+        () => buildSectionDialogTargetLabels(vm, linkTargetSections),
+        [linkTargetSections, vm]
+    )
 
     const allVisibleSelected = sortedSections.length > 0 && selectedSectionIds.length === sortedSections.length
     const someVisibleSelected = selectedSectionIds.length > 0 && !allVisibleSelected
@@ -1764,6 +1809,23 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         </div>
 
                         <div className="grid gap-2">
+                            <label className="text-sm font-medium">Sections</label>
+                            <ScrollArea className="h-36 rounded-md border">
+                                <div className="space-y-2 p-3">
+                                    {linkTargetSectionLabels.length === 0 ? (
+                                        <div className="text-sm text-muted-foreground">No target sections found.</div>
+                                    ) : (
+                                        linkTargetSectionLabels.map((label) => (
+                                            <div key={label} className="rounded-md border px-3 py-2 text-sm">
+                                                {label}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </ScrollArea>
+                        </div>
+
+                        <div className="grid gap-2">
                             <div className="flex items-center justify-between gap-2">
                                 <label className="text-sm font-medium">Linked Subjects</label>
                                 <span className="text-xs text-muted-foreground">{linkSelectedSubjectIds.length} selected</span>
@@ -1836,6 +1898,23 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     <div className="grid gap-4 py-2">
                         <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                             Target sections: <span className="font-medium text-foreground">{scopeEditTargetSections.length}</span>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Sections</label>
+                            <ScrollArea className="h-36 rounded-md border">
+                                <div className="space-y-2 p-3">
+                                    {scopeEditTargetLabels.length === 0 ? (
+                                        <div className="text-sm text-muted-foreground">No target sections found.</div>
+                                    ) : (
+                                        scopeEditTargetLabels.map((label) => (
+                                            <div key={label} className="rounded-md border px-3 py-2 text-sm">
+                                                {label}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </ScrollArea>
                         </div>
 
                         <div className="grid gap-4 sm:grid-cols-2">
