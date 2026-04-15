@@ -3,7 +3,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as React from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  Link2,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db";
@@ -15,8 +21,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +31,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -73,12 +80,28 @@ type MissingAcademicTermGroup = {
   group: SectionGroup;
   linkedTerms: Array<{ id: string; label: string }>;
   missingTerms: Array<{ id: string; label: string }>;
+  currentCoverageLabel: string;
+  legacyCoverageLabels: string[];
+  hasLegacySectionScope: boolean;
+  hasAllTermSubjectCoverage: boolean;
 };
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(
     new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)),
   );
+}
+
+function resolveStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return uniqueStrings(value.map((item) => String(item ?? "").trim()));
+  }
+
+  if (typeof value === "string") {
+    return uniqueStrings(value.split(","));
+  }
+
+  return [] as string[];
 }
 
 function normalizeProgramCode(value?: string | null) {
@@ -99,6 +122,76 @@ function normalizeSectionNameValue(value?: string | null) {
   return String(value ?? "")
     .trim()
     .toUpperCase();
+}
+
+function normalizeSectionCoverageLabel(value?: string | null) {
+  const normalized = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return "";
+  if (/^(?:—|-|–|n\/a|na|null|none)$/i.test(normalized)) return "";
+
+  return normalized;
+}
+
+function normalizeCoverageComparisonValue(value?: string | null) {
+  return normalizeSectionCoverageLabel(value).toUpperCase();
+}
+
+function isAllAcademicTermsCoverageLabel(value?: string | null) {
+  const normalized = normalizeCoverageComparisonValue(value);
+  return (
+    normalized === "ALL ACADEMIC TERMS" ||
+    normalized === "ALL TERMS" ||
+    normalized === "ALL TERM"
+  );
+}
+
+function resolveSectionStoredTermIds(
+  academicTerms: Array<{ id: string; label: string; raw: any }>,
+  section: any,
+) {
+  const directIds = uniqueStrings([
+    String(section?.termId ?? "").trim(),
+    ...resolveStringArray(section?.termIds),
+  ]);
+
+  if (directIds.length > 0) return directIds;
+
+  const storedLabels = uniqueStrings([
+    normalizeSectionCoverageLabel(section?.academicTermLabel),
+    normalizeSectionCoverageLabel(section?.semester),
+  ]);
+  if (storedLabels.length === 0) return [];
+
+  const normalizedStoredLabels = new Set(
+    storedLabels.map((label) => normalizeCoverageComparisonValue(label)),
+  );
+
+  return academicTerms
+    .filter((term) => {
+      const rawSemester = normalizeSectionCoverageLabel(term?.raw?.semester);
+      return (
+        normalizedStoredLabels.has(normalizeCoverageComparisonValue(term.label)) ||
+        normalizedStoredLabels.has(normalizeCoverageComparisonValue(rawSemester))
+      );
+    })
+    .map((term) => term.id);
+}
+
+function extractSectionYearNumber(value?: string | number | null) {
+  const normalized = normalizeSectionYearLevelValue(value);
+  if (!normalized) return "";
+
+  const prefixedMatch = normalized.match(/^(?:CS|IS)\s+([1-9]\d*)$/);
+  if (prefixedMatch) return prefixedMatch[1];
+
+  const directMatch = normalized.match(/^([1-9]\d*)$/);
+  if (directMatch) return directMatch[1];
+
+  const trailingMatch = normalized.match(/([1-9]\d*)$/);
+  return trailingMatch?.[1] ?? "";
 }
 
 function resolveProgramPrefix(
@@ -183,20 +276,62 @@ function resolveSectionSubjectIds(section: {
   subjectId?: string | null;
   subjectIds?: string[] | string | null;
 }) {
-  const values = Array.isArray(section.subjectIds)
-    ? section.subjectIds
-    : typeof section.subjectIds === "string"
-      ? section.subjectIds.split(",")
-      : [];
+  const normalized = resolveStringArray(section.subjectIds);
 
-  const normalized = values
-    .map((value) => String(value ?? "").trim())
-    .filter(Boolean);
-
-  if (normalized.length > 0) return Array.from(new Set(normalized));
+  if (normalized.length > 0) return normalized;
 
   const fallback = String(section.subjectId ?? "").trim();
   return fallback ? [fallback] : [];
+}
+
+function resolveSubjectProgramIds(subject?: {
+  programId?: string | null;
+  programIds?: string[] | string | null;
+}) {
+  const normalized = resolveStringArray(subject?.programIds);
+  if (normalized.length > 0) return normalized;
+
+  const fallback = String(subject?.programId ?? "").trim();
+  return fallback ? [fallback] : [];
+}
+
+function resolveSubjectYearLevels(subject?: {
+  yearLevel?: string | number | null;
+  yearLevels?: Array<string | number> | string | null;
+}) {
+  const arrayValues = Array.isArray(subject?.yearLevels)
+    ? subject?.yearLevels
+    : typeof subject?.yearLevels === "string"
+      ? subject.yearLevels.split(",")
+      : [];
+
+  const normalized = uniqueStrings(
+    arrayValues.map((value) => extractSectionYearNumber(value) || String(value ?? "").trim()),
+  );
+  if (normalized.length > 0) return normalized;
+
+  const fallback =
+    extractSectionYearNumber(subject?.yearLevel) ||
+    normalizeSectionYearLevelValue(subject?.yearLevel);
+  return fallback ? [fallback] : [];
+}
+
+function resolveSubjectSectionIds(subject?: any) {
+  const normalized = uniqueStrings([
+    ...resolveStringArray(subject?.sectionIds),
+    String(subject?.sectionId ?? "").trim(),
+  ]);
+
+  return normalized;
+}
+
+function resolveSubjectLinkedSectionIds(subject?: any) {
+  const normalized = uniqueStrings([
+    ...resolveStringArray(subject?.linkedSectionIds),
+    String(subject?.linkedSectionId ?? "").trim(),
+  ]);
+
+  return normalized;
 }
 
 function buildSectionSubjectSummary(
@@ -224,18 +359,69 @@ function formatSectionBulkEditError(error: any) {
     return "Backend is missing sections.subjectIds. Run migration 013_add_section_subject_ids.";
   }
 
+  if (
+    message &&
+    /(sectionids|linkedsectionids|linkedsectionid|sectionid)/i.test(message) &&
+    /(attribute|column|schema|unknown|invalid)/i.test(message)
+  ) {
+    return "Backend is missing subject section-link attributes. Run migration 019_link_sections_to_subjects_and_terms.";
+  }
+
   return message || "Update failed.";
 }
 
-function normalizeSectionCoverageLabel(value?: string | null) {
-  const normalized = String(value ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
+async function updateDocumentIgnoringUnknownAttributes(
+  collectionId: string,
+  documentId: string,
+  payload: Record<string, any>,
+) {
+  const ignoredKeys: string[] = [];
+  const nextPayload = { ...payload };
 
-  if (!normalized) return "";
-  if (/^(?:—|-|–|n\/a|na|null|none)$/i.test(normalized)) return "";
+  while (true) {
+    const writableKeys = Object.keys(nextPayload);
+    if (writableKeys.length === 0) {
+      return {
+        applied: false,
+        ignoredKeys,
+      };
+    }
 
-  return normalized;
+    try {
+      await databases.updateDocument(
+        DATABASE_ID,
+        collectionId,
+        documentId,
+        nextPayload,
+      );
+
+      return {
+        applied: true,
+        ignoredKeys,
+      };
+    } catch (error: any) {
+      const message = String(error?.message ?? "").trim();
+      const unknownAttributeMatch = message.match(
+        /Unknown attribute:\s*"([^"]+)"/i,
+      );
+      const rawUnknownKey = String(unknownAttributeMatch?.[1] ?? "").trim();
+
+      if (!rawUnknownKey) {
+        throw error;
+      }
+
+      const matchedKey = writableKeys.find(
+        (key) => key.toLowerCase() === rawUnknownKey.toLowerCase(),
+      );
+
+      if (!matchedKey) {
+        throw error;
+      }
+
+      delete nextPayload[matchedKey];
+      ignoredKeys.push(matchedKey);
+    }
+  }
 }
 
 function hasOwnSectionField(section: any, key: string) {
@@ -377,6 +563,40 @@ function buildSectionGroupScopeSummary(
   );
 }
 
+function subjectMatchesSectionScope(subject: any, section: any) {
+  const sectionDepartmentId = String(section?.departmentId ?? "").trim();
+  const subjectDepartmentId = String(subject?.departmentId ?? "").trim();
+  if (
+    sectionDepartmentId &&
+    subjectDepartmentId &&
+    sectionDepartmentId !== subjectDepartmentId
+  ) {
+    return false;
+  }
+
+  const sectionProgramId = String(section?.programId ?? "").trim();
+  const subjectProgramIds = resolveSubjectProgramIds(subject);
+  if (
+    sectionProgramId &&
+    subjectProgramIds.length > 0 &&
+    !subjectProgramIds.includes(sectionProgramId)
+  ) {
+    return false;
+  }
+
+  const sectionYearNumber = extractSectionYearNumber(section?.yearLevel);
+  const subjectYearLevels = resolveSubjectYearLevels(subject);
+  if (
+    sectionYearNumber &&
+    subjectYearLevels.length > 0 &&
+    !subjectYearLevels.includes(sectionYearNumber)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function compareByCreatedAt(a: any, b: any) {
   const aTime = Date.parse(String(a?.$createdAt ?? "")) || 0;
   const bTime = Date.parse(String(b?.$createdAt ?? "")) || 0;
@@ -433,10 +653,85 @@ function buildMergedSectionPayload(
   };
 }
 
+function buildSubjectScopeLinkPayload(input: {
+  subject: any;
+  section: any;
+  term: any;
+  vm: MasterDataManagementVM;
+}) {
+  const { subject, section, term, vm } = input;
+
+  const sectionId = String(section?.$id ?? "").trim();
+  const sectionProgramId = String(section?.programId ?? "").trim();
+  const sectionDepartmentId = String(section?.departmentId ?? "").trim();
+  const sectionYearLevel =
+    extractSectionYearNumber(section?.yearLevel) ||
+    normalizeSectionYearLevelValue(section?.yearLevel);
+  const sectionSemester =
+    normalizeSectionCoverageLabel(term?.semester) ||
+    normalizeSectionCoverageLabel(subject?.semester) ||
+    normalizeSectionCoverageLabel(section?.semester) ||
+    null;
+  const nextTermId =
+    String(term?.$id ?? "").trim() ||
+    String(subject?.termId ?? "").trim() ||
+    null;
+
+  const programIds = uniqueStrings([
+    ...resolveSubjectProgramIds(subject),
+    sectionProgramId,
+  ]);
+
+  const yearLevels = uniqueStrings([
+    ...resolveSubjectYearLevels(subject),
+    sectionYearLevel,
+  ]);
+
+  const sectionIds = uniqueStrings([
+    ...resolveSubjectSectionIds(subject),
+    sectionId,
+  ]);
+
+  const linkedSectionIds = uniqueStrings([
+    ...resolveSubjectLinkedSectionIds(subject),
+    sectionId,
+  ]);
+
+  const preferredProgramId =
+    sectionProgramId ||
+    getPreferredStringValue(programIds) ||
+    String(subject?.programId ?? "").trim() ||
+    null;
+
+  const preferredYearLevel =
+    sectionYearLevel ||
+    getPreferredStringValue(yearLevels) ||
+    String(subject?.yearLevel ?? "").trim() ||
+    null;
+
+  return {
+    departmentId: sectionDepartmentId || String(subject?.departmentId ?? "").trim() || null,
+    programId: preferredProgramId,
+    programIds,
+    yearLevel:
+      preferredYearLevel && preferredProgramId
+        ? buildStoredSectionYearLevel(vm, preferredYearLevel, preferredProgramId)
+        : preferredYearLevel,
+    yearLevels,
+    termId: nextTermId,
+    semester: sectionSemester,
+    sectionId: sectionIds[0] ?? null,
+    sectionIds,
+    linkedSectionId: linkedSectionIds[0] ?? null,
+    linkedSectionIds,
+  };
+}
+
 export function MasterDataSectionsTab({ vm }: Props) {
+  const [selectedGroupKeys, setSelectedGroupKeys] = React.useState<string[]>([]);
+
   const [missingTermDialogOpen, setMissingTermDialogOpen] =
     React.useState(false);
-  const [sectionTermLinkBusy, setSectionTermLinkBusy] = React.useState(false);
 
   const [selectedSectionDetail, setSelectedSectionDetail] =
     React.useState<SectionGroup | null>(null);
@@ -449,6 +744,20 @@ export function MasterDataSectionsTab({ vm }: Props) {
   const [subjectViewerSubjects, setSubjectViewerSubjects] = React.useState<
     any[]
   >([]);
+
+  const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
+  const [linkDialogTitle, setLinkDialogTitle] =
+    React.useState("Link Sections to Subjects and Academic Term");
+  const [linkDialogDescription, setLinkDialogDescription] =
+    React.useState("");
+  const [linkTargetGroupKeys, setLinkTargetGroupKeys] = React.useState<string[]>(
+    [],
+  );
+  const [linkTargetTermIds, setLinkTargetTermIds] = React.useState<string[]>([]);
+  const [linkSelectedSubjectIds, setLinkSelectedSubjectIds] = React.useState<
+    string[]
+  >([]);
+  const [linkUpdating, setLinkUpdating] = React.useState(false);
 
   const [sectionDedupeBusy, setSectionDedupeBusy] = React.useState(false);
   const [pendingSectionAction, setPendingSectionAction] =
@@ -494,7 +803,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
         );
         const linkedSubjects = uniqueSubjectIds
           .map((subjectId) =>
-            vm.subjects.find((subject) => subject.$id === subjectId),
+            vm.subjects.find((subject) => String(subject.$id) === subjectId),
           )
           .filter(Boolean)
           .sort((a, b) =>
@@ -522,6 +831,23 @@ export function MasterDataSectionsTab({ vm }: Props) {
       );
   }, [sortedSections, vm]);
 
+  const visibleGroupKeySet = React.useMemo(
+    () => new Set(visibleGroups.map((group) => group.key)),
+    [visibleGroups],
+  );
+
+  React.useEffect(() => {
+    setSelectedGroupKeys((current) =>
+      current.filter((key) => visibleGroupKeySet.has(key)),
+    );
+  }, [visibleGroupKeySet]);
+
+  const selectedVisibleGroups = React.useMemo(
+    () =>
+      visibleGroups.filter((group) => selectedGroupKeys.includes(group.key)),
+    [selectedGroupKeys, visibleGroups],
+  );
+
   const allSectionGroups = React.useMemo<SectionGroup[]>(() => {
     const grouped = new Map<string, any[]>();
 
@@ -540,7 +866,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
         );
         const linkedSubjects = uniqueSubjectIds
           .map((subjectId) =>
-            vm.subjects.find((subject) => subject.$id === subjectId),
+            vm.subjects.find((subject) => String(subject.$id) === subjectId),
           )
           .filter(Boolean)
           .sort((a, b) =>
@@ -593,6 +919,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
         .map((term) => ({
           id: String(term?.$id ?? "").trim(),
           label: resolveAcademicTermLabel(vm, term),
+          raw: term,
         }))
         .filter((term) => term.id)
         .sort((a, b) =>
@@ -608,8 +935,14 @@ export function MasterDataSectionsTab({ vm }: Props) {
     () =>
       visibleGroups
         .map((group) => {
+          const hasLegacySectionScope = group.sections.some((section) =>
+            hasLegacySectionTermScope(section),
+          );
+
           const linkedTerms = uniqueStrings(
-            group.sections.map((section) => String(section.termId ?? "").trim()),
+            group.sections.flatMap((section) =>
+              resolveSectionStoredTermIds(academicTerms, section),
+            ),
           )
             .map((termId) => ({
               id: termId,
@@ -625,22 +958,46 @@ export function MasterDataSectionsTab({ vm }: Props) {
               }),
             );
 
-          if (!group.sections.some((section) => hasLegacySectionTermScope(section))) {
-            return {
-              group,
-              linkedTerms,
-              missingTerms: [],
-            };
-          }
-
-          const missingTerms = academicTerms.filter(
-            (term) => !linkedTerms.some((linkedTerm) => linkedTerm.id === term.id),
+          const legacyCoverageLabels = uniqueStrings(
+            group.sections.flatMap((section) => [
+              normalizeSectionCoverageLabel(section?.academicTermLabel),
+              normalizeSectionCoverageLabel(vm.termLabel(vm.terms, section?.termId)),
+              normalizeSectionCoverageLabel(section?.semester),
+              ...resolveStringArray(section?.termLabels),
+            ]),
           );
+
+          const hasAllTermSubjectCoverage =
+            !hasLegacySectionScope ||
+            legacyCoverageLabels.some((label) =>
+              isAllAcademicTermsCoverageLabel(label),
+            ) ||
+            linkedTerms.length === 0;
+
+          const missingTerms = hasAllTermSubjectCoverage
+            ? []
+            : academicTerms
+                .filter(
+                  (term) =>
+                    !linkedTerms.some((linkedTerm) => linkedTerm.id === term.id),
+                )
+                .map((term) => ({ id: term.id, label: term.label }));
 
           return {
             group,
             linkedTerms,
             missingTerms,
+            currentCoverageLabel: hasAllTermSubjectCoverage
+              ? "All Academic Terms"
+              : linkedTerms.length > 0
+                ? linkedTerms.map((term) => term.label).join(", ")
+                : legacyCoverageLabels.join(", ") || "All Academic Terms",
+            hasAllTermSubjectCoverage,
+            hasLegacySectionScope,
+            legacyCoverageLabels:
+              hasAllTermSubjectCoverage && legacyCoverageLabels.length === 0
+                ? ["All Academic Terms"]
+                : legacyCoverageLabels,
           };
         })
         .filter((result) => result.missingTerms.length > 0),
@@ -656,6 +1013,26 @@ export function MasterDataSectionsTab({ vm }: Props) {
     [missingAcademicTermGroups],
   );
 
+  const allVisibleSelected =
+    visibleGroups.length > 0 && selectedGroupKeys.length === visibleGroups.length;
+  const someVisibleSelected =
+    selectedGroupKeys.length > 0 && selectedGroupKeys.length < visibleGroups.length;
+
+  const toggleVisibleSelection = React.useCallback(
+    (checked: boolean) => {
+      setSelectedGroupKeys(checked ? visibleGroups.map((group) => group.key) : []);
+    },
+    [visibleGroups],
+  );
+
+  const toggleGroupSelection = React.useCallback((groupKey: string, checked: boolean) => {
+    setSelectedGroupKeys((current) =>
+      checked
+        ? Array.from(new Set([...current, groupKey]))
+        : current.filter((key) => key !== groupKey),
+    );
+  }, []);
+
   const openMissingAcademicTermDialog = React.useCallback(() => {
     if (visibleGroups.length === 0) {
       toast.error("No visible sections found.");
@@ -669,6 +1046,168 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
     setMissingTermDialogOpen(true);
   }, [academicTerms.length, visibleGroups.length]);
+
+  const openSubjectViewer = React.useCallback(
+    (config: { title: string; description: string; subjects: any[] }) => {
+      setSubjectViewerTitle(config.title);
+      setSubjectViewerDescription(config.description);
+      setSubjectViewerSubjects(config.subjects);
+      setSubjectViewerOpen(true);
+    },
+    [],
+  );
+
+  const openLinkDialog = React.useCallback(
+    (config: {
+      title: string;
+      description: string;
+      groupKeys: string[];
+      initialSubjectIds?: string[];
+      initialTermIds?: string[];
+    }) => {
+      const normalizedGroupKeys = uniqueStrings(config.groupKeys);
+      if (normalizedGroupKeys.length === 0) {
+        toast.error("No section groups selected.");
+        return;
+      }
+
+      setLinkDialogTitle(config.title);
+      setLinkDialogDescription(config.description);
+      setLinkTargetGroupKeys(normalizedGroupKeys);
+      setLinkSelectedSubjectIds(uniqueStrings(config.initialSubjectIds ?? []));
+      setLinkTargetTermIds(uniqueStrings(config.initialTermIds ?? []));
+      setLinkDialogOpen(true);
+    },
+    [],
+  );
+
+  const openLinkSelectedSectionsDialog = React.useCallback(() => {
+    const targetGroups = selectedVisibleGroups.length > 0 ? selectedVisibleGroups : visibleGroups;
+    if (targetGroups.length === 0) {
+      toast.error("No visible section groups found.");
+      return;
+    }
+
+    openLinkDialog({
+      title:
+        selectedVisibleGroups.length > 0
+          ? "Link Selected Sections"
+          : "Link All Visible Sections",
+      description:
+        selectedVisibleGroups.length > 0
+          ? "Link the selected section groups to subjects and one or more academic terms."
+          : "Link all visible section groups to subjects and one or more academic terms.",
+      groupKeys: targetGroups.map((group) => group.key),
+      initialSubjectIds: uniqueStrings(
+        targetGroups.flatMap((group) => group.uniqueSubjectIds),
+      ),
+    });
+  }, [openLinkDialog, selectedVisibleGroups, visibleGroups]);
+
+  const linkTargetGroups = React.useMemo(
+    () =>
+      visibleGroups.filter((group) => linkTargetGroupKeys.includes(group.key)),
+    [linkTargetGroupKeys, visibleGroups],
+  );
+
+  const linkTargetSections = React.useMemo(
+    () => linkTargetGroups.flatMap((group) => group.sections),
+    [linkTargetGroups],
+  );
+
+  const linkTargetTerms = React.useMemo(
+    () =>
+      academicTerms
+        .filter((term) => linkTargetTermIds.includes(term.id))
+        .map((term) => term.raw),
+    [academicTerms, linkTargetTermIds],
+  );
+
+  const linkTargetTermIdSet = React.useMemo(
+    () => new Set(linkTargetTermIds),
+    [linkTargetTermIds],
+  );
+
+  const linkSelectedAcademicTerms = React.useMemo(
+    () => academicTerms.filter((term) => linkTargetTermIds.includes(term.id)),
+    [academicTerms, linkTargetTermIds],
+  );
+
+  const allLinkTermsSelected =
+    academicTerms.length > 0 &&
+    linkSelectedAcademicTerms.length === academicTerms.length;
+
+  const someLinkTermsSelected =
+    linkSelectedAcademicTerms.length > 0 && !allLinkTermsSelected;
+
+  const toggleAllLinkTerms = React.useCallback(
+    (checked: boolean) => {
+      setLinkTargetTermIds(checked ? academicTerms.map((term) => term.id) : []);
+    },
+    [academicTerms],
+  );
+
+  const toggleLinkTargetTerm = React.useCallback((termId: string, checked: boolean) => {
+    setLinkTargetTermIds((current) =>
+      checked
+        ? Array.from(new Set([...current, termId]))
+        : current.filter((id) => id !== termId),
+    );
+  }, []);
+
+  const linkCandidateSubjects = React.useMemo(() => {
+    const sections = linkTargetSections;
+    if (sections.length === 0) return [] as any[];
+
+    return vm.subjects
+      .filter((subject) => {
+        if (!sections.some((section) => subjectMatchesSectionScope(subject, section))) {
+          return false;
+        }
+
+        const subjectTermId = resolveSubjectTermId(subject);
+        if (linkTargetTermIdSet.size === 0) {
+          return true;
+        }
+
+        return !subjectTermId || linkTargetTermIdSet.has(subjectTermId);
+      })
+      .sort((a, b) =>
+        `${a?.code} ${a?.title}`.localeCompare(`${b?.code} ${b?.title}`),
+      );
+  }, [linkTargetSections, linkTargetTermIdSet, vm.subjects]);
+
+  const linkAllCandidateSubjectIds = React.useMemo(
+    () => linkCandidateSubjects.map((subject) => String(subject.$id)),
+    [linkCandidateSubjects],
+  );
+
+  React.useEffect(() => {
+    setLinkSelectedSubjectIds((current) =>
+      current.filter((subjectId) => linkAllCandidateSubjectIds.includes(subjectId)),
+    );
+  }, [linkAllCandidateSubjectIds]);
+
+  const allLinkCandidatesSelected =
+    linkCandidateSubjects.length > 0 &&
+    linkAllCandidateSubjectIds.every((subjectId) =>
+      linkSelectedSubjectIds.includes(subjectId),
+    );
+
+  const someLinkCandidatesSelected =
+    linkSelectedSubjectIds.length > 0 && !allLinkCandidatesSelected;
+
+  const toggleAllLinkCandidates = React.useCallback((checked: boolean) => {
+    setLinkSelectedSubjectIds(checked ? linkAllCandidateSubjectIds : []);
+  }, [linkAllCandidateSubjectIds]);
+
+  const toggleLinkSubject = React.useCallback((subjectId: string, checked: boolean) => {
+    setLinkSelectedSubjectIds((current) =>
+      checked
+        ? Array.from(new Set([...current, subjectId]))
+        : current.filter((id) => id !== subjectId),
+    );
+  }, []);
 
   const mergeSectionGroups = React.useCallback(
     async (
@@ -834,98 +1373,178 @@ export function MasterDataSectionsTab({ vm }: Props) {
     pendingSectionActionSubmitting,
     sectionMergeKeepByGroup,
   ]);
+
   const linkVisibleSectionGroupsAcrossAllTerms = React.useCallback(
     async (groups: MissingAcademicTermGroup[]) => {
       if (groups.length === 0) {
         toast.success(
-          "All visible section groups are already reusable across all academic terms.",
+          "All visible section groups already have academic-term coverage.",
         );
         return;
       }
 
-      setSectionTermLinkBusy(true);
-      try {
-        let updatedGroups = 0;
-        let updatedSections = 0;
-        let skippedSections = 0;
-        const failed: string[] = [];
+      openLinkDialog({
+        title: "Link Visible Sections to Academic Terms",
+        description:
+          "Select one or more academic terms, then choose the subject records that should cover the missing academic-term links for the visible section groups.",
+        groupKeys: groups.map((result) => result.group.key),
+        initialSubjectIds: uniqueStrings(
+          groups.flatMap((result) => result.group.uniqueSubjectIds),
+        ),
+        initialTermIds: uniqueStrings(
+          groups.flatMap((result) =>
+            result.missingTerms.map((term) => term.id),
+          ),
+        ),
+      });
+      setMissingTermDialogOpen(false);
+    },
+    [openLinkDialog],
+  );
 
-        for (const result of groups) {
-          let groupUpdated = false;
+  const saveSectionSubjectAndTermLinks = React.useCallback(async () => {
+    const targetGroups = linkTargetGroups;
+    const targetSections = linkTargetSections;
+    const selectedSubjectIds = uniqueStrings(linkSelectedSubjectIds);
+    const selectedTermIds = uniqueStrings(linkTargetTermIds);
 
-          for (const section of result.group.sections) {
-            if (!hasLegacySectionTermScope(section)) {
-              skippedSections += 1;
-              continue;
-            }
+    if (targetGroups.length === 0 || targetSections.length === 0) {
+      toast.error("No section groups selected for linking.");
+      return;
+    }
 
-            const payload = buildSectionAllTermsUpdatePayload(section);
-            if (Object.keys(payload).length === 0) {
-              skippedSections += 1;
-              continue;
-            }
+    if (selectedTermIds.length === 0) {
+      toast.error("Please select at least one academic term.");
+      return;
+    }
 
-            try {
-              await databases.updateDocument(
-                DATABASE_ID,
-                COLLECTIONS.SECTIONS,
-                section.$id,
-                payload,
-              );
-              updatedSections += 1;
-              groupUpdated = true;
-            } catch (error: any) {
-              failed.push(
-                `${result.group.label} (${formatSectionBulkEditError(error)})`,
-              );
-              break;
-            }
-          }
+    if (selectedSubjectIds.length === 0) {
+      toast.error("Please select at least one subject.");
+      return;
+    }
 
-          if (groupUpdated) {
-            updatedGroups += 1;
-          }
-        }
+    const subjectById = new Map<string, any>(
+      vm.subjects.map((subject) => [String(subject.$id), subject]),
+    );
+    const selectedTermById = new Map(
+      linkTargetTerms.map((term) => [String(term?.$id ?? "").trim(), term]),
+    );
+    const selectedTermSummary =
+      linkSelectedAcademicTerms.length === 1
+        ? linkSelectedAcademicTerms[0]?.label ?? "1 academic term"
+        : `${linkSelectedAcademicTerms.length} academic terms`;
 
-        if (updatedSections > 0) {
-          await vm.refreshAll();
-        }
+    setLinkUpdating(true);
+    try {
+      let updatedSections = 0;
+      let updatedSubjects = 0;
+      let skippedSections = 0;
+      const failed: string[] = [];
 
-        if (updatedSections > 0 && failed.length === 0) {
-          toast.success(
-            `Linked ${updatedGroups} section group${updatedGroups === 1 ? "" : "s"} across all academic terms by clearing legacy term scope on ${updatedSections} section record${updatedSections === 1 ? "" : "s"}.`,
+      for (const section of targetSections) {
+        try {
+          const updateResult = await updateDocumentIgnoringUnknownAttributes(
+            COLLECTIONS.SECTIONS,
+            section.$id,
+            {
+              subjectId: selectedSubjectIds[0] ?? null,
+              subjectIds: selectedSubjectIds,
+              ...buildSectionAllTermsUpdatePayload(section),
+            },
           );
-          return;
-        }
 
-        if (updatedSections > 0) {
-          toast.error(
-            `Linked ${updatedGroups} section group${updatedGroups === 1 ? "" : "s"}, but failed for: ${failed.join(", ")}`,
+          if (updateResult.applied) {
+            updatedSections += 1;
+          } else {
+            skippedSections += 1;
+          }
+        } catch (error: any) {
+          failed.push(
+            `${buildSectionDisplayLabel(vm, section)} (${formatSectionBulkEditError(error)})`,
           );
-          return;
         }
-
-        toast.error(
-          failed.length > 0
-            ? `Failed to link visible sections across all academic terms: ${failed.join(", ")}`
-            : `No section records needed updates. Skipped ${skippedSections} section record${skippedSections === 1 ? "" : "s"}.`,
-        );
-      } finally {
-        setSectionTermLinkBusy(false);
       }
-    },
-    [vm],
-  );
 
-  const openSubjectViewer = React.useCallback(
-    (config: { title: string; description: string; subjects: any[] }) => {
-      setSubjectViewerTitle(config.title);
-      setSubjectViewerDescription(config.description);
-      setSubjectViewerSubjects(config.subjects);
-      setSubjectViewerOpen(true);
-    },
-    [],
-  );
+      for (const subjectId of selectedSubjectIds) {
+        const subject = subjectById.get(subjectId);
+        if (!subject) {
+          failed.push(`Subject ${subjectId} (not found)`);
+          continue;
+        }
+
+        try {
+          const subjectTermId = resolveSubjectTermId(subject);
+          const preferredTerm = subjectTermId
+            ? selectedTermById.get(subjectTermId) ?? null
+            : linkTargetTerms.length === 1
+              ? linkTargetTerms[0] ?? null
+              : null;
+
+          const payload = targetSections.reduce(
+            (currentPayload, section) => ({
+              ...currentPayload,
+              ...buildSubjectScopeLinkPayload({
+                subject: { ...subject, ...currentPayload },
+                section,
+                term: preferredTerm,
+                vm,
+              }),
+            }),
+            {} as Record<string, any>,
+          );
+
+          const updateResult = await updateDocumentIgnoringUnknownAttributes(
+            COLLECTIONS.SUBJECTS,
+            subjectId,
+            payload,
+          );
+
+          if (updateResult.applied) {
+            updatedSubjects += 1;
+          }
+        } catch (error: any) {
+          failed.push(
+            `${String(subject?.code ?? subjectId)} (${formatSectionBulkEditError(error)})`,
+          );
+        }
+      }
+
+      if (updatedSections > 0 || updatedSubjects > 0) {
+        await vm.refreshAll();
+      }
+
+      if (failed.length === 0) {
+        toast.success(
+          `Linked ${updatedSections} section record${updatedSections === 1 ? "" : "s"}, ${updatedSubjects} subject${updatedSubjects === 1 ? "" : "s"}, and applied ${selectedTermSummary}${skippedSections > 0 ? ` while skipping ${skippedSections} section record${skippedSections === 1 ? "" : "s"} with no writable legacy term fields` : ""}.`,
+        );
+        setLinkDialogOpen(false);
+        return;
+      }
+
+      if (updatedSections > 0 || updatedSubjects > 0) {
+        toast.error(
+          `Saved section and subject links with some failures: ${failed.join(", ")}`,
+        );
+        return;
+      }
+
+      toast.error(
+        failed.length > 0
+          ? `Failed to link sections and subjects: ${failed.join(", ")}`
+          : "No section or subject links were updated.",
+      );
+    } finally {
+      setLinkUpdating(false);
+    }
+  }, [
+    linkSelectedAcademicTerms,
+    linkSelectedSubjectIds,
+    linkTargetGroups,
+    linkTargetSections,
+    linkTargetTermIds,
+    linkTargetTerms,
+    vm,
+  ]);
 
   const selectedSectionDetailTermLabels = React.useMemo(
     () =>
@@ -956,9 +1575,8 @@ export function MasterDataSectionsTab({ vm }: Props) {
           <div className="space-y-1">
             <div className="font-medium">Sections</div>
             <div className="text-sm text-muted-foreground">
-              Manage reusable section records that stay available across all
-              academic terms. Use the group actions below for linked-subject
-              updates and duplicate cleanup.
+              Manage reusable section records, link selected or visible section groups
+              to subjects and academic terms, and clean up duplicate records.
             </div>
           </div>
 
@@ -984,7 +1602,14 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 variant="secondary"
                 className={`rounded-full ${wrappingBadgeClassName}`}
               >
-                {sortedSections.length} visible
+                {visibleGroups.length} visible group
+                {visibleGroups.length === 1 ? "" : "s"}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={`rounded-full ${wrappingBadgeClassName}`}
+              >
+                {selectedVisibleGroups.length} selected
               </Badge>
               <Badge
                 variant="outline"
@@ -994,7 +1619,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 {missingAcademicTermGroups.length === 1 ? "" : "s"} still
                 using legacy term scope
               </Badge>
-              <span>Bulk actions apply to the current visible section list.</span>
             </div>
 
             <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
@@ -1004,8 +1628,26 @@ export function MasterDataSectionsTab({ vm }: Props) {
                   variant="outline"
                   size="sm"
                   className={compactActionButtonClassName}
+                  onClick={openLinkSelectedSectionsDialog}
+                  disabled={visibleGroups.length === 0}
+                >
+                  <Link2 className="mr-2 h-4 w-4" />
+                  <span className="min-w-0 truncate">
+                    {selectedVisibleGroups.length > 0
+                      ? `Link Selected Sections (${selectedVisibleGroups.length})`
+                      : `Link All Visible Sections (${visibleGroups.length})`}
+                  </span>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={compactActionButtonClassName}
                   onClick={openMissingAcademicTermDialog}
-                  disabled={visibleGroups.length === 0 || academicTerms.length === 0}
+                  disabled={
+                    visibleGroups.length === 0 || academicTerms.length === 0
+                  }
                 >
                   <span className="min-w-0 truncate">
                     Review Academic Term Coverage
@@ -1021,14 +1663,12 @@ export function MasterDataSectionsTab({ vm }: Props) {
                   Applies to all academic terms
                 </Badge>
 
-
                 <Badge
                   variant="outline"
                   className={`rounded-full ${wrappingBadgeClassName}`}
                 >
                   {missingAcademicTermGroups.length} section group
-                  {missingAcademicTermGroups.length === 1 ? "" : "s"} missing
-                  {" "}
+                  {missingAcademicTermGroups.length === 1 ? "" : "s"} missing{" "}
                   {missingAcademicTermCount} academic term link
                   {missingAcademicTermCount === 1 ? "" : "s"}
                 </Badge>
@@ -1089,72 +1729,109 @@ export function MasterDataSectionsTab({ vm }: Props) {
                       variant="outline"
                       className={`rounded-full ${wrappingBadgeClassName}`}
                     >
+                      {selectedVisibleGroups.length} selected
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={`rounded-full ${wrappingBadgeClassName}`}
+                    >
                       {allDuplicateSectionGroups.length} duplicate group
                       {allDuplicateSectionGroups.length === 1 ? "" : "s"} across
                       all terms
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    Open to view all visible sections below. Duplicate detection
-                    checks all section records across all academic terms.
+                    Select groups below, then use the link action to connect selected
+                    or all visible sections to subjects and one or more academic terms.
                   </div>
                 </div>
               </AccordionTrigger>
 
               <AccordionContent className="border-t px-4 pb-4 pt-4">
                 <div className="space-y-3 sm:hidden">
-                  <div className="flex flex-wrap gap-2">
-                    <Badge
-                      variant="secondary"
-                      className={`rounded-full ${wrappingBadgeClassName}`}
-                    >
-                      {visibleGroups.length} section
-                      {visibleGroups.length === 1 ? "" : "s"}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={`rounded-full ${wrappingBadgeClassName}`}
-                    >
-                      {sortedSections.length} visible record
-                      {sortedSections.length === 1 ? "" : "s"}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={`rounded-full ${wrappingBadgeClassName}`}
-                    >
-                      {allDuplicateSectionGroups.length} duplicate group
-                      {allDuplicateSectionGroups.length === 1 ? "" : "s"}
-                    </Badge>
+                  <div className="flex items-center gap-3 rounded-xl border bg-muted/20 px-3 py-3">
+                    <Checkbox
+                      checked={
+                        allVisibleSelected
+                          ? true
+                          : someVisibleSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={(value) =>
+                        toggleVisibleSelection(Boolean(value))
+                      }
+                      aria-label="Select all visible section groups"
+                    />
+                    <div className="text-sm font-medium">
+                      Select all visible section groups
+                    </div>
                   </div>
 
                   <div className="overflow-hidden rounded-2xl border bg-background">
-                    {visibleGroups.map((group) => (
-                      <div
-                        key={group.key}
-                        className="flex items-center justify-between gap-3 border-b px-3 py-3 last:border-b-0"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="wrap-break-word text-sm font-medium leading-5">
-                            {group.label}
+                    {visibleGroups.map((group) => {
+                      const checked = selectedGroupKeys.includes(group.key);
+                      return (
+                        <div
+                          key={group.key}
+                          className="border-b px-3 py-3 last:border-b-0"
+                        >
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                toggleGroupSelection(group.key, Boolean(value))
+                              }
+                              aria-label={`Select ${group.label}`}
+                            />
+
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="wrap-break-word text-sm font-medium leading-5">
+                                {group.label}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {group.scopeSummary}
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className={compactInlineButtonClassName}
+                                  onClick={() => setSelectedSectionDetail(group)}
+                                >
+                                  Details
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className={compactInlineButtonClassName}
+                                  onClick={() =>
+                                    openLinkDialog({
+                                      title: `Link ${group.label}`,
+                                      description:
+                                        "Link this section group to subjects and one or more academic terms.",
+                                      groupKeys: [group.key],
+                                      initialSubjectIds: group.uniqueSubjectIds,
+                                    })
+                                  }
+                                >
+                                  <Link2 className="mr-2 h-4 w-4" />
+                                  Link
+                                </Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
-
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={compactInlineButtonClassName}
-                          onClick={() => setSelectedSectionDetail(group)}
-                        >
-                          Details
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
                 <div className="hidden sm:block">
-                  <div className="mb-3 flex flex-wrap gap-2">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
                     <Badge
                       variant="secondary"
                       className={`rounded-full ${wrappingBadgeClassName}`}
@@ -1168,6 +1845,13 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     >
                       {sortedSections.length} visible record
                       {sortedSections.length === 1 ? "" : "s"}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={`rounded-full ${wrappingBadgeClassName}`}
+                    >
+                      {selectedVisibleGroups.length} selected group
+                      {selectedVisibleGroups.length === 1 ? "" : "s"}
                     </Badge>
                     <Badge
                       variant="outline"
@@ -1182,28 +1866,78 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-14">
+                            <Checkbox
+                              checked={
+                                allVisibleSelected
+                                  ? true
+                                  : someVisibleSelected
+                                    ? "indeterminate"
+                                    : false
+                              }
+                              onCheckedChange={(value) =>
+                                toggleVisibleSelection(Boolean(value))
+                              }
+                              aria-label="Select all visible section groups"
+                            />
+                          </TableHead>
                           <TableHead>Section</TableHead>
-                          <TableHead className="w-32 text-right">
-                            Details
+                          <TableHead>Scope</TableHead>
+                          <TableHead className="w-40 text-right">
+                            Actions
                           </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {visibleGroups.map((group) => (
                           <TableRow key={group.key}>
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedGroupKeys.includes(group.key)}
+                                onCheckedChange={(value) =>
+                                  toggleGroupSelection(group.key, Boolean(value))
+                                }
+                                aria-label={`Select ${group.label}`}
+                              />
+                            </TableCell>
                             <TableCell className="font-medium">
                               <div className="wrap-break-word">{group.label}</div>
                             </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              <div className="wrap-break-word">
+                                {group.scopeSummary}
+                              </div>
+                            </TableCell>
                             <TableCell className="text-right">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className={compactInlineButtonClassName}
-                                onClick={() => setSelectedSectionDetail(group)}
-                              >
-                                Details
-                              </Button>
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className={compactInlineButtonClassName}
+                                  onClick={() => setSelectedSectionDetail(group)}
+                                >
+                                  Details
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className={compactInlineButtonClassName}
+                                  onClick={() =>
+                                    openLinkDialog({
+                                      title: `Link ${group.label}`,
+                                      description:
+                                        "Link this section group to subjects and one or more academic terms.",
+                                      groupKeys: [group.key],
+                                      initialSubjectIds: group.uniqueSubjectIds,
+                                    })
+                                  }
+                                >
+                                  <Link2 className="mr-2 h-4 w-4" />
+                                  Link
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1488,6 +2222,24 @@ export function MasterDataSectionsTab({ vm }: Props) {
                             variant="outline"
                             size="sm"
                             className={compactInlineButtonClassName}
+                            onClick={() =>
+                              openLinkDialog({
+                                title: `Link ${buildSectionDisplayLabel(vm, section)}`,
+                                description:
+                                  "Link this section record's reusable group to subjects and one or more academic terms.",
+                                groupKeys: [selectedSectionDetail.key],
+                                initialSubjectIds: selectedSectionDetail.uniqueSubjectIds,
+                              })
+                            }
+                          >
+                            <Link2 className="mr-2 h-4 w-4" />
+                            Link
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className={compactInlineButtonClassName}
                             onClick={() => {
                               vm.setSectionEditing(section);
                               vm.setSectionOpen(true);
@@ -1560,7 +2312,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
             <DialogTitle>Academic Term Coverage</DialogTitle>
             <DialogDescription>
               Reviews the current visible section groups and highlights any
-              records that still keep legacy term-only scope.
+              missing academic-term coverage based on their stored section-term links.
             </DialogDescription>
           </DialogHeader>
 
@@ -1593,7 +2345,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
             </div>
 
             {missingAcademicTermGroups.length === 0 ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-900">
                 All visible section groups are already reusable across every
                 academic term.
               </div>
@@ -1622,9 +2374,13 @@ export function MasterDataSectionsTab({ vm }: Props) {
                             {result.group.scopeSummary}
                           </div>
                           <div className="text-xs text-muted-foreground wrap-break-word">
-                            Current legacy links: {result.linkedTerms.length > 0 ? result.linkedTerms.map((term) => term.label).join(", ") : "Legacy term label only"}
+                            Current section coverage: {result.currentCoverageLabel}
                           </div>
                         </div>
+                      </div>
+
+                      <div className="mt-2 text-xs text-muted-foreground wrap-break-word">
+                        Stored section term labels: {result.legacyCoverageLabels.length > 0 ? result.legacyCoverageLabels.join(", ") : "All Academic Terms"}
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -1650,7 +2406,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
               type="button"
               variant="outline"
               onClick={() => setMissingTermDialogOpen(false)}
-              disabled={sectionTermLinkBusy}
             >
               Close
             </Button>
@@ -1661,18 +2416,9 @@ export function MasterDataSectionsTab({ vm }: Props) {
                   missingAcademicTermGroups,
                 )
               }
-              disabled={
-                missingAcademicTermGroups.length === 0 || sectionTermLinkBusy
-              }
+              disabled={missingAcademicTermGroups.length === 0}
             >
-              {sectionTermLinkBusy ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Linking...
-                </span>
-              ) : (
-                "Link All Visible Sections to All Terms"
-              )}
+              Link Visible Sections to Academic Terms
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1744,6 +2490,266 @@ export function MasterDataSectionsTab({ vm }: Props) {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="flex max-h-[92svh] flex-col overflow-hidden p-0 sm:max-w-5xl">
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>{linkDialogTitle}</DialogTitle>
+            <DialogDescription>{linkDialogDescription}</DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+            <div className="grid gap-4 text-sm">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border bg-muted/20 px-3 py-3">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Target Section Groups
+                  </div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {linkTargetGroups.length}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-muted/20 px-3 py-3">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Target Section Records
+                  </div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {linkTargetSections.length}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-muted/20 px-3 py-3">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Selected Subjects
+                  </div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {linkSelectedSubjectIds.length}
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border">
+                <div className="border-b px-3 py-3">
+                  <div className="text-sm font-medium">Academic Terms</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Select one or more academic terms. This filters the candidate subjects
+                    and keeps subject-to-section links aligned with the selected term scope.
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border-b bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Selected academic terms:{" "}
+                    <span className="font-medium text-foreground">
+                      {linkSelectedAcademicTerms.length}
+                    </span>
+                  </div>
+
+                  <label className="flex shrink-0 items-center gap-3 self-start sm:self-center">
+                    <Checkbox
+                      checked={
+                        allLinkTermsSelected
+                          ? true
+                          : someLinkTermsSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={(value) =>
+                        toggleAllLinkTerms(Boolean(value))
+                      }
+                      aria-label="Select all academic terms"
+                    />
+                    <span className="text-sm">Select all</span>
+                  </label>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto p-3">
+                  <div className="space-y-2">
+                    {academicTerms.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        No academic terms found.
+                      </div>
+                    ) : (
+                      academicTerms.map((term) => {
+                        const checked = linkTargetTermIds.includes(term.id);
+
+                        return (
+                          <label
+                            key={term.id}
+                            htmlFor={`section-link-term-${term.id}`}
+                            className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition hover:bg-muted/40"
+                          >
+                            <Checkbox
+                              id={`section-link-term-${term.id}`}
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                toggleLinkTargetTerm(term.id, Boolean(value))
+                              }
+                              aria-label={`Select ${term.label}`}
+                            />
+
+                            <div className="min-w-0 flex-1">
+                              <div className="wrap-break-word font-medium">{term.label}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Semester: {normalizeSectionCoverageLabel(term.raw?.semester) || "—"}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border">
+                <div className="border-b px-3 py-3">
+                  <div className="text-sm font-medium">Candidate Subjects</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Subjects are filtered using the selected section groups&apos; college,
+                    program, and year-level scope.
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border-b bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Matching subjects:{" "}
+                    <span className="font-medium text-foreground">
+                      {linkCandidateSubjects.length}
+                    </span>
+                  </div>
+
+                  <label className="flex shrink-0 items-center gap-3 self-start sm:self-center">
+                    <Checkbox
+                      checked={
+                        allLinkCandidatesSelected
+                          ? true
+                          : someLinkCandidatesSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={(value) =>
+                        toggleAllLinkCandidates(Boolean(value))
+                      }
+                      aria-label="Select all matching subjects"
+                    />
+                    <span className="text-sm">Select all</span>
+                  </label>
+                </div>
+
+                <div className="max-h-80 overflow-y-auto p-3">
+                  <div className="space-y-2">
+                    {linkCandidateSubjects.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        No matching subjects found for the selected section scope.
+                      </div>
+                    ) : (
+                      linkCandidateSubjects.map((subject) => {
+                        const subjectId = String(subject.$id);
+                        const checked = linkSelectedSubjectIds.includes(subjectId);
+                        const currentTermId = resolveSubjectTermId(subject);
+                        const currentSectionIds = resolveSubjectSectionIds(subject);
+                        const currentLinkedSectionIds = resolveSubjectLinkedSectionIds(subject);
+
+                        return (
+                          <label
+                            key={subjectId}
+                            htmlFor={`section-link-subject-${subjectId}`}
+                            className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition hover:bg-muted/40"
+                          >
+                            <Checkbox
+                              id={`section-link-subject-${subjectId}`}
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                toggleLinkSubject(subjectId, Boolean(value))
+                              }
+                              aria-label={`Select ${subject.code}`}
+                            />
+
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">
+                                  {subject.code}
+                                </span>
+                                <Badge variant="outline" className="max-w-full wrap-break-word whitespace-normal">
+                                  {String(subject.semester ?? "").trim() || "—"}
+                                </Badge>
+                                <Badge
+                                  variant={currentTermId ? "secondary" : "outline"}
+                                  className="max-w-full wrap-break-word whitespace-normal"
+                                >
+                                  {currentTermId
+                                    ? vm.termLabel(vm.terms, currentTermId)
+                                    : "Not linked"}
+                                </Badge>
+                              </div>
+
+                              <div className="wrap-break-word text-sm text-foreground">
+                                {subject.title}
+                              </div>
+
+                              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                <span>
+                                  {vm.collegeLabel(
+                                    vm.colleges,
+                                    subject.departmentId ?? null,
+                                  )}
+                                </span>
+                                <span>
+                                  {vm.programLabel(
+                                    vm.programs,
+                                    subject.programId ?? null,
+                                  )}
+                                </span>
+                                <span>
+                                  Year:{" "}
+                                  {resolveSubjectYearLevels(subject).join(", ") || "—"}
+                                </span>
+                              </div>
+
+                              <div className="grid gap-1 text-xs text-muted-foreground">
+                                <div className="break-all">
+                                  Current sectionIds: {currentSectionIds.join(", ") || "—"}
+                                </div>
+                                <div className="break-all">
+                                  linkedSectionIds: {currentLinkedSectionIds.join(", ") || "—"}
+                                </div>
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t px-6 py-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLinkDialogOpen(false)}
+              disabled={linkUpdating}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void saveSectionSubjectAndTermLinks()}
+              disabled={linkUpdating}
+            >
+              {linkUpdating ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Linking...
+                </span>
+              ) : (
+                "Save Section Links"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TabsContent>
   );
 }
