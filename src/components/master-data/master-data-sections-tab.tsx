@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as React from "react"
-import { Link2, Pencil, Plus, Trash2, Unlink2 } from "lucide-react"
+import { Link2, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
@@ -55,15 +55,6 @@ type SectionGroup = {
     linkedSubjects: any[]
     inheritedSubjectCount: number
     representative: any
-}
-
-type SectionTermBucket = {
-    key: string
-    label: string
-    groups: SectionGroup[]
-    sectionRecordCount: number
-    directTermLinkedCount: number
-    withoutDirectTermLinkCount: number
 }
 
 type PendingSectionAction =
@@ -299,10 +290,6 @@ function resolveSubjectTermId(subject?: any) {
     return String(subject?.termId ?? "").trim()
 }
 
-function hasDirectSectionTermLink(section?: any) {
-    return Boolean(String(section?.termId ?? "").trim())
-}
-
 function buildSectionGroupKey(vm: MasterDataManagementVM, section: any) {
     return [
         String(section.departmentId ?? "").trim(),
@@ -484,9 +471,42 @@ export function MasterDataSectionsTab({ vm }: Props) {
             .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
     }, [sortedSections, vm])
 
-    const duplicateVisibleGroups = React.useMemo(
-        () => visibleGroups.filter((group) => group.sections.length > 1),
-        [visibleGroups]
+    const allSectionGroups = React.useMemo<SectionGroup[]>(() => {
+        const grouped = new Map<string, any[]>()
+
+        for (const section of vm.sections) {
+            const key = buildSectionGroupKey(vm, section)
+            const current = grouped.get(key) || []
+            current.push(section)
+            grouped.set(key, current)
+        }
+
+        return Array.from(grouped.entries())
+            .map(([key, sections]) => {
+                const representative = getCanonicalRecord(sections)
+                const uniqueSubjectIds = uniqueStrings(sections.flatMap((section) => resolveSectionSubjectIds(section)))
+                const linkedSubjects = uniqueSubjectIds
+                    .map((subjectId) => vm.subjects.find((subject) => subject.$id === subjectId))
+                    .filter(Boolean)
+                    .sort((a, b) => `${a?.code} ${a?.title}`.localeCompare(`${b?.code} ${b?.title}`))
+                const inheritedSubjectCount = linkedSubjects.filter((subject) => !resolveSubjectTermId(subject)).length
+
+                return {
+                    key,
+                    label: buildSectionDisplayLabel(vm, representative),
+                    sections,
+                    uniqueSubjectIds,
+                    linkedSubjects,
+                    inheritedSubjectCount,
+                    representative,
+                }
+            })
+            .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }))
+    }, [vm])
+
+    const allDuplicateSectionGroups = React.useMemo(
+        () => allSectionGroups.filter((group) => group.sections.length > 1),
+        [allSectionGroups]
     )
 
     const duplicateSubjectGroups = React.useMemo(() => {
@@ -507,54 +527,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" })
             })
     }, [vm.subjects])
-
-    const visibleTermBuckets = React.useMemo<SectionTermBucket[]>(() => {
-        const termOrder = new Map<string, number>()
-        vm.terms.forEach((term, index) => {
-            termOrder.set(vm.termLabel(vm.terms, term.$id), index)
-        })
-
-        const grouped = new Map<string, SectionTermBucket>()
-
-        for (const group of visibleGroups) {
-            const bucketLabel = resolveSectionReferenceTermLabel(vm, group.representative)
-            const existing = grouped.get(bucketLabel)
-            const sectionRecordCount = group.sections.length
-            const directTermLinkedCount = group.sections.filter((section) => hasDirectSectionTermLink(section)).length
-            const withoutDirectTermLinkCount = sectionRecordCount - directTermLinkedCount
-
-            if (existing) {
-                existing.groups.push(group)
-                existing.sectionRecordCount += sectionRecordCount
-                existing.directTermLinkedCount += directTermLinkedCount
-                existing.withoutDirectTermLinkCount += withoutDirectTermLinkCount
-                continue
-            }
-
-            grouped.set(bucketLabel, {
-                key: bucketLabel,
-                label: bucketLabel,
-                groups: [group],
-                sectionRecordCount,
-                directTermLinkedCount,
-                withoutDirectTermLinkCount,
-            })
-        }
-
-        return Array.from(grouped.values())
-            .map((bucket) => ({
-                ...bucket,
-                groups: bucket.groups.slice().sort((a, b) =>
-                    a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" })
-                ),
-            }))
-            .sort((a, b) => {
-                const leftRank = termOrder.has(a.label) ? termOrder.get(a.label)! : Number.MAX_SAFE_INTEGER
-                const rightRank = termOrder.has(b.label) ? termOrder.get(b.label)! : Number.MAX_SAFE_INTEGER
-                if (leftRank !== rightRank) return leftRank - rightRank
-                return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" })
-            })
-    }, [visibleGroups, vm])
 
     const selectedSectionIdSet = React.useMemo(
         () => new Set(selectedSectionIds),
@@ -916,20 +888,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
         }
     }, [vm])
 
-    const requestUnlinkSections = React.useCallback((sectionIds: string[], label: string) => {
-        const targetIds = uniqueStrings(sectionIds)
-        if (targetIds.length === 0) {
-            toast.error("No sections selected.")
-            return
-        }
-
-        setPendingSectionAction({
-            kind: "unlink",
-            sectionIds: targetIds,
-            label,
-            count: targetIds.length,
-        })
-    }, [])
 
     const mergeSectionGroups = React.useCallback(async (groups: SectionGroup[]) => {
         if (groups.length === 0) {
@@ -1124,19 +1082,29 @@ export function MasterDataSectionsTab({ vm }: Props) {
         }
 
         if (action.kind === "mergeSections") {
-            const groups = visibleGroups.filter((group) => action.groupKeys.includes(group.key))
+            const groups = allSectionGroups.filter((group) => action.groupKeys.includes(group.key))
             await mergeSectionGroups(groups)
             return
         }
 
         await mergeDuplicateSubjects()
-    }, [mergeDuplicateSubjects, mergeSectionGroups, pendingSectionAction, unlinkSectionIds, visibleGroups])
+    }, [allSectionGroups, mergeDuplicateSubjects, mergeSectionGroups, pendingSectionAction, unlinkSectionIds])
     const openSubjectViewer = React.useCallback((config: { title: string; description: string; subjects: any[] }) => {
         setSubjectViewerTitle(config.title)
         setSubjectViewerDescription(config.description)
         setSubjectViewerSubjects(config.subjects)
         setSubjectViewerOpen(true)
     }, [])
+
+    const openSectionSubjectsDialog = React.useCallback((section: any) => {
+        openSubjectViewer({
+            title: `Subjects • ${buildSectionDisplayLabel(vm, section)}`,
+            description: "All linked subjects for this section record.",
+            subjects: resolveSectionSubjectIds(section)
+                .map((subjectId) => vm.subjects.find((subject) => subject.$id === subjectId))
+                .filter(Boolean),
+        })
+    }, [openSubjectViewer, vm])
 
     return (
         <TabsContent value="sections" className="space-y-4">
@@ -1229,10 +1197,10 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => requestMergeSectionGroups(duplicateVisibleGroups)}
-                                    disabled={duplicateVisibleGroups.length === 0 || sectionDedupeBusy}
+                                    onClick={() => requestMergeSectionGroups(allDuplicateSectionGroups)}
+                                    disabled={allDuplicateSectionGroups.length === 0 || sectionDedupeBusy}
                                 >
-                                    Remove Duplicated Sections ({duplicateVisibleGroups.length})
+                                    Remove Duplicated Sections ({allDuplicateSectionGroups.length})
                                 </Button>
 
                                 <Button
@@ -1255,294 +1223,249 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         <Skeleton className="h-10 w-full" />
                         <Skeleton className="h-10 w-full" />
                     </div>
-                ) : visibleTermBuckets.length === 0 ? (
+                ) : visibleGroups.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No reusable sections found.</div>
                 ) : (
                     <Accordion type="multiple" className="space-y-4">
-                        {visibleTermBuckets.map((bucket) => {
-                            const bucketSectionIds = bucket.groups.flatMap((group) => group.sections.map((section) => String(section.$id)))
-                            const bucketSelectedCount = bucketSectionIds.filter((sectionId) => selectedSectionIdSet.has(sectionId)).length
-                            const allBucketSelected = bucketSectionIds.length > 0 && bucketSelectedCount === bucketSectionIds.length
-                            const someBucketSelected = bucketSelectedCount > 0 && !allBucketSelected
+                        <AccordionItem value="sections" className="overflow-hidden rounded-2xl border">
+                            <AccordionTrigger className="px-4 py-4 hover:no-underline">
+                                <div className="flex min-w-0 flex-1 flex-col gap-2 text-left">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-base font-semibold">Section</span>
+                                        <Badge variant="secondary" className="rounded-full">
+                                            {sortedSections.length}
+                                        </Badge>
+                                        <Badge variant="outline" className="rounded-full">
+                                            {selectedSectionIds.length} selected
+                                        </Badge>
+                                        <Badge variant="outline" className="rounded-full">
+                                            {allDuplicateSectionGroups.length} duplicate group{allDuplicateSectionGroups.length === 1 ? "" : "s"} across all terms
+                                        </Badge>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground">
+                                        Open to view all visible sections below. Duplicate detection checks all section records across all academic terms.
+                                    </div>
+                                </div>
+                            </AccordionTrigger>
 
-                            return (
-                                <AccordionItem key={bucket.key} value={bucket.key} className="overflow-hidden rounded-2xl border">
-                                    <AccordionTrigger className="px-4 py-4 hover:no-underline">
-                                        <div className="flex min-w-0 flex-1 flex-col gap-2 text-left">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <span className="text-base font-semibold">{bucket.label}</span>
-                                                <Badge variant="secondary" className="rounded-full">
-                                                    {bucket.sectionRecordCount}
-                                                </Badge>
-                                                <Badge variant="outline" className="rounded-full">
-                                                    {bucketSelectedCount} selected
-                                                </Badge>
-                                            </div>
-                                            <div className="text-sm text-muted-foreground">
-                                                {bucket.directTermLinkedCount} legacy term-linked section{bucket.directTermLinkedCount === 1 ? "" : "s"} • {bucket.withoutDirectTermLinkCount} shared across all academic terms section{bucket.withoutDirectTermLinkCount === 1 ? "" : "s"}
-                                            </div>
-                                        </div>
-                                    </AccordionTrigger>
+                            <AccordionContent className="border-t px-4 pb-4 pt-4">
+                                <div className="space-y-3">
+                                    {visibleGroups.map((group) => {
+                                        const groupSectionIds = group.sections.map((section) => String(section.$id))
+                                        const groupSelectedCount = groupSectionIds.filter((sectionId) => selectedSectionIdSet.has(sectionId)).length
+                                        const allGroupSelected = groupSelectedCount > 0 && groupSelectedCount === groupSectionIds.length
+                                        const someGroupSelected = groupSelectedCount > 0 && !allGroupSelected
 
-                                    <AccordionContent className="border-t px-4 pb-4 pt-4">
-                                        <div className="mb-4 flex flex-wrap items-center gap-2">
-                                            <label className="inline-flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted">
-                                                <Checkbox
-                                                    checked={allBucketSelected ? true : someBucketSelected ? "indeterminate" : false}
-                                                    onCheckedChange={(value) => toggleGroupSelection(bucketSectionIds, Boolean(value))}
-                                                    aria-label={`Select ${bucket.label} section group`}
-                                                    disabled={bucketSectionIds.length === 0}
-                                                />
-                                                Select group
-                                            </label>
-
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={linkUpdating || bucketSectionIds.length === 0}
-                                                onClick={() =>
-                                                    openLinkDialog({
-                                                        title: `Edit Group Links • ${bucket.label}`,
-                                                        description: "Apply linked subjects to every visible section record in this term group.",
-                                                        sectionIds: bucketSectionIds,
-                                                        initialSubjectIds: uniqueStrings(
-                                                            bucket.groups.flatMap((group) => group.uniqueSubjectIds)
-                                                        ),
-                                                    })
-                                                }
-                                            >
-                                                <Link2 className="mr-2 h-4 w-4" />
-                                                Edit Group Links
-                                            </Button>
-
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={linkUpdating || bucketSectionIds.length === 0}
-                                                onClick={() => requestUnlinkSections(bucketSectionIds, bucket.label)}
-                                            >
-                                                <Unlink2 className="mr-2 h-4 w-4" />
-                                                Unlink Group
-                                            </Button>
-
-                                            <Badge variant="outline" className="rounded-full">
-                                                Visible actions affect the current list or group only.
-                                            </Badge>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            {bucket.groups.map((group) => {
-                                                const groupSectionIds = group.sections.map((section) => String(section.$id))
-                                                const groupSelectedCount = groupSectionIds.filter((sectionId) => selectedSectionIdSet.has(sectionId)).length
-                                                const allGroupSelected = groupSelectedCount > 0 && groupSelectedCount === groupSectionIds.length
-                                                const someGroupSelected = groupSelectedCount > 0 && !allGroupSelected
-
-                                                return (
-                                                    <div key={group.key} className="rounded-2xl border bg-background p-3 sm:p-4">
-                                                        <div className="flex flex-col gap-3">
-                                                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                                                <div className="space-y-2">
-                                                                    <div className="flex flex-wrap items-center gap-2">
-                                                                        <span className="text-sm font-semibold">{group.label}</span>
-                                                                        <Badge variant="secondary" className="rounded-full">
-                                                                            {group.sections.length} section record{group.sections.length === 1 ? "" : "s"}
-                                                                        </Badge>
-                                                                        <Badge variant="outline" className="rounded-full">
-                                                                            {group.linkedSubjects.length} linked subject{group.linkedSubjects.length === 1 ? "" : "s"}
-                                                                        </Badge>
-                                                                        <Badge variant="outline" className="rounded-full">
-                                                                            {group.inheritedSubjectCount} subjects without direct term link
-                                                                        </Badge>
-                                                                    </div>
-
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        {vm.collegeLabel(vm.colleges, group.representative.departmentId)} • {vm.programLabel(vm.programs, group.representative.programId ?? null)}
-                                                                    </div>
-
-                                                                    <div className="text-xs text-muted-foreground">
-                                                                        Linked subjects: {group.linkedSubjects.length > 0 ? group.linkedSubjects.map((subject) => `${subject.code} — ${subject.title}`).join(", ") : "—"}
-                                                                    </div>
-                                                                </div>
-
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    <label className="inline-flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted">
-                                                                        <Checkbox
-                                                                            checked={allGroupSelected ? true : someGroupSelected ? "indeterminate" : false}
-                                                                            onCheckedChange={(value) => toggleGroupSelection(groupSectionIds, Boolean(value))}
-                                                                            aria-label={`Select ${group.label} group`}
-                                                                            disabled={groupSectionIds.length === 0}
-                                                                        />
-                                                                        Select group
-                                                                    </label>
-
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() =>
-                                                                            openSubjectViewer({
-                                                                                title: `Linked Subjects • ${group.label}`,
-                                                                                description: "All linked subjects for this reusable section group.",
-                                                                                subjects: group.linkedSubjects,
-                                                                            })
-                                                                        }
-                                                                    >
-                                                                        Linked Subjects
-                                                                    </Button>
-
-                                                                    {group.sections.length > 1 ? (
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            disabled={sectionDedupeBusy}
-                                                                            onClick={() => requestMergeSectionGroups([group])}
-                                                                        >
-                                                                            Merge Group Duplicates
-                                                                        </Button>
-                                                                    ) : null}
-                                                                </div>
+                                        return (
+                                            <div key={group.key} className="rounded-2xl border bg-background p-3 sm:p-4">
+                                                <div className="flex flex-col gap-3">
+                                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                                        <div className="space-y-2">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span className="text-sm font-semibold">{group.label}</span>
+                                                                <Badge variant="secondary" className="rounded-full">
+                                                                    {group.sections.length} section record{group.sections.length === 1 ? "" : "s"}
+                                                                </Badge>
+                                                                <Badge variant="outline" className="rounded-full">
+                                                                    {group.linkedSubjects.length} linked subject{group.linkedSubjects.length === 1 ? "" : "s"}
+                                                                </Badge>
+                                                                <Badge variant="outline" className="rounded-full">
+                                                                    {group.inheritedSubjectCount} subjects without direct term link
+                                                                </Badge>
                                                             </div>
 
-                                                            <div className="space-y-3 sm:hidden">
-                                                                {group.sections.map((section) => {
-                                                                    const sectionId = String(section.$id)
-                                                                    const selected = selectedSectionIdSet.has(sectionId)
-                                                                    return (
-                                                                        <div key={sectionId} className="rounded-xl border p-3">
-                                                                            <div className="flex items-start justify-between gap-3">
-                                                                                <label className="flex min-w-0 flex-1 items-start gap-3">
-                                                                                    <Checkbox
-                                                                                        checked={selected}
-                                                                                        onCheckedChange={(value) => toggleSectionSelection(sectionId, Boolean(value))}
-                                                                                    />
-                                                                                    <div className="min-w-0 flex-1 space-y-1">
-                                                                                        <div className="font-medium">{buildSectionDisplayLabel(vm, section)}</div>
-                                                                                        <div className="text-xs text-muted-foreground">{resolveSectionReferenceTermLabel(vm, section)}</div>
-                                                                                        <div className="text-xs text-muted-foreground">Subjects: {buildSectionSubjectSummary(vm, section)}</div>
-                                                                                    </div>
-                                                                                </label>
-                                                                            </div>
-
-                                                                            <div className="mt-3 flex flex-wrap items-center gap-2">
-                                                                                <Badge variant={section.isActive ? "default" : "secondary"}>
-                                                                                    {section.isActive ? "Active" : "Inactive"}
-                                                                                </Badge>
-                                                                                <Badge variant="outline" className="rounded-full">
-                                                                                    Students: {section.studentCount != null ? section.studentCount : "—"}
-                                                                                </Badge>
-                                                                            </div>
-
-                                                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                                                <Button type="button" size="sm" variant="outline" onClick={() => setSelectedSectionDetail(section)}>
-                                                                                    Details
-                                                                                </Button>
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    size="sm"
-                                                                                    variant="outline"
-                                                                                    onClick={() => {
-                                                                                        vm.setSectionEditing(section)
-                                                                                        vm.setSectionOpen(true)
-                                                                                    }}
-                                                                                >
-                                                                                    <Pencil className="mr-2 h-4 w-4" />
-                                                                                    Edit
-                                                                                </Button>
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    size="sm"
-                                                                                    variant="destructive"
-                                                                                    onClick={() => vm.setDeleteIntent({ type: "section", doc: section })}
-                                                                                >
-                                                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                                                    Delete
-                                                                                </Button>
-                                                                            </div>
-                                                                        </div>
-                                                                    )
-                                                                })}
+                                                            <div className="text-xs text-muted-foreground">
+                                                                {vm.collegeLabel(vm.colleges, group.representative.departmentId)} • {vm.programLabel(vm.programs, group.representative.programId ?? null)}
                                                             </div>
 
-                                                            <div className="hidden overflow-hidden rounded-xl border sm:block">
-                                                                <Table>
-                                                                    <TableHeader>
-                                                                        <TableRow>
-                                                                            <TableHead className="w-14">Pick</TableHead>
-                                                                            <TableHead className="w-44">Section</TableHead>
-                                                                            <TableHead className="w-64">Academic Term Coverage</TableHead>
-                                                                            <TableHead>Linked Subjects</TableHead>
-                                                                            <TableHead className="w-28">Students</TableHead>
-                                                                            <TableHead className="w-24">Active</TableHead>
-                                                                            <TableHead className="w-44 text-right">Actions</TableHead>
-                                                                        </TableRow>
-                                                                    </TableHeader>
-                                                                    <TableBody>
-                                                                        {group.sections.map((section) => {
-                                                                            const sectionId = String(section.$id)
-                                                                            return (
-                                                                                <TableRow key={sectionId}>
-                                                                                    <TableCell>
-                                                                                        <Checkbox
-                                                                                            checked={selectedSectionIdSet.has(sectionId)}
-                                                                                            onCheckedChange={(value) => toggleSectionSelection(sectionId, Boolean(value))}
-                                                                                            aria-label={`Select ${buildSectionDisplayLabel(vm, section)}`}
-                                                                                        />
-                                                                                    </TableCell>
-                                                                                    <TableCell className="font-medium">{buildSectionDisplayLabel(vm, section)}</TableCell>
-                                                                                    <TableCell className="text-muted-foreground">{resolveSectionReferenceTermLabel(vm, section)}</TableCell>
-                                                                                    <TableCell className="text-muted-foreground">{buildSectionSubjectSummary(vm, section)}</TableCell>
-                                                                                    <TableCell className="text-muted-foreground">{section.studentCount != null ? section.studentCount : "—"}</TableCell>
-                                                                                    <TableCell>
-                                                                                        <Badge variant={section.isActive ? "default" : "secondary"}>
-                                                                                            {section.isActive ? "Yes" : "No"}
-                                                                                        </Badge>
-                                                                                    </TableCell>
-                                                                                    <TableCell className="text-right">
-                                                                                        <div className="flex justify-end gap-2">
-                                                                                            <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSectionDetail(section)}>
-                                                                                                Details
-                                                                                            </Button>
-                                                                                            <Button
-                                                                                                type="button"
-                                                                                                variant="outline"
-                                                                                                size="sm"
-                                                                                                onClick={() => {
-                                                                                                    vm.setSectionEditing(section)
-                                                                                                    vm.setSectionOpen(true)
-                                                                                                }}
-                                                                                            >
-                                                                                                <Pencil className="mr-2 h-4 w-4" />
-                                                                                                Edit
-                                                                                            </Button>
-                                                                                            <Button
-                                                                                                type="button"
-                                                                                                variant="destructive"
-                                                                                                size="sm"
-                                                                                                onClick={() => vm.setDeleteIntent({ type: "section", doc: section })}
-                                                                                            >
-                                                                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                                                                Delete
-                                                                                            </Button>
-                                                                                        </div>
-                                                                                    </TableCell>
-                                                                                </TableRow>
-                                                                            )
-                                                                        })}
-                                                                    </TableBody>
-                                                                </Table>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                Linked subjects: {group.linkedSubjects.length > 0 ? group.linkedSubjects.map((subject) => `${subject.code} — ${subject.title}`).join(", ") : "—"}
                                                             </div>
                                                         </div>
+
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <label className="inline-flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted">
+                                                                <Checkbox
+                                                                    checked={allGroupSelected ? true : someGroupSelected ? "indeterminate" : false}
+                                                                    onCheckedChange={(value) => toggleGroupSelection(groupSectionIds, Boolean(value))}
+                                                                    aria-label={`Select ${group.label} group`}
+                                                                    disabled={groupSectionIds.length === 0}
+                                                                />
+                                                                Select group
+                                                            </label>
+
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() =>
+                                                                    openSubjectViewer({
+                                                                        title: `Subjects • ${group.label}`,
+                                                                        description: "All linked subjects for this reusable section group.",
+                                                                        subjects: group.linkedSubjects,
+                                                                    })
+                                                                }
+                                                            >
+                                                                Subjects
+                                                            </Button>
+
+                                                            {group.sections.length > 1 ? (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    disabled={sectionDedupeBusy}
+                                                                    onClick={() => requestMergeSectionGroups([group])}
+                                                                >
+                                                                    Merge Group Duplicates
+                                                                </Button>
+                                                            ) : null}
+                                                        </div>
                                                     </div>
-                                                )
-                                            })}
-                                        </div>
-                                    </AccordionContent>
-                                </AccordionItem>
-                            )
-                        })}
+
+                                                    <div className="space-y-3 sm:hidden">
+                                                        {group.sections.map((section) => {
+                                                            const sectionId = String(section.$id)
+                                                            const selected = selectedSectionIdSet.has(sectionId)
+                                                            return (
+                                                                <div key={sectionId} className="rounded-xl border p-3">
+                                                                    <div className="flex items-start justify-between gap-3">
+                                                                        <label className="flex min-w-0 flex-1 items-start gap-3">
+                                                                            <Checkbox
+                                                                                checked={selected}
+                                                                                onCheckedChange={(value) => toggleSectionSelection(sectionId, Boolean(value))}
+                                                                            />
+                                                                            <div className="min-w-0 flex-1 space-y-1">
+                                                                                <div className="font-medium">{buildSectionDisplayLabel(vm, section)}</div>
+                                                                                <div className="text-xs text-muted-foreground">{resolveSectionReferenceTermLabel(vm, section)}</div>
+                                                                            </div>
+                                                                        </label>
+                                                                    </div>
+
+                                                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                                        <Badge variant={section.isActive ? "default" : "secondary"}>
+                                                                            {section.isActive ? "Active" : "Inactive"}
+                                                                        </Badge>
+                                                                        <Badge variant="outline" className="rounded-full">
+                                                                            Students: {section.studentCount != null ? section.studentCount : "—"}
+                                                                        </Badge>
+                                                                    </div>
+
+                                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                                        <Button type="button" size="sm" variant="outline" onClick={() => openSectionSubjectsDialog(section)}>
+                                                                            Subjects
+                                                                        </Button>
+                                                                        <Button type="button" size="sm" variant="outline" onClick={() => setSelectedSectionDetail(section)}>
+                                                                            Details
+                                                                        </Button>
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            onClick={() => {
+                                                                                vm.setSectionEditing(section)
+                                                                                vm.setSectionOpen(true)
+                                                                            }}
+                                                                        >
+                                                                            <Pencil className="mr-2 h-4 w-4" />
+                                                                            Edit
+                                                                        </Button>
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            variant="destructive"
+                                                                            onClick={() => vm.setDeleteIntent({ type: "section", doc: section })}
+                                                                        >
+                                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                                            Delete
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+
+                                                    <div className="hidden overflow-hidden rounded-xl border sm:block">
+                                                        <Table>
+                                                            <TableHeader>
+                                                                <TableRow>
+                                                                    <TableHead className="w-14">Pick</TableHead>
+                                                                    <TableHead className="w-44">Section</TableHead>
+                                                                    <TableHead className="w-64">Academic Term Coverage</TableHead>
+                                                                    <TableHead className="w-36">Subjects</TableHead>
+                                                                    <TableHead className="w-28">Students</TableHead>
+                                                                    <TableHead className="w-24">Active</TableHead>
+                                                                    <TableHead className="w-44 text-right">Actions</TableHead>
+                                                                </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                                {group.sections.map((section) => {
+                                                                    const sectionId = String(section.$id)
+                                                                    const linkedSubjectCount = resolveSectionSubjectIds(section).length
+
+                                                                    return (
+                                                                        <TableRow key={sectionId}>
+                                                                            <TableCell>
+                                                                                <Checkbox
+                                                                                    checked={selectedSectionIdSet.has(sectionId)}
+                                                                                    onCheckedChange={(value) => toggleSectionSelection(sectionId, Boolean(value))}
+                                                                                    aria-label={`Select ${buildSectionDisplayLabel(vm, section)}`}
+                                                                                />
+                                                                            </TableCell>
+                                                                            <TableCell className="font-medium">{buildSectionDisplayLabel(vm, section)}</TableCell>
+                                                                            <TableCell className="text-muted-foreground">{resolveSectionReferenceTermLabel(vm, section)}</TableCell>
+                                                                            <TableCell>
+                                                                                <Button type="button" variant="outline" size="sm" onClick={() => openSectionSubjectsDialog(section)}>
+                                                                                    Subjects ({linkedSubjectCount})
+                                                                                </Button>
+                                                                            </TableCell>
+                                                                            <TableCell className="text-muted-foreground">{section.studentCount != null ? section.studentCount : "—"}</TableCell>
+                                                                            <TableCell>
+                                                                                <Badge variant={section.isActive ? "default" : "secondary"}>
+                                                                                    {section.isActive ? "Yes" : "No"}
+                                                                                </Badge>
+                                                                            </TableCell>
+                                                                            <TableCell className="text-right">
+                                                                                <div className="flex justify-end gap-2">
+                                                                                    <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSectionDetail(section)}>
+                                                                                        Details
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        type="button"
+                                                                                        variant="outline"
+                                                                                        size="sm"
+                                                                                        onClick={() => {
+                                                                                            vm.setSectionEditing(section)
+                                                                                            vm.setSectionOpen(true)
+                                                                                        }}
+                                                                                    >
+                                                                                        <Pencil className="mr-2 h-4 w-4" />
+                                                                                        Edit
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        type="button"
+                                                                                        variant="destructive"
+                                                                                        size="sm"
+                                                                                        onClick={() => vm.setDeleteIntent({ type: "section", doc: section })}
+                                                                                    >
+                                                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                                                        Delete
+                                                                                    </Button>
+                                                                                </div>
+                                                                            </TableCell>
+                                                                        </TableRow>
+                                                                    )
+                                                                })}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
                     </Accordion>
                 )}
             </div>
@@ -1640,7 +1563,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                             onClick={() => {
                                 if (!selectedSectionDetail) return
                                 openSubjectViewer({
-                                    title: `Linked Subjects • ${buildSectionDisplayLabel(vm, selectedSectionDetail)}`,
+                                    title: `Subjects • ${buildSectionDisplayLabel(vm, selectedSectionDetail)}`,
                                     description: "All linked subjects for this section record.",
                                     subjects: resolveSectionSubjectIds(selectedSectionDetail)
                                         .map((subjectId) => vm.subjects.find((subject) => subject.$id === subjectId))
@@ -1648,7 +1571,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                 })
                             }}
                         >
-                            Linked Subjects
+                            Subjects
                         </Button>
                         <Button
                             variant="outline"
