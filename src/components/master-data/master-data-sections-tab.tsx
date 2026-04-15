@@ -50,6 +50,7 @@ type Props = {
 type SectionGroup = {
     key: string
     label: string
+    scopeSummary: string
     sections: any[]
     uniqueSubjectIds: string[]
     linkedSubjects: any[]
@@ -282,44 +283,76 @@ function formatSectionBulkEditError(error: any) {
     return message || "Update failed."
 }
 
+function normalizeSectionCoverageLabel(value?: string | null) {
+    const normalized = String(value ?? "").replace(/\s+/g, " ").trim()
+
+    if (!normalized) return ""
+    if (/^(?:—|-|–|n\/a|na|null|none)$/i.test(normalized)) return ""
+
+    return normalized
+}
+
 function resolveSectionReferenceTermLabel(vm: MasterDataManagementVM, section: any) {
-    return section.academicTermLabel || vm.termLabel(vm.terms, section.termId) || "All Academic Terms"
+    return (
+        normalizeSectionCoverageLabel(section?.academicTermLabel) ||
+        normalizeSectionCoverageLabel(vm.termLabel(vm.terms, section?.termId)) ||
+        "All Academic Terms"
+    )
 }
 
 function resolveSubjectTermId(subject?: any) {
     return String(subject?.termId ?? "").trim()
 }
 
-function inferSectionProgramScopeKey(vm: MasterDataManagementVM, section: any) {
-    const normalizedProgramId = String(section?.programId ?? "").trim()
-    const directPrefix = resolveProgramPrefix(vm, normalizedProgramId || null)
-    if (directPrefix) return `prefix:${directPrefix}`
-
-    const yearLevelPrefix = normalizeSectionYearLevelValue(section?.yearLevel)
-        .match(/^(CS|IS)\b/)?.[1] ?? ""
-    if (yearLevelPrefix) return `prefix:${yearLevelPrefix}`
-
-    if (normalizedProgramId) return `program:${normalizedProgramId}`
-
-    return ""
-}
-
 function buildSectionDuplicateScopeKey(vm: MasterDataManagementVM, section: any) {
-    const normalizedYearLevel =
-        buildStoredSectionYearLevel(vm, section?.yearLevel, section?.programId ?? null) ||
-        normalizeSectionYearLevelValue(section?.yearLevel)
-    const yearNumber = extractSectionYearNumber(normalizedYearLevel) || normalizedYearLevel
-
-    return [
-        String(section?.departmentId ?? "").trim(),
-        inferSectionProgramScopeKey(vm, section),
-        yearNumber,
-        normalizeSectionNameValue(section?.name),
-    ].join("::")
+    return buildSectionDisplayLabel(vm, section)
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase()
 }
 
 function buildSectionGroupKey(vm: MasterDataManagementVM, section: any) {
     return buildSectionDuplicateScopeKey(vm, section)
+}
+
+function getPreferredStringValue(values: Array<string | null | undefined>) {
+    const counts = new Map<string, number>()
+
+    for (const value of values) {
+        const normalized = String(value ?? "").trim()
+        if (!normalized) continue
+        counts.set(normalized, (counts.get(normalized) ?? 0) + 1)
+    }
+
+    return Array.from(counts.entries())
+        .sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1]
+            return a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" })
+        })[0]?.[0] ?? ""
+}
+
+function buildSectionGroupScopeSummary(vm: MasterDataManagementVM, sections: any[]) {
+    const collegeLabels = uniqueStrings(
+        sections.map((section) => {
+            const label = String(vm.collegeLabel(vm.colleges, section?.departmentId) ?? "").trim()
+            return /^(?:—|-|–|unknown)$/i.test(label) ? "" : label
+        })
+    )
+    const programLabels = uniqueStrings(
+        sections.map((section) => {
+            const label = String(vm.programLabel(vm.programs, section?.programId ?? null) ?? "").trim()
+            return /^(?:—|-|–)$/i.test(label) ? "" : label
+        })
+    )
+
+    if (collegeLabels.length <= 1 && programLabels.length <= 1) {
+        return [collegeLabels[0], programLabels[0]].filter(Boolean).join(" • ") || "Scope not set"
+    }
+
+    const collegeSummary = collegeLabels.length === 0 ? null : collegeLabels.length === 1 ? collegeLabels[0] : `${collegeLabels.length} colleges`
+    const programSummary = programLabels.length === 0 ? null : programLabels.length === 1 ? programLabels[0] : `${programLabels.length} programs`
+
+    return [collegeSummary, programSummary].filter(Boolean).join(" • ") || "Scope not set"
 }
 
 function buildSubjectDuplicateKey(subject: any) {
@@ -352,8 +385,10 @@ function getBestStudentCount(sections: any[]) {
 
 function buildMergedSectionPayload(vm: MasterDataManagementVM, sections: any[], canonical: any) {
     const mergedSubjectIds = uniqueStrings(sections.flatMap((section) => resolveSectionSubjectIds(section)))
+    const mergedDepartmentId =
+        getPreferredStringValue(sections.map((section) => String(section?.departmentId ?? "").trim())) || null
     const mergedProgramId =
-        uniqueStrings(sections.map((section) => String(section?.programId ?? "").trim()))[0] || null
+        getPreferredStringValue(sections.map((section) => String(section?.programId ?? "").trim())) || null
     const mergedYearLevel =
         buildStoredSectionYearLevel(vm, canonical?.yearLevel, mergedProgramId) ||
         buildStoredSectionYearLevel(vm, sections[0]?.yearLevel, mergedProgramId) ||
@@ -361,7 +396,7 @@ function buildMergedSectionPayload(vm: MasterDataManagementVM, sections: any[], 
         normalizeSectionYearLevelValue(sections[0]?.yearLevel)
 
     return {
-        departmentId: String(canonical?.departmentId ?? sections[0]?.departmentId ?? "").trim(),
+        departmentId: mergedDepartmentId,
         programId: mergedProgramId,
         subjectId: mergedSubjectIds[0] ?? null,
         subjectIds: mergedSubjectIds,
@@ -487,6 +522,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 return {
                     key,
                     label: buildSectionDisplayLabel(vm, representative),
+                    scopeSummary: buildSectionGroupScopeSummary(vm, sections),
                     sections,
                     uniqueSubjectIds,
                     linkedSubjects,
@@ -520,6 +556,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 return {
                     key,
                     label: buildSectionDisplayLabel(vm, representative),
+                    scopeSummary: buildSectionGroupScopeSummary(vm, sections),
                     sections,
                     uniqueSubjectIds,
                     linkedSubjects,
@@ -1306,7 +1343,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                             </div>
 
                                                             <div className="text-xs text-muted-foreground">
-                                                                {vm.collegeLabel(vm.colleges, group.representative.departmentId)} • {vm.programLabel(vm.programs, group.representative.programId ?? null)}
+                                                                {group.scopeSummary}
                                                             </div>
 
                                                             <div className="wrap-break-word text-xs text-muted-foreground">

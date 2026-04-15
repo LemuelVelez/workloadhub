@@ -361,6 +361,14 @@ function buildSectionDisplayLabel(
     return `${normalizedYearLevel} - ${normalizedName}`
 }
 
+function normalizeReferenceTermCoverageLabel(value?: string | null) {
+    const normalized = str(value).replace(/\s+/g, " ").trim()
+
+    if (!normalized) return ""
+    if (/^(?:—|-|–|n\/a|na|null|none)$/i.test(normalized)) return ""
+
+    return normalized
+}
 
 function normalizeSemesterLabel(value: string) {
     const normalized = value.toLowerCase().replace(/\s+/g, " ").trim()
@@ -377,23 +385,6 @@ function normalizeSemesterLabel(value: string) {
     return value.trim()
 }
 
-function inferSectionProgramScopeKey(
-    section: Record<string, unknown> | null | undefined,
-    programs: ProgramDoc[]
-) {
-    const programId = str(section?.programId)
-    const programPrefix = resolveSectionProgramPrefix(programs, programId)
-    if (programPrefix) return `prefix:${programPrefix}`
-
-    const yearLevelPrefix = normalizeSectionYearLevelValue(section?.yearLevel as string | number | null)
-        .match(/^(CS|IS)\b/)?.[1] ?? ""
-    if (yearLevelPrefix) return `prefix:${yearLevelPrefix}`
-
-    if (programId) return `program:${programId}`
-
-    return ""
-}
-
 function buildSectionDuplicateScopeKey(
     section: Record<string, unknown> | null | undefined,
     programs: ProgramDoc[]
@@ -401,14 +392,14 @@ function buildSectionDuplicateScopeKey(
     const normalizedYearLevel =
         buildStoredSectionYearLevel(section?.yearLevel as string | number | null, str(section?.programId) || null, programs) ||
         normalizeSectionYearLevelValue(section?.yearLevel as string | number | null)
-    const yearNumber = extractSectionYearNumber(normalizedYearLevel) || normalizedYearLevel
 
-    return [
-        str(section?.departmentId),
-        inferSectionProgramScopeKey(section, programs),
-        yearNumber,
-        normalizeSectionNameValue(section?.name as string | null),
-    ].join("::")
+    return buildSectionDisplayLabel(
+        normalizedYearLevel,
+        section?.name as string | null
+    )
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase()
 }
 
 function normalizeSubjectCodeValue(value?: string | null) {
@@ -633,7 +624,9 @@ export function useMasterDataManagement() {
                                 "1") as any,
                         semester: s.semester ? str(s.semester) : null,
                         academicTermLabel:
-                            s.academicTermLabel ? str(s.academicTermLabel) : termLabel(mappedTerms, str(s.termId)) || "All Academic Terms",
+                            normalizeReferenceTermCoverageLabel(s.academicTermLabel ? str(s.academicTermLabel) : "") ||
+                            normalizeReferenceTermCoverageLabel(termLabel(mappedTerms, str(s.termId))) ||
+                            "All Academic Terms",
                         name: normalizeSectionNameValue(s.name),
                         studentCount: s.studentCount != null ? num(s.studentCount, 0) : null,
                         isActive: toBool(s.isActive),
@@ -1390,7 +1383,9 @@ export function useMasterDataManagement() {
         )
         setSectionSemester(str(sectionEditing.semester) || str(fallbackReferenceTerm?.semester))
         setSectionAcademicTermLabel(
-            str(sectionEditing.academicTermLabel) || termLabel(terms, fallbackReferenceTermId) || "All Academic Terms"
+            normalizeReferenceTermCoverageLabel(str(sectionEditing.academicTermLabel)) ||
+            normalizeReferenceTermCoverageLabel(termLabel(terms, fallbackReferenceTermId)) ||
+            "All Academic Terms"
         )
         setSectionYear(normalizeSectionYearLevelValue(sectionEditing.yearLevel) || "1")
         setSectionName(normalizeSectionNameValue(sectionEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
@@ -1516,7 +1511,7 @@ export function useMasterDataManagement() {
             })
 
             if (conflictingSection) {
-                toast.error("Section already exists for this reusable college/program/year/name scope.")
+                toast.error("Section already exists for this reusable section label.")
                 return
             }
 
@@ -1679,7 +1674,10 @@ export function useMasterDataManagement() {
                 .filter(Boolean)
                 .map((subject) => `${subject?.code ?? ""} ${subject?.title ?? ""}`.trim())
                 .join(" ")
-            const term = s.academicTermLabel || termLabel(terms, s.termId) || "All Academic Terms"
+            const term =
+                normalizeReferenceTermCoverageLabel(s.academicTermLabel) ||
+                normalizeReferenceTermCoverageLabel(termLabel(terms, s.termId)) ||
+                "All Academic Terms"
             const semester = str(s.semester)
             const main = buildSectionDisplayLabel(s.yearLevel, s.name)
             return `${main} ${college} ${prog} ${subjectLabel} ${semester} ${term} ${s.studentCount ?? ""}`
