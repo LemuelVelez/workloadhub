@@ -290,13 +290,36 @@ function resolveSubjectTermId(subject?: any) {
     return String(subject?.termId ?? "").trim()
 }
 
-function buildSectionGroupKey(vm: MasterDataManagementVM, section: any) {
+function inferSectionProgramScopeKey(vm: MasterDataManagementVM, section: any) {
+    const normalizedProgramId = String(section?.programId ?? "").trim()
+    const directPrefix = resolveProgramPrefix(vm, normalizedProgramId || null)
+    if (directPrefix) return `prefix:${directPrefix}`
+
+    const yearLevelPrefix = normalizeSectionYearLevelValue(section?.yearLevel)
+        .match(/^(CS|IS)\b/)?.[1] ?? ""
+    if (yearLevelPrefix) return `prefix:${yearLevelPrefix}`
+
+    if (normalizedProgramId) return `program:${normalizedProgramId}`
+
+    return ""
+}
+
+function buildSectionDuplicateScopeKey(vm: MasterDataManagementVM, section: any) {
+    const normalizedYearLevel =
+        buildStoredSectionYearLevel(vm, section?.yearLevel, section?.programId ?? null) ||
+        normalizeSectionYearLevelValue(section?.yearLevel)
+    const yearNumber = extractSectionYearNumber(normalizedYearLevel) || normalizedYearLevel
+
     return [
-        String(section.departmentId ?? "").trim(),
-        String(section.programId ?? "").trim(),
-        buildStoredSectionYearLevel(vm, section.yearLevel, section.programId ?? null) || normalizeSectionYearLevelValue(section.yearLevel),
-        normalizeSectionNameValue(section.name),
+        String(section?.departmentId ?? "").trim(),
+        inferSectionProgramScopeKey(vm, section),
+        yearNumber,
+        normalizeSectionNameValue(section?.name),
     ].join("::")
+}
+
+function buildSectionGroupKey(vm: MasterDataManagementVM, section: any) {
+    return buildSectionDuplicateScopeKey(vm, section)
 }
 
 function buildSubjectDuplicateKey(subject: any) {
@@ -417,6 +440,9 @@ export function MasterDataSectionsTab({ vm }: Props) {
     const [sectionDedupeBusy, setSectionDedupeBusy] = React.useState(false)
     const [subjectDedupeBusy, setSubjectDedupeBusy] = React.useState(false)
     const [pendingSectionAction, setPendingSectionAction] = React.useState<PendingSectionAction | null>(null)
+
+    const compactActionButtonClassName = "h-8 w-full justify-center px-2 text-xs sm:h-9 sm:w-auto sm:px-3 sm:text-sm"
+    const compactInlineButtonClassName = "h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
 
     const sortedSections = React.useMemo(
         () =>
@@ -1121,23 +1147,24 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         <Button
                             variant="outline"
                             size="sm"
+                            className={compactActionButtonClassName}
                             onClick={openScopeEditDialog}
                             disabled={sortedSections.length === 0 || scopeEditing}
                         >
                             <Pencil className="mr-2 h-4 w-4" />
-                            Edit Visible Section Scope
+                            <span className="min-w-0 truncate">Edit Visible Section Scope</span>
                         </Button>
 
                         <Button
                             size="sm"
+                            className={compactActionButtonClassName}
                             onClick={() => {
                                 vm.setSectionEditing(null)
                                 vm.setSectionOpen(true)
                             }}
-                           
                         >
                             <Plus className="mr-2 h-4 w-4" />
-                            Add Section
+                            <span className="min-w-0 truncate">Add Section</span>
                         </Button>
                     </div>
                 </div>
@@ -1155,40 +1182,42 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         </div>
 
                         <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <label className="inline-flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                <label className="inline-flex min-w-0 items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted">
                                     <Checkbox
                                         checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
                                         onCheckedChange={(value) => toggleVisibleSelection(Boolean(value))}
                                         aria-label="Select all visible sections"
                                         disabled={sortedSections.length === 0}
                                     />
-                                    Select all visible
+                                    <span className="min-w-0 truncate">Select all visible</span>
                                 </label>
 
                                 <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    className={compactActionButtonClassName}
                                     onClick={() => setSelectedSectionIds([])}
                                     disabled={selectedSectionIds.length === 0}
                                 >
-                                    Clear Selection
+                                    <span className="min-w-0 truncate">Clear Selection</span>
                                 </Button>
 
                                 <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    className={compactActionButtonClassName}
                                     onClick={openSelectedLinkDialog}
                                     disabled={scopeEditTargetSections.length === 0 || linkUpdating}
                                 >
                                     <Link2 className="mr-2 h-4 w-4" />
-                                    {selectedVisibleSections.length > 0 ? "Edit Selected Section Links" : "Edit Visible Section Links"}
+                                    <span className="min-w-0 truncate">{selectedVisibleSections.length > 0 ? "Edit Selected Section Links" : "Edit Visible Section Links"}</span>
                                 </Button>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                 <Badge variant="outline" className="rounded-full">
                                     Applies to all academic terms
                                 </Badge>
@@ -1197,20 +1226,22 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    className={compactActionButtonClassName}
                                     onClick={() => requestMergeSectionGroups(allDuplicateSectionGroups)}
                                     disabled={allDuplicateSectionGroups.length === 0 || sectionDedupeBusy}
                                 >
-                                    Remove Duplicated Sections ({allDuplicateSectionGroups.length})
+                                    <span className="min-w-0 truncate">Remove Duplicated Sections ({allDuplicateSectionGroups.length})</span>
                                 </Button>
 
                                 <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    className={compactActionButtonClassName}
                                     onClick={requestMergeDuplicateSubjects}
                                     disabled={duplicateSubjectGroups.length === 0 || subjectDedupeBusy}
                                 >
-                                    Remove Duplicated Subjects ({duplicateSubjectGroups.length})
+                                    <span className="min-w-0 truncate">Remove Duplicated Subjects ({duplicateSubjectGroups.length})</span>
                                 </Button>
                             </div>
                         </div>
@@ -1278,26 +1309,27 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                                 {vm.collegeLabel(vm.colleges, group.representative.departmentId)} • {vm.programLabel(vm.programs, group.representative.programId ?? null)}
                                                             </div>
 
-                                                            <div className="text-xs text-muted-foreground">
+                                                            <div className="wrap-break-word text-xs text-muted-foreground">
                                                                 Linked subjects: {group.linkedSubjects.length > 0 ? group.linkedSubjects.map((subject) => `${subject.code} — ${subject.title}`).join(", ") : "—"}
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <label className="inline-flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted">
+                                                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                                            <label className="inline-flex min-w-0 items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted">
                                                                 <Checkbox
                                                                     checked={allGroupSelected ? true : someGroupSelected ? "indeterminate" : false}
                                                                     onCheckedChange={(value) => toggleGroupSelection(groupSectionIds, Boolean(value))}
                                                                     aria-label={`Select ${group.label} group`}
                                                                     disabled={groupSectionIds.length === 0}
                                                                 />
-                                                                Select group
+                                                                <span className="min-w-0 truncate">Select group</span>
                                                             </label>
 
                                                             <Button
                                                                 type="button"
                                                                 variant="outline"
                                                                 size="sm"
+                                                                className={compactActionButtonClassName}
                                                                 onClick={() =>
                                                                     openSubjectViewer({
                                                                         title: `Subjects • ${group.label}`,
@@ -1306,7 +1338,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                                     })
                                                                 }
                                                             >
-                                                                Subjects
+                                                                <span className="min-w-0 truncate">Subjects</span>
                                                             </Button>
 
                                                             {group.sections.length > 1 ? (
@@ -1314,75 +1346,90 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                                     type="button"
                                                                     variant="outline"
                                                                     size="sm"
+                                                                    className={compactActionButtonClassName}
                                                                     disabled={sectionDedupeBusy}
                                                                     onClick={() => requestMergeSectionGroups([group])}
                                                                 >
-                                                                    Merge Group Duplicates
+                                                                    <span className="min-w-0 truncate">Merge Group Duplicates</span>
                                                                 </Button>
                                                             ) : null}
                                                         </div>
                                                     </div>
 
-                                                    <div className="space-y-3 sm:hidden">
-                                                        {group.sections.map((section) => {
-                                                            const sectionId = String(section.$id)
-                                                            const selected = selectedSectionIdSet.has(sectionId)
-                                                            return (
-                                                                <div key={sectionId} className="rounded-xl border p-3">
-                                                                    <div className="flex items-start justify-between gap-3">
-                                                                        <label className="flex min-w-0 flex-1 items-start gap-3">
-                                                                            <Checkbox
-                                                                                checked={selected}
-                                                                                onCheckedChange={(value) => toggleSectionSelection(sectionId, Boolean(value))}
-                                                                            />
-                                                                            <div className="min-w-0 flex-1 space-y-1">
-                                                                                <div className="font-medium">{buildSectionDisplayLabel(vm, section)}</div>
-                                                                                <div className="text-xs text-muted-foreground">{resolveSectionReferenceTermLabel(vm, section)}</div>
+                                                    <div className="sm:hidden">
+                                                        <Accordion type="single" collapsible className="w-full border-t">
+                                                            {group.sections.map((section) => {
+                                                                const sectionId = String(section.$id)
+                                                                const selected = selectedSectionIdSet.has(sectionId)
+                                                                return (
+                                                                    <AccordionItem key={sectionId} value={sectionId} className="px-3">
+                                                                        <AccordionTrigger className="min-w-0 gap-2 text-left hover:no-underline">
+                                                                            <div className="min-w-0 flex-1 space-y-1 pr-2">
+                                                                                <div className="truncate text-sm font-semibold">{buildSectionDisplayLabel(vm, section)}</div>
+                                                                                <div className="truncate text-xs text-muted-foreground">{resolveSectionReferenceTermLabel(vm, section)}</div>
                                                                             </div>
-                                                                        </label>
-                                                                    </div>
+                                                                        </AccordionTrigger>
+                                                                        <AccordionContent className="space-y-3 pb-4">
+                                                                            <div className="flex items-center justify-between gap-3">
+                                                                                <label className="flex min-w-0 flex-1 items-center gap-3">
+                                                                                    <Checkbox
+                                                                                        checked={selected}
+                                                                                        onCheckedChange={(value) => toggleSectionSelection(sectionId, Boolean(value))}
+                                                                                    />
+                                                                                    <span className="min-w-0 truncate text-sm text-muted-foreground">Select this section</span>
+                                                                                </label>
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    size="sm"
+                                                                                    className={compactInlineButtonClassName}
+                                                                                    onClick={() => setSelectedSectionDetail(section)}
+                                                                                >
+                                                                                    Details
+                                                                                </Button>
+                                                                            </div>
 
-                                                                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                                                                        <Badge variant={section.isActive ? "default" : "secondary"}>
-                                                                            {section.isActive ? "Active" : "Inactive"}
-                                                                        </Badge>
-                                                                        <Badge variant="outline" className="rounded-full">
-                                                                            Students: {section.studentCount != null ? section.studentCount : "—"}
-                                                                        </Badge>
-                                                                    </div>
+                                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                                <Badge variant={section.isActive ? "default" : "secondary"}>
+                                                                                    {section.isActive ? "Active" : "Inactive"}
+                                                                                </Badge>
+                                                                                <Badge variant="outline" className="rounded-full">
+                                                                                    Students: {section.studentCount != null ? section.studentCount : "—"}
+                                                                                </Badge>
+                                                                            </div>
 
-                                                                    <div className="mt-3 flex flex-wrap gap-2">
-                                                                        <Button type="button" size="sm" variant="outline" onClick={() => openSectionSubjectsDialog(section)}>
-                                                                            Subjects
-                                                                        </Button>
-                                                                        <Button type="button" size="sm" variant="outline" onClick={() => setSelectedSectionDetail(section)}>
-                                                                            Details
-                                                                        </Button>
-                                                                        <Button
-                                                                            type="button"
-                                                                            size="sm"
-                                                                            variant="outline"
-                                                                            onClick={() => {
-                                                                                vm.setSectionEditing(section)
-                                                                                vm.setSectionOpen(true)
-                                                                            }}
-                                                                        >
-                                                                            <Pencil className="mr-2 h-4 w-4" />
-                                                                            Edit
-                                                                        </Button>
-                                                                        <Button
-                                                                            type="button"
-                                                                            size="sm"
-                                                                            variant="destructive"
-                                                                            onClick={() => vm.setDeleteIntent({ type: "section", doc: section })}
-                                                                        >
-                                                                            <Trash2 className="mr-2 h-4 w-4" />
-                                                                            Delete
-                                                                        </Button>
-                                                                    </div>
-                                                                </div>
-                                                            )
-                                                        })}
+                                                                            <div className="grid gap-2 sm:grid-cols-2">
+                                                                                <Button type="button" size="sm" variant="outline" className={compactActionButtonClassName} onClick={() => openSectionSubjectsDialog(section)}>
+                                                                                    Subjects
+                                                                                </Button>
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    size="sm"
+                                                                                    variant="outline"
+                                                                                    className={compactActionButtonClassName}
+                                                                                    onClick={() => {
+                                                                                        vm.setSectionEditing(section)
+                                                                                        vm.setSectionOpen(true)
+                                                                                    }}
+                                                                                >
+                                                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                                                    <span className="min-w-0 truncate">Edit</span>
+                                                                                </Button>
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    size="sm"
+                                                                                    variant="destructive"
+                                                                                    className={compactActionButtonClassName}
+                                                                                    onClick={() => vm.setDeleteIntent({ type: "section", doc: section })}
+                                                                                >
+                                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                                    <span className="min-w-0 truncate">Delete</span>
+                                                                                </Button>
+                                                                            </div>
+                                                                        </AccordionContent>
+                                                                    </AccordionItem>
+                                                                )
+                                                            })}
+                                                        </Accordion>
                                                     </div>
 
                                                     <div className="hidden overflow-hidden rounded-xl border sm:block">
@@ -1412,10 +1459,10 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                                                     aria-label={`Select ${buildSectionDisplayLabel(vm, section)}`}
                                                                                 />
                                                                             </TableCell>
-                                                                            <TableCell className="font-medium">{buildSectionDisplayLabel(vm, section)}</TableCell>
-                                                                            <TableCell className="text-muted-foreground">{resolveSectionReferenceTermLabel(vm, section)}</TableCell>
+                                                                            <TableCell className="max-w-44 font-medium"><div className="truncate">{buildSectionDisplayLabel(vm, section)}</div></TableCell>
+                                                                            <TableCell className="max-w-64 text-muted-foreground"><div className="truncate">{resolveSectionReferenceTermLabel(vm, section)}</div></TableCell>
                                                                             <TableCell>
-                                                                                <Button type="button" variant="outline" size="sm" onClick={() => openSectionSubjectsDialog(section)}>
+                                                                                <Button type="button" variant="outline" size="sm" className={compactInlineButtonClassName} onClick={() => openSectionSubjectsDialog(section)}>
                                                                                     Subjects ({linkedSubjectCount})
                                                                                 </Button>
                                                                             </TableCell>
@@ -1427,13 +1474,14 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                                             </TableCell>
                                                                             <TableCell className="text-right">
                                                                                 <div className="flex justify-end gap-2">
-                                                                                    <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSectionDetail(section)}>
+                                                                                    <Button type="button" variant="outline" size="sm" className={compactInlineButtonClassName} onClick={() => setSelectedSectionDetail(section)}>
                                                                                         Details
                                                                                     </Button>
                                                                                     <Button
                                                                                         type="button"
                                                                                         variant="outline"
                                                                                         size="sm"
+                                                                                        className={compactInlineButtonClassName}
                                                                                         onClick={() => {
                                                                                             vm.setSectionEditing(section)
                                                                                             vm.setSectionOpen(true)
@@ -1446,6 +1494,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                                                         type="button"
                                                                                         variant="destructive"
                                                                                         size="sm"
+                                                                                        className={compactInlineButtonClassName}
                                                                                         onClick={() => vm.setDeleteIntent({ type: "section", doc: section })}
                                                                                     >
                                                                                         <Trash2 className="mr-2 h-4 w-4" />

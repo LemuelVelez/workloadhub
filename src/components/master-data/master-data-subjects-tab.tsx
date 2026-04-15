@@ -337,6 +337,7 @@ function sortSubjects(subjects: LooseSubjectDoc[]) {
 
 export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkLinkOpen, setBulkLinkOpen] = React.useState(false)
+    const [bulkTermActionMode, setBulkTermActionMode] = React.useState<"link" | "transfer">("link")
     const [bulkLinkTermId, setBulkLinkTermId] = React.useState("")
     const [bulkLinkSemesterHint, setBulkLinkSemesterHint] = React.useState("")
     const [bulkLinkSubjectIds, setBulkLinkSubjectIds] = React.useState<string[]>([])
@@ -607,10 +608,12 @@ export function MasterDataSubjectsTab({ vm }: Props) {
 
     const openBulkLinkDialog = React.useCallback(
         ({
+            mode = "link",
             semesterHint = "",
             subjectIds = [],
             lockedSubjectIds = [],
         }: {
+            mode?: "link" | "transfer"
             semesterHint?: string
             subjectIds?: string[]
             lockedSubjectIds?: string[]
@@ -620,6 +623,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                 String(value)
             )
 
+            setBulkTermActionMode(mode)
             setBulkLinkSemesterHint(semesterHint)
             setBulkLinkTermId("")
             setBulkLinkSourceSubjectIds(normalizedSubjectIds)
@@ -639,6 +643,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         setBulkLinkOpen(nextOpen)
 
         if (!nextOpen) {
+            setBulkTermActionMode("link")
             setBulkLinkTermId("")
             setBulkLinkSemesterHint("")
             setBulkLinkSubjectIds([])
@@ -669,6 +674,22 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             )
 
             if (result.updated > 0 && result.failed.length === 0) {
+                handleBulkLinkOpenChange(false)
+            }
+        } finally {
+            setBulkLinking(false)
+        }
+    }, [bulkLinkSubjectIds, bulkLinkTermId, handleBulkLinkOpenChange, vm])
+
+    const transferSelectedSubjectsToTerm = React.useCallback(async () => {
+        setBulkLinking(true)
+        try {
+            const result = await vm.transferSubjectsToTerm(
+                bulkLinkSubjectIds,
+                bulkLinkTermId
+            )
+
+            if (result.created > 0 && result.failed.length === 0) {
                 handleBulkLinkOpenChange(false)
             }
         } finally {
@@ -942,6 +963,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         []
     )
 
+    const compactActionButtonClassName = "h-8 w-full justify-center px-2 text-xs sm:h-9 sm:w-auto sm:px-3 sm:text-sm"
+    const compactInlineButtonClassName = "h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
+
     const stopActionAreaInteraction = React.useCallback(
         (event: React.SyntheticEvent) => {
             event.stopPropagation()
@@ -950,8 +974,14 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     )
 
     const isSingleSubjectLinkMode =
+        bulkTermActionMode === "link" &&
         bulkLinkLockedSubjectIds.length === 1 &&
         bulkLinkSourceSubjectIds.length === 1
+
+    const bulkTransferTargetSubjectIds =
+        selectedVisibleSubjects.length > 0
+            ? selectedVisibleSubjects.map((subject) => String(subject.$id))
+            : visibleSubjectIds
 
     const semesterOptions = React.useMemo(
         () =>
@@ -1000,32 +1030,34 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                 <div>
                     <div className="font-medium">Subjects</div>
                     <div className="text-sm text-muted-foreground">
-                        Manage subject list, units, hours, and semester scope.
+                        Manage subject list, units, hours, semester scope, and reusable subject copies across academic terms.
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
                     <Button
                         type="button"
                         variant="outline"
                         size="sm"
+                        className={compactActionButtonClassName}
                         disabled={bulkCollegeSaving || bulkLinking || bulkUnlinking}
                         onClick={openBulkCollegeDialog}
                     >
                         <Pencil className="mr-2 h-4 w-4" />
-                        Edit Visible Subject Scope
+                        <span className="min-w-0 truncate">Edit Visible Subject Scope</span>
                     </Button>
 
                     <Button
                         type="button"
                         size="sm"
+                        className={compactActionButtonClassName}
                         onClick={() => {
                             vm.setSubjectEditing(null)
                             vm.setSubjectOpen(true)
                         }}
                     >
                         <Plus className="mr-2 h-4 w-4" />
-                        Add Subject
+                        <span className="min-w-0 truncate">Add Subject</span>
                     </Button>
                 </div>
             </div>
@@ -1045,8 +1077,8 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     </span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <div className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-3 py-2">
                         <Checkbox
                             checked={
                                 allVisibleSelected
@@ -1060,39 +1092,61 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             }
                             aria-label="Select all visible subjects"
                         />
-                        <span className="text-sm font-medium">Select all visible</span>
+                        <span className="min-w-0 truncate text-sm font-medium">Select all visible</span>
                     </div>
 
                     <Button
                         type="button"
                         variant="outline"
                         size="sm"
+                        className={compactActionButtonClassName}
                         onClick={() => setSelectedSubjectIds([])}
                         disabled={selectedVisibleSubjects.length === 0}
                     >
-                        Clear Selection
+                        <span className="min-w-0 truncate">Clear Selection</span>
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={compactActionButtonClassName}
+                        onClick={() =>
+                            openBulkLinkDialog({
+                                mode: "transfer",
+                                subjectIds: bulkTransferTargetSubjectIds,
+                            })
+                        }
+                        disabled={bulkTransferTargetSubjectIds.length === 0 || bulkLinking || bulkUnlinking}
+                    >
+                        <Link2 className="mr-2 h-4 w-4" />
+                        <span className="min-w-0 truncate">
+                            {selectedVisibleSubjects.length > 0 ? "Transfer Selected to Another Term" : "Transfer Visible to Another Term"}
+                        </span>
                     </Button>
 
                     <Button
                         type="button"
                         variant="destructive"
                         size="sm"
+                        className={compactActionButtonClassName}
                         onClick={openDeleteSelectedSubjects}
                         disabled={selectedVisibleSubjects.length === 0}
                     >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Delete Selected
+                        <span className="min-w-0 truncate">Delete Selected</span>
                     </Button>
 
                     <Button
                         type="button"
                         variant="destructive"
                         size="sm"
+                        className={compactActionButtonClassName}
                         onClick={openDeleteAllVisibleSubjects}
                         disabled={allVisibleSubjects.length === 0}
                     >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Delete All Visible
+                        <span className="min-w-0 truncate">Delete All Visible</span>
                     </Button>
                 </div>
             </div>
@@ -1189,9 +1243,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         type="button"
                                         variant="outline"
                                         size="sm"
+                                        className={compactActionButtonClassName}
                                         disabled={bulkLinking || bulkUnlinking}
                                         onClick={handleTableActionClick(() =>
                                             openBulkLinkDialog({
+                                                mode: "link",
                                                 semesterHint:
                                                     group.semesterLabel ===
                                                     INHERIT_SEMESTER_LABEL
@@ -1204,7 +1260,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         )}
                                     >
                                         <Link2 className="mr-2 h-4 w-4" />
-                                        Edit Group Links
+                                        <span className="min-w-0 truncate">Edit Group Links</span>
                                     </Button>
 
                                     {group.inheritedCount > 0 ? (
@@ -1212,9 +1268,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                             type="button"
                                             variant="outline"
                                             size="sm"
+                                            className={compactActionButtonClassName}
                                             disabled={bulkLinking || bulkUnlinking}
                                             onClick={handleTableActionClick(() =>
                                                 openBulkLinkDialog({
+                                                    mode: "link",
                                                     semesterHint:
                                                         group.semesterLabel ===
                                                         INHERIT_SEMESTER_LABEL
@@ -1232,15 +1290,40 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                             )}
                                         >
                                             <Link2 className="mr-2 h-4 w-4" />
-                                            Link Existing to Term
+                                            <span className="min-w-0 truncate">Link Existing to Term</span>
                                         </Button>
                                     ) : null}
+
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className={compactActionButtonClassName}
+                                        disabled={bulkLinking || bulkUnlinking}
+                                        onClick={handleTableActionClick(() =>
+                                            openBulkLinkDialog({
+                                                mode: "transfer",
+                                                semesterHint:
+                                                    group.semesterLabel ===
+                                                    INHERIT_SEMESTER_LABEL
+                                                        ? ""
+                                                        : group.semesterLabel,
+                                                subjectIds: group.subjects.map((subject) =>
+                                                    String(subject.$id)
+                                                ),
+                                            })
+                                        )}
+                                    >
+                                        <Link2 className="mr-2 h-4 w-4" />
+                                        <span className="min-w-0 truncate">Transfer Group to Another Term</span>
+                                    </Button>
 
                                     {group.linkedCount > 0 ? (
                                         <Button
                                             type="button"
                                             variant="outline"
                                             size="sm"
+                                            className={compactActionButtonClassName}
                                             disabled={bulkLinking || bulkUnlinking}
                                             onClick={handleTableActionClick(() =>
                                                 unlinkSubjectIds(
@@ -1261,7 +1344,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         </Button>
                                     ) : null}
 
-                                    <Badge variant="outline">
+                                    <Badge variant="outline" className="max-w-full break-words text-center sm:text-left">
                                         Visible actions affect the current list or group only.
                                     </Badge>
                                 </div>
@@ -1277,7 +1360,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                             return (
                                                 <AccordionItem key={subjectValue} value={subjectValue} className="px-4">
                                                     <AccordionTrigger className="min-w-0 gap-2 text-left hover:no-underline">
-                                                        <div className="min-w-0 flex-1 overflow-hidden truncate pr-2 text-sm font-semibold">
+                                                        <div className="min-w-0 flex-1 break-words pr-2 text-sm font-semibold line-clamp-2">
                                                             {subject.code} — {subject.title}
                                                         </div>
                                                     </AccordionTrigger>
@@ -1305,6 +1388,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             <Button
                                                                 type="button"
                                                                 size="sm"
+                                                                className={compactInlineButtonClassName}
                                                                 onClick={handleTableActionClick(() =>
                                                                     setSelectedSubjectDetail(subject)
                                                                 )}
@@ -1395,11 +1479,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                             </div>
                                                         </TableCell>
 
-                                                        <TableCell className="font-medium">
-                                                            {subject.code}
-                                                        </TableCell>
+                                                        <TableCell className="max-w-40 font-medium"><div className="truncate">{subject.code}</div></TableCell>
 
-                                                        <TableCell>{subject.title}</TableCell>
+                                                        <TableCell className="max-w-72"><div className="truncate">{subject.title}</div></TableCell>
 
                                                         <TableCell className="text-muted-foreground">
                                                             {vm.collegeLabel(
@@ -1439,7 +1521,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                                     </Badge>
                                                                 </div>
 
-                                                                <div className="text-xs text-muted-foreground">
+                                                                <div className="truncate text-xs text-muted-foreground">
                                                                     {termLabel}
                                                                 </div>
                                                             </div>
@@ -1477,6 +1559,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                                     type="button"
                                                                     variant="outline"
                                                                     size="sm"
+                                                                    className={compactInlineButtonClassName}
                                                                     onClick={handleTableActionClick(() => {
                                                                         vm.setSubjectEditing(subject as any)
                                                                         vm.setSubjectOpen(true)
@@ -1490,6 +1573,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                                                     type="button"
                                                                     variant="destructive"
                                                                     size="sm"
+                                                                    className={compactInlineButtonClassName}
                                                                     onClick={handleTableActionClick(() =>
                                                                         vm.setDeleteIntent({
                                                                             type: "subject",
@@ -1905,14 +1989,18 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                 <DialogContent className="sm:max-w-3xl">
                     <DialogHeader>
                         <DialogTitle>
-                            {isSingleSubjectLinkMode
-                                ? "Link Subject to Semester"
-                                : "Edit Subject Semester Links"}
+                            {bulkTermActionMode === "transfer"
+                                ? "Transfer Subjects to Another Term"
+                                : isSingleSubjectLinkMode
+                                    ? "Link Subject to Semester"
+                                    : "Edit Subject Semester Links"}
                         </DialogTitle>
                         <DialogDescription>
-                            {isSingleSubjectLinkMode
-                                ? "Permanently connect this subject to a semester record for proper semester scope."
-                                : "Bulk edit the selected subjects and link or relink them to the correct semester record."}
+                            {bulkTermActionMode === "transfer"
+                                ? "Create reusable copies of the selected subjects in another academic term. The source subjects stay in their current term."
+                                : isSingleSubjectLinkMode
+                                    ? "Permanently connect this subject to a semester record for proper semester scope."
+                                    : "Bulk edit the selected subjects and link or relink them to the correct semester record."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1942,9 +2030,11 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                 </SelectContent>
                             </Select>
                             <div className="text-xs text-muted-foreground">
-                                {normalizedBulkLinkSemesterHint
-                                    ? `Filtered for ${normalizedBulkLinkSemesterHint} subjects.`
-                                    : "Choose the target term for the selected subjects."}
+                                {bulkTermActionMode === "transfer"
+                                    ? "Choose the target term. Transfer creates new subject records and keeps the source records untouched."
+                                    : normalizedBulkLinkSemesterHint
+                                        ? `Filtered for ${normalizedBulkLinkSemesterHint} subjects.`
+                                        : "Choose the target term for the selected subjects."}
                             </div>
                         </div>
 
@@ -1962,6 +2052,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         type="button"
                                         variant="outline"
                                         size="sm"
+                                        className={compactInlineButtonClassName}
                                         onClick={() =>
                                             setBulkLinkSubjectIds(
                                                 bulkLinkEligibleSubjects.map((subject) =>
@@ -1978,6 +2069,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                         type="button"
                                         variant="outline"
                                         size="sm"
+                                        className={compactInlineButtonClassName}
                                         onClick={() => setBulkLinkSubjectIds([])}
                                         disabled={bulkLinkSubjectIds.length === 0}
                                     >
@@ -2070,6 +2162,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         <Button
                             type="button"
                             variant="outline"
+                            className={compactActionButtonClassName}
                             onClick={() => handleBulkLinkOpenChange(false)}
                             disabled={bulkLinking}
                         >
@@ -2077,14 +2170,21 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         </Button>
                         <Button
                             type="button"
-                            onClick={() => void linkSelectedSubjectsToTerm()}
+                            className={compactActionButtonClassName}
+                            onClick={() => void (bulkTermActionMode === "transfer" ? transferSelectedSubjectsToTerm() : linkSelectedSubjectsToTerm())}
                             disabled={
                                 bulkLinking ||
                                 !bulkLinkTermId ||
                                 bulkLinkSubjectIds.length === 0
                             }
                         >
-                            {bulkLinking ? "Saving..." : "Save Term Links"}
+                            {bulkLinking
+                                ? bulkTermActionMode === "transfer"
+                                    ? "Transferring..."
+                                    : "Saving..."
+                                : bulkTermActionMode === "transfer"
+                                    ? "Transfer Selected"
+                                    : "Save Term Links"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -362,6 +362,116 @@ function buildSectionDisplayLabel(
 }
 
 
+function normalizeSemesterLabel(value: string) {
+    const normalized = value.toLowerCase().replace(/\s+/g, " ").trim()
+    if (!normalized) return ""
+    if (normalized.includes("1st") || normalized.includes("first")) {
+        return "1st Semester"
+    }
+    if (normalized.includes("2nd") || normalized.includes("second")) {
+        return "2nd Semester"
+    }
+    if (normalized.includes("summer")) {
+        return "Summer"
+    }
+    return value.trim()
+}
+
+function inferSectionProgramScopeKey(
+    section: Record<string, unknown> | null | undefined,
+    programs: ProgramDoc[]
+) {
+    const programId = str(section?.programId)
+    const programPrefix = resolveSectionProgramPrefix(programs, programId)
+    if (programPrefix) return `prefix:${programPrefix}`
+
+    const yearLevelPrefix = normalizeSectionYearLevelValue(section?.yearLevel as string | number | null)
+        .match(/^(CS|IS)\b/)?.[1] ?? ""
+    if (yearLevelPrefix) return `prefix:${yearLevelPrefix}`
+
+    if (programId) return `program:${programId}`
+
+    return ""
+}
+
+function buildSectionDuplicateScopeKey(
+    section: Record<string, unknown> | null | undefined,
+    programs: ProgramDoc[]
+) {
+    const normalizedYearLevel =
+        buildStoredSectionYearLevel(section?.yearLevel as string | number | null, str(section?.programId) || null, programs) ||
+        normalizeSectionYearLevelValue(section?.yearLevel as string | number | null)
+    const yearNumber = extractSectionYearNumber(normalizedYearLevel) || normalizedYearLevel
+
+    return [
+        str(section?.departmentId),
+        inferSectionProgramScopeKey(section, programs),
+        yearNumber,
+        normalizeSectionNameValue(section?.name as string | null),
+    ].join("::")
+}
+
+function normalizeSubjectCodeValue(value?: string | null) {
+    return str(value).toUpperCase().replace(/\s+/g, " ")
+}
+
+function normalizeSubjectTitleValue(value?: string | null) {
+    return str(value).toUpperCase().replace(/\s+/g, " ")
+}
+
+function buildSubjectTransferPayload(
+    source: Record<string, unknown> | null | undefined,
+    termIdInput: string,
+    terms: AcademicTermDoc[],
+    programs: ProgramDoc[]
+) {
+    const termId = str(termIdInput)
+    const programIds = resolveSubjectProgramIds(source)
+    const primaryProgramId = programIds[0] ?? resolveSubjectProgramId(source) ?? null
+    const yearLevels = resolveSubjectYearLevels(source)
+    const primaryYearLevel = yearLevels[0] ?? readFirstStringValue(source, SUBJECT_SCOPE_YEAR_LEVEL_KEYS)
+    const legacyYearLevel = buildStoredSectionYearLevel(primaryYearLevel, primaryProgramId, programs)
+    const lectureHours = num((source as any)?.lectureHours, 0)
+    const labHours = num((source as any)?.labHours, 0)
+    const targetSemester = str(terms.find((term) => str(term.$id) === termId)?.semester)
+
+    return {
+        code: str((source as any)?.code),
+        title: str((source as any)?.title),
+        units: num((source as any)?.units, 0),
+        lectureHours,
+        labHours,
+        totalHours: lectureHours + labHours,
+        isActive: toBool((source as any)?.isActive),
+        departmentId: str((source as any)?.departmentId) || null,
+        termId: termId || null,
+        programId: primaryProgramId,
+        programIds,
+        yearLevel: legacyYearLevel || null,
+        yearLevels,
+        semester: targetSemester || str(readFirstStringValue(source, SUBJECT_SEMESTER_KEYS)) || null,
+    }
+}
+
+function buildSubjectTransferDuplicateKey(
+    source: Record<string, unknown> | null | undefined,
+    targetTermId: string,
+    targetSemester: string
+) {
+    const programIds = resolveSubjectProgramIds(source).slice().sort()
+    const yearLevels = resolveSubjectYearLevels(source).slice().sort()
+
+    return [
+        str((source as any)?.departmentId),
+        str(targetTermId),
+        normalizeSubjectCodeValue((source as any)?.code as string | null),
+        normalizeSubjectTitleValue((source as any)?.title as string | null),
+        programIds.join(","),
+        yearLevels.join(","),
+        normalizeSemesterLabel(targetSemester || readFirstStringValue(source, SUBJECT_SEMESTER_KEYS)),
+    ].join("::")
+}
+
 export function useMasterDataManagement() {
     const [tab, setTab] = React.useState<MasterTab>("colleges")
     const [loading, setLoading] = React.useState(true)
@@ -988,6 +1098,81 @@ export function useMasterDataManagement() {
         return { updated, failed }
     }
 
+    async function transferSubjectsToTerm(subjectIds: string[], termIdInput: string) {
+        const termId = str(termIdInput)
+        const normalizedIds = Array.from(new Set(subjectIds.map((id) => str(id)).filter(Boolean)))
+
+        if (!termId) {
+            toast.error("Please select a term.")
+            return { created: 0, failed: [] as string[] }
+        }
+
+        if (normalizedIds.length === 0) {
+            toast.error("Please select at least one subject.")
+            return { created: 0, failed: [] as string[] }
+        }
+
+        const targetTerm = terms.find((term) => str(term.$id) === termId)
+        const targetSemester = str(targetTerm?.semester)
+        const subjectById = new Map(subjects.map((subject) => [subject.$id, subject]))
+        const existingTargetKeys = new Set(
+            subjects
+                .filter((subject) => str(readFirstStringValue(subject as any, SUBJECT_TERM_KEYS)) === termId)
+                .map((subject) => buildSubjectTransferDuplicateKey(subject as any, termId, targetSemester))
+        )
+
+        let created = 0
+        const failed: string[] = []
+
+        for (const subjectId of normalizedIds) {
+            const currentSubject = subjectById.get(subjectId)
+
+            if (!currentSubject) {
+                failed.push(subjectId)
+                continue
+            }
+
+            const duplicateKey = buildSubjectTransferDuplicateKey(currentSubject as any, termId, targetSemester)
+            if (existingTargetKeys.has(duplicateKey)) {
+                failed.push(`${str((currentSubject as any)?.code) || subjectId} (already exists in target term)`)
+                continue
+            }
+
+            try {
+                await databases.createDocument(
+                    DATABASE_ID,
+                    COLLECTIONS.SUBJECTS,
+                    ID.unique(),
+                    buildSubjectTransferPayload(currentSubject as any, termId, terms, programs)
+                )
+                existingTargetKeys.add(duplicateKey)
+                created += 1
+            } catch {
+                failed.push(str((currentSubject as any)?.code) || subjectId)
+            }
+        }
+
+        if (created > 0) {
+            await refreshAll()
+        }
+
+        const targetTermLabel = termLabel(terms, termId)
+
+        if (created > 0 && failed.length === 0) {
+            toast.success(
+                `${created} subject${created === 1 ? "" : "s"} transferred to ${targetTermLabel} without removing the source records.`
+            )
+        } else if (created > 0 && failed.length > 0) {
+            toast.error(
+                `Transferred ${created} subject${created === 1 ? "" : "s"} to ${targetTermLabel}, but failed for: ${failed.join(", ")}`
+            )
+        } else {
+            toast.error("No subject copies were created for the target term.")
+        }
+
+        return { created, failed }
+    }
+
     // -----------------------------
     // Faculty dialog state
     // -----------------------------
@@ -1314,18 +1499,20 @@ export function useMasterDataManagement() {
         }
 
         try {
+            const currentDuplicateScopeKey = buildSectionDuplicateScopeKey(
+                {
+                    departmentId,
+                    programId,
+                    yearLevel,
+                    name,
+                },
+                programs
+            )
+
             const conflictingSection = sections.find((doc: any) => {
                 if (String(doc?.$id ?? "") === String(editingSectionId ?? "")) return false
-                if (str(doc?.departmentId) !== departmentId) return false
-                if (normalizeSectionYearLevelValue(doc?.yearLevel) !== yearLevel) return false
-                if (normalizeSectionNameValue(doc?.name) !== name) return false
 
-                const existingProgramId = str(doc?.programId)
-                if (programId || existingProgramId) {
-                    return existingProgramId === str(programId)
-                }
-
-                return true
+                return buildSectionDuplicateScopeKey(doc, programs) === currentDuplicateScopeKey
             })
 
             if (conflictingSection) {
@@ -1771,6 +1958,7 @@ export function useMasterDataManagement() {
         saveSubject,
         setSubjectTermLink,
         bulkLinkSubjectsToTerm,
+        transferSubjectsToTerm,
 
         // faculty dialog
         facultyOpen,
