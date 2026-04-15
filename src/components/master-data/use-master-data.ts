@@ -522,7 +522,8 @@ export function useMasterDataManagement() {
                                 normalizeSectionYearLevelValue(s.yearLevel) ||
                                 "1") as any,
                         semester: s.semester ? str(s.semester) : null,
-                        academicTermLabel: s.academicTermLabel ? str(s.academicTermLabel) : termLabel(mappedTerms, str(s.termId)),
+                        academicTermLabel:
+                            s.academicTermLabel ? str(s.academicTermLabel) : termLabel(mappedTerms, str(s.termId)) || "All Academic Terms",
                         name: normalizeSectionNameValue(s.name),
                         studentCount: s.studentCount != null ? num(s.studentCount, 0) : null,
                         isActive: toBool(s.isActive),
@@ -1176,13 +1177,12 @@ export function useMasterDataManagement() {
         if (!sectionOpen) return
 
         if (!sectionEditing) {
-            setSectionTermId(str(selectedTermId))
+            setSectionTermId("")
             setSectionCollegeId(defaultCollegeId)
             setSectionProgramId("__none__")
             setSectionSubjectIds([])
-            const selectedTerm = terms.find((term) => str(term.$id) === str(selectedTermId))
-            setSectionSemester(str(selectedTerm?.semester))
-            setSectionAcademicTermLabel(termLabel(terms, str(selectedTermId)))
+            setSectionSemester("")
+            setSectionAcademicTermLabel("All Academic Terms")
             setSectionYear("1")
             setSectionName(SECTION_NAME_OPTIONS[0] || "A")
             setSectionStudentCount("")
@@ -1190,7 +1190,7 @@ export function useMasterDataManagement() {
             return
         }
 
-        const fallbackReferenceTermId = str(sectionEditing.termId) || str(selectedTermId)
+        const fallbackReferenceTermId = str(sectionEditing.termId)
         const fallbackReferenceTerm = terms.find((term) => str(term.$id) === fallbackReferenceTermId)
 
         setSectionTermId(fallbackReferenceTermId)
@@ -1205,13 +1205,13 @@ export function useMasterDataManagement() {
         )
         setSectionSemester(str(sectionEditing.semester) || str(fallbackReferenceTerm?.semester))
         setSectionAcademicTermLabel(
-            str(sectionEditing.academicTermLabel) || termLabel(terms, fallbackReferenceTermId)
+            str(sectionEditing.academicTermLabel) || termLabel(terms, fallbackReferenceTermId) || "All Academic Terms"
         )
         setSectionYear(normalizeSectionYearLevelValue(sectionEditing.yearLevel) || "1")
         setSectionName(normalizeSectionNameValue(sectionEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
         setSectionStudentCount(sectionEditing.studentCount != null ? String(sectionEditing.studentCount) : "")
         setSectionActive(Boolean(sectionEditing.isActive))
-    }, [sectionOpen, sectionEditing, selectedTermId, defaultCollegeId, terms])
+    }, [sectionOpen, sectionEditing, defaultCollegeId, terms])
 
     const programsForSelectedCollege = React.useMemo(() => {
         const collegeId = str(sectionCollegeId)
@@ -1340,7 +1340,7 @@ export function useMasterDataManagement() {
                 await databases.createDocument(DATABASE_ID, COLLECTIONS.SECTIONS, ID.unique(), payload)
                 toast.success(
                     referenceTermId
-                        ? "Section created. The selected semester was used only as a subject-matching reference."
+                        ? "Section created. The selected term was used only as a temporary subject filter."
                         : "Section created."
                 )
             }
@@ -1492,7 +1492,7 @@ export function useMasterDataManagement() {
                 .filter(Boolean)
                 .map((subject) => `${subject?.code ?? ""} ${subject?.title ?? ""}`.trim())
                 .join(" ")
-            const term = s.academicTermLabel || termLabel(terms, s.termId)
+            const term = s.academicTermLabel || termLabel(terms, s.termId) || "All Academic Terms"
             const semester = str(s.semester)
             const main = buildSectionDisplayLabel(s.yearLevel, s.name)
             return `${main} ${college} ${prog} ${subjectLabel} ${semester} ${term} ${s.studentCount ?? ""}`

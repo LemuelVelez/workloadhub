@@ -686,42 +686,44 @@ export function MasterDataDialogs({ vm }: Props) {
                     <DialogHeader>
                         <DialogTitle>{vm.sectionEditing ? "Edit Section" : "Add Section"}</DialogTitle>
                         <DialogDescription>
-                            Sections are reusable across academic years. Use the reference semester below only to tailor linked subject choices, while the saved section stays reusable every year.
+                            Sections are reusable across all academic terms. Use the optional subject filter term below only to narrow linked subject choices while the saved section remains globally reusable.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <Label>Reference Semester</Label>
-                            {vm.sectionEditing ? (
-                                <div className="grid gap-2">
-                                    <Input value={vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
-                                    <div className="text-xs text-muted-foreground">
-                                        Used only as a reference for linked subject matching.
-                                    </div>
-                                </div>
-                            ) : (
-                                <Select
-                                    value={vm.sectionTermId}
-                                    onValueChange={(value) => {
-                                        vm.setSectionTermId(value)
-                                        const selectedTerm = vm.terms.find((term) => term.$id === value)
-                                        vm.setSectionSemester(String(selectedTerm?.semester ?? ""))
-                                        vm.setSectionAcademicTermLabel(vm.termLabel(vm.terms, value))
-                                    }}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Reference Semester" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {vm.terms.map((t) => (
-                                            <SelectItem key={t.$id} value={t.$id}>
-                                                {vm.termLabel(vm.terms, t.$id)}{t.isActive ? " • Active" : ""}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            )}
+                            <Label>Subject Filter Term (optional)</Label>
+                            <Select
+                                value={vm.sectionTermId || "__all__"}
+                                onValueChange={(value) => {
+                                    if (value === "__all__") {
+                                        vm.setSectionTermId("")
+                                        vm.setSectionSemester("")
+                                        vm.setSectionAcademicTermLabel("All Academic Terms")
+                                        return
+                                    }
+
+                                    vm.setSectionTermId(value)
+                                    const selectedTerm = vm.terms.find((term) => term.$id === value)
+                                    vm.setSectionSemester(String(selectedTerm?.semester ?? ""))
+                                    vm.setSectionAcademicTermLabel(vm.termLabel(vm.terms, value))
+                                }}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="All Academic Terms" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="__all__">All Academic Terms</SelectItem>
+                                    {vm.terms.map((t) => (
+                                        <SelectItem key={t.$id} value={t.$id}>
+                                            {vm.termLabel(vm.terms, t.$id)}{t.isActive ? " • Active" : ""}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground">
+                                This only narrows the subject picker. The saved section remains reusable across every academic term.
+                            </div>
                         </div>
 
                         <div className="grid gap-2">
@@ -742,16 +744,23 @@ export function MasterDataDialogs({ vm }: Props) {
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="grid gap-2">
-                                <Label>Reference Semester</Label>
-                                <Input value={vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)} disabled />
+                                <Label>Academic Term Coverage</Label>
+                                <Input
+                                    value={
+                                        vm.sectionTermId
+                                            ? vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)
+                                            : "All Academic Terms"
+                                    }
+                                    disabled
+                                />
                                 <div className="text-xs text-muted-foreground">
-                                    Used only to tailor the linked subject list. The saved section remains reusable across school years.
+                                    Sections are shared across all academic terms. The optional filter only helps narrow the linked subject list.
                                 </div>
                             </div>
 
                             <div className="grid gap-2">
-                                <Label>Semester Token</Label>
-                                <Input value={vm.sectionSemester || "—"} disabled />
+                                <Label>Subject Filter Semester</Label>
+                                <Input value={vm.sectionSemester || "All Semesters"} disabled />
                             </div>
                         </div>
                         <div className="grid gap-2">
@@ -852,7 +861,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                 </span>
                             </div>
                             <div className="text-xs text-muted-foreground">
-                                Subject options are filtered by the selected college, program, year level, and semester.
+                                Subject options are filtered by the selected college, program, year level, and the optional term filter.
                             </div>
                         </div>
 

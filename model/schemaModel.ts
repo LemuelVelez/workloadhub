@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "016_make_sections_reusable_across_terms" as const;
+export const SCHEMA_MIGRATION_ID = "017_link_sections_across_all_terms" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)
@@ -531,7 +531,7 @@ export type FirstLoginUser = {
 
 export type Section = {
     /**
-     * Reusable sections are no longer term-bound.
+     * Sections are shared across all academic terms.
      * Legacy docs may still include termId during the transition.
      */
     termId?: string | null;
