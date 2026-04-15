@@ -759,6 +759,11 @@ export function MasterDataSectionsTab({ vm }: Props) {
   >([]);
   const [linkUpdating, setLinkUpdating] = React.useState(false);
 
+  const [selectedSectionDeleteDialogOpen, setSelectedSectionDeleteDialogOpen] =
+    React.useState(false);
+  const [selectedSectionDeleteSubmitting, setSelectedSectionDeleteSubmitting] =
+    React.useState(false);
+
   const [sectionDedupeBusy, setSectionDedupeBusy] = React.useState(false);
   const [pendingSectionAction, setPendingSectionAction] =
     React.useState<PendingSectionAction | null>(null);
@@ -846,6 +851,28 @@ export function MasterDataSectionsTab({ vm }: Props) {
     () =>
       visibleGroups.filter((group) => selectedGroupKeys.includes(group.key)),
     [selectedGroupKeys, visibleGroups],
+  );
+
+  const selectedSectionRecords = React.useMemo(() => {
+    const seen = new Set<string>();
+
+    return selectedVisibleGroups.flatMap((group) =>
+      group.sections.filter((section) => {
+        const sectionId = String(section?.$id ?? "").trim();
+        if (!sectionId || seen.has(sectionId)) return false;
+        seen.add(sectionId);
+        return true;
+      }),
+    );
+  }, [selectedVisibleGroups]);
+
+  const selectedSectionDeletePreview = React.useMemo(
+    () =>
+      selectedVisibleGroups
+        .slice(0, 3)
+        .map((group) => group.label)
+        .join(", "),
+    [selectedVisibleGroups],
   );
 
   const allSectionGroups = React.useMemo<SectionGroup[]>(() => {
@@ -1103,6 +1130,108 @@ export function MasterDataSectionsTab({ vm }: Props) {
       ),
     });
   }, [openLinkDialog, selectedVisibleGroups, visibleGroups]);
+
+  const editSelectedSectionGroup = React.useCallback(() => {
+    if (selectedSectionRecords.length === 0) {
+      toast.error("Select at least one section group to edit.");
+      return;
+    }
+
+    const targetSection = selectedSectionRecords[0];
+    if (!targetSection) {
+      toast.error("No section record found for the selected groups.");
+      return;
+    }
+
+    vm.resetSectionDirtyFields();
+
+    if (selectedSectionRecords.length === 1) {
+      vm.setSectionEditingBatch([]);
+      vm.setSectionEditing(targetSection);
+    } else {
+      vm.setSectionEditing(null);
+      vm.setSectionEditingBatch(selectedSectionRecords);
+    }
+
+    vm.setSectionOpen(true);
+  }, [selectedSectionRecords, vm]);
+
+  const openDeleteSelectedSectionsDialog = React.useCallback(() => {
+    if (selectedVisibleGroups.length === 0) {
+      toast.error("Please select at least one section group to delete.");
+      return;
+    }
+
+    setSelectedSectionDeleteDialogOpen(true);
+  }, [selectedVisibleGroups.length]);
+
+  const deleteSelectedSections = React.useCallback(async () => {
+    if (selectedSectionDeleteSubmitting || selectedSectionRecords.length === 0) {
+      return;
+    }
+
+    setSelectedSectionDeleteSubmitting(true);
+    try {
+      let deleted = 0;
+      const failed: string[] = [];
+
+      for (const section of selectedSectionRecords) {
+        try {
+          await databases.deleteDocument(
+            DATABASE_ID,
+            COLLECTIONS.SECTIONS,
+            section.$id,
+          );
+          deleted += 1;
+        } catch (error: any) {
+          failed.push(
+            `${buildSectionDisplayLabel(vm, section)} (${formatSectionBulkEditError(error)})`,
+          );
+        }
+      }
+
+      if (deleted > 0) {
+        const deletedGroupKeySet = new Set(
+          selectedVisibleGroups.map((group) => group.key),
+        );
+
+        await vm.refreshAll();
+        setSelectedGroupKeys((current) =>
+          current.filter((key) => !deletedGroupKeySet.has(key)),
+        );
+        setSelectedSectionDetail((current) =>
+          current && deletedGroupKeySet.has(current.key) ? null : current,
+        );
+      }
+
+      if (failed.length === 0) {
+        toast.success(
+          `Deleted ${deleted} section record${deleted === 1 ? "" : "s"} from ${selectedVisibleGroups.length} selected group${selectedVisibleGroups.length === 1 ? "" : "s"}.`,
+        );
+        setSelectedSectionDeleteDialogOpen(false);
+        return;
+      }
+
+      if (deleted > 0) {
+        toast.error(
+          `Deleted ${deleted} section record${deleted === 1 ? "" : "s"}, but failed for: ${failed.join(", ")}`,
+        );
+        setSelectedSectionDeleteDialogOpen(false);
+        return;
+      }
+
+      toast.error(
+        `Failed to delete selected sections: ${failed.join(", ") || "No section records found."}`,
+      );
+    } finally {
+      setSelectedSectionDeleteSubmitting(false);
+    }
+  }, [
+    selectedSectionDeleteSubmitting,
+    selectedSectionRecords,
+    selectedVisibleGroups,
+    vm,
+  ]);
 
   const linkTargetGroups = React.useMemo(
     () =>
@@ -1575,8 +1704,9 @@ export function MasterDataSectionsTab({ vm }: Props) {
           <div className="space-y-1">
             <div className="font-medium">Sections</div>
             <div className="text-sm text-muted-foreground">
-              Manage reusable section records, link selected or visible section groups
-              to subjects and academic terms, and clean up duplicate records.
+              Manage reusable section records, edit or delete selected section groups,
+              link selected or visible sections to subjects and academic terms, and
+              clean up duplicate records.
             </div>
           </div>
 
@@ -1585,6 +1715,8 @@ export function MasterDataSectionsTab({ vm }: Props) {
               size="sm"
               className={compactActionButtonClassName}
               onClick={() => {
+                vm.resetSectionDirtyFields();
+                vm.setSectionEditingBatch([]);
                 vm.setSectionEditing(null);
                 vm.setSectionOpen(true);
               }}
@@ -1636,6 +1768,37 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     {selectedVisibleGroups.length > 0
                       ? `Link Selected Sections (${selectedVisibleGroups.length})`
                       : `Link All Visible Sections (${visibleGroups.length})`}
+                  </span>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={compactActionButtonClassName}
+                  onClick={editSelectedSectionGroup}
+                  disabled={selectedSectionRecords.length === 0}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  <span className="min-w-0 truncate">
+                    Edit Selected ({selectedVisibleGroups.length})
+                  </span>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className={compactActionButtonClassName}
+                  onClick={openDeleteSelectedSectionsDialog}
+                  disabled={
+                    selectedVisibleGroups.length === 0 ||
+                    selectedSectionDeleteSubmitting
+                  }
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  <span className="min-w-0 truncate">
+                    Delete Selected ({selectedVisibleGroups.length})
                   </span>
                 </Button>
 
@@ -1741,8 +1904,8 @@ export function MasterDataSectionsTab({ vm }: Props) {
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    Select groups below, then use the link action to connect selected
-                    or all visible sections to subjects and one or more academic terms.
+                    Select groups below, then edit, delete, or link the selected
+                    section groups without leaving this view.
                   </div>
                 </div>
               </AccordionTrigger>
@@ -1950,6 +2113,60 @@ export function MasterDataSectionsTab({ vm }: Props) {
           </Accordion>
         )}
       </div>
+
+      <AlertDialog
+        open={selectedSectionDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!selectedSectionDeleteSubmitting) {
+            setSelectedSectionDeleteDialogOpen(open);
+          }
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Selected Sections</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {selectedSectionRecords.length} section
+              record{selectedSectionRecords.length === 1 ? "" : "s"} across
+              {" "}{selectedVisibleGroups.length} selected group
+              {selectedVisibleGroups.length === 1 ? "" : "s"}
+              {selectedSectionDeletePreview
+                ? `, including ${selectedSectionDeletePreview}${selectedVisibleGroups.length > 3 ? ", and more" : ""}.`
+                : "."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {selectedSectionDeleteSubmitting ? (
+            <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+              Deleting selected sections...
+            </div>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={selectedSectionDeleteSubmitting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteSelectedSections();
+              }}
+              disabled={selectedSectionDeleteSubmitting}
+              className="bg-destructive text-white! hover:bg-destructive/90"
+            >
+              {selectedSectionDeleteSubmitting ? (
+                <span className="inline-flex items-center gap-2 text-white">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Deleting...
+                </span>
+              ) : (
+                "Delete Selected"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(pendingSectionAction)}
@@ -2241,6 +2458,8 @@ export function MasterDataSectionsTab({ vm }: Props) {
                             size="sm"
                             className={compactInlineButtonClassName}
                             onClick={() => {
+                              vm.resetSectionDirtyFields();
+                              vm.setSectionEditingBatch([]);
                               vm.setSectionEditing(section);
                               vm.setSectionOpen(true);
                               setSelectedSectionDetail(null);

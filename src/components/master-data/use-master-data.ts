@@ -1339,6 +1339,48 @@ export function useMasterDataManagement() {
     // -----------------------------
     const [sectionOpen, setSectionOpen] = React.useState(false)
     const [sectionEditing, setSectionEditing] = React.useState<SectionDoc | null>(null)
+    const [sectionEditingBatch, setSectionEditingBatch] = React.useState<SectionDoc[]>([])
+    const [sectionDirtyFields, setSectionDirtyFields] = React.useState<Record<string, boolean>>({})
+
+    const markSectionFieldDirty = React.useCallback((field: string) => {
+        setSectionDirtyFields((current) =>
+            current[field]
+                ? current
+                : {
+                    ...current,
+                    [field]: true,
+                }
+        )
+    }, [])
+
+    const resetSectionDirtyFields = React.useCallback(() => {
+        setSectionDirtyFields({})
+    }, [])
+
+    const closeSectionDialog = React.useCallback(() => {
+        setSectionOpen(false)
+        setSectionEditing(null)
+        setSectionEditingBatch([])
+        setSectionDirtyFields({})
+    }, [])
+
+    const sectionEditingTargets = React.useMemo(() => {
+        if (sectionEditingBatch.length > 0) {
+            const deduped = new Map<string, SectionDoc>()
+
+            for (const section of sectionEditingBatch) {
+                const sectionId = str(section?.$id)
+                if (!sectionId || deduped.has(sectionId)) continue
+                deduped.set(sectionId, section)
+            }
+
+            return Array.from(deduped.values())
+        }
+
+        return sectionEditing ? [sectionEditing] : []
+    }, [sectionEditing, sectionEditingBatch])
+
+    const isBulkEditingSections = sectionEditingTargets.length > 1
 
     const [sectionTermId, setSectionTermId] = React.useState("")
     const [sectionCollegeId, setSectionCollegeId] = React.useState("")
@@ -1354,7 +1396,9 @@ export function useMasterDataManagement() {
     React.useEffect(() => {
         if (!sectionOpen) return
 
-        if (!sectionEditing) {
+        resetSectionDirtyFields()
+
+        if (sectionEditingTargets.length === 0) {
             setSectionTermId("")
             setSectionCollegeId(defaultCollegeId)
             setSectionProgramId("__none__")
@@ -1368,30 +1412,109 @@ export function useMasterDataManagement() {
             return
         }
 
-        const fallbackReferenceTermId = str(sectionEditing.termId)
-        const fallbackReferenceTerm = terms.find((term) => str(term.$id) === fallbackReferenceTermId)
+        if (sectionEditingTargets.length === 1) {
+            const targetSection = sectionEditingTargets[0]
+            const fallbackReferenceTermId = str(targetSection?.termId)
+            const fallbackReferenceTerm = terms.find((term) => str(term.$id) === fallbackReferenceTermId)
 
-        setSectionTermId(fallbackReferenceTermId)
-        setSectionCollegeId(str(sectionEditing.departmentId))
-        setSectionProgramId(sectionEditing.programId ? str(sectionEditing.programId) : "__none__")
-        setSectionSubjectIds(
-            resolveSectionSubjectIds(sectionEditing as any).length > 0
-                ? resolveSectionSubjectIds(sectionEditing as any)
-                : sectionEditing.subjectId
-                    ? [str(sectionEditing.subjectId)]
-                    : []
+            setSectionTermId(fallbackReferenceTermId)
+            setSectionCollegeId(str(targetSection?.departmentId))
+            setSectionProgramId(targetSection?.programId ? str(targetSection.programId) : "__none__")
+            setSectionSubjectIds(
+                resolveSectionSubjectIds(targetSection as any).length > 0
+                    ? resolveSectionSubjectIds(targetSection as any)
+                    : targetSection?.subjectId
+                        ? [str(targetSection.subjectId)]
+                        : []
+            )
+            setSectionSemester(str(targetSection?.semester) || str(fallbackReferenceTerm?.semester))
+            setSectionAcademicTermLabel(
+                normalizeReferenceTermCoverageLabel(str(targetSection?.academicTermLabel)) ||
+                normalizeReferenceTermCoverageLabel(termLabel(terms, fallbackReferenceTermId)) ||
+                "All Academic Terms"
+            )
+            setSectionYear(normalizeSectionYearLevelValue(targetSection?.yearLevel) || "1")
+            setSectionName(normalizeSectionNameValue(targetSection?.name) || (SECTION_NAME_OPTIONS[0] || "A"))
+            setSectionStudentCount(targetSection?.studentCount != null ? String(targetSection.studentCount) : "")
+            setSectionActive(Boolean(targetSection?.isActive))
+            return
+        }
+
+        const firstSection = sectionEditingTargets[0]
+        const commonDepartmentId = sectionEditingTargets.every(
+            (section) => str(section.departmentId) === str(firstSection?.departmentId)
         )
-        setSectionSemester(str(sectionEditing.semester) || str(fallbackReferenceTerm?.semester))
+            ? str(firstSection?.departmentId)
+            : ""
+        const commonProgramId = sectionEditingTargets.every(
+            (section) => str(section.programId) === str(firstSection?.programId)
+        )
+            ? str(firstSection?.programId)
+            : ""
+        const firstSubjectIds = resolveSectionSubjectIds(firstSection as any)
+        const matchingSubjectIds = sectionEditingTargets.every((section) => {
+            const sectionSubjectIds = resolveSectionSubjectIds(section as any)
+            return (
+                sectionSubjectIds.length === firstSubjectIds.length &&
+                sectionSubjectIds.every((subjectId, index) => subjectId === firstSubjectIds[index])
+            )
+        })
+        const commonTermId = sectionEditingTargets.every((section) => str(section.termId) === str(firstSection?.termId))
+            ? str(firstSection?.termId)
+            : ""
+        const fallbackReferenceTerm = terms.find((term) => str(term.$id) === commonTermId)
+        const commonSemester = sectionEditingTargets.every(
+            (section) => str(section.semester) === str(firstSection?.semester)
+        )
+            ? str(firstSection?.semester)
+            : ""
+        const commonAcademicTermLabel = sectionEditingTargets.every(
+            (section) =>
+                normalizeReferenceTermCoverageLabel(str(section.academicTermLabel)) ===
+                normalizeReferenceTermCoverageLabel(str(firstSection?.academicTermLabel))
+        )
+            ? normalizeReferenceTermCoverageLabel(str(firstSection?.academicTermLabel))
+            : ""
+        const commonYear = sectionEditingTargets.every(
+            (section) =>
+                normalizeSectionYearLevelValue(section.yearLevel) ===
+                normalizeSectionYearLevelValue(firstSection?.yearLevel)
+        )
+            ? normalizeSectionYearLevelValue(firstSection?.yearLevel)
+            : ""
+        const commonName = sectionEditingTargets.every(
+            (section) => normalizeSectionNameValue(section.name) === normalizeSectionNameValue(firstSection?.name)
+        )
+            ? normalizeSectionNameValue(firstSection?.name)
+            : ""
+        const commonStudentCount = sectionEditingTargets.every(
+            (section) => String(section.studentCount ?? "") === String(firstSection?.studentCount ?? "")
+        )
+            ? firstSection?.studentCount != null
+                ? String(firstSection.studentCount)
+                : ""
+            : ""
+        const commonActive = sectionEditingTargets.every(
+            (section) => Boolean(section.isActive) === Boolean(firstSection?.isActive)
+        )
+            ? Boolean(firstSection?.isActive)
+            : Boolean(firstSection?.isActive)
+
+        setSectionTermId(commonTermId)
+        setSectionCollegeId(commonDepartmentId)
+        setSectionProgramId(commonProgramId || "__none__")
+        setSectionSubjectIds(matchingSubjectIds ? firstSubjectIds : [])
+        setSectionSemester(commonSemester || str(fallbackReferenceTerm?.semester))
         setSectionAcademicTermLabel(
-            normalizeReferenceTermCoverageLabel(str(sectionEditing.academicTermLabel)) ||
-            normalizeReferenceTermCoverageLabel(termLabel(terms, fallbackReferenceTermId)) ||
-            "All Academic Terms"
+            commonAcademicTermLabel ||
+                normalizeReferenceTermCoverageLabel(termLabel(terms, commonTermId)) ||
+                "All Academic Terms"
         )
-        setSectionYear(normalizeSectionYearLevelValue(sectionEditing.yearLevel) || "1")
-        setSectionName(normalizeSectionNameValue(sectionEditing.name) || (SECTION_NAME_OPTIONS[0] || "A"))
-        setSectionStudentCount(sectionEditing.studentCount != null ? String(sectionEditing.studentCount) : "")
-        setSectionActive(Boolean(sectionEditing.isActive))
-    }, [sectionOpen, sectionEditing, defaultCollegeId, terms])
+        setSectionYear(commonYear)
+        setSectionName(commonName)
+        setSectionStudentCount(commonStudentCount)
+        setSectionActive(commonActive)
+    }, [defaultCollegeId, resetSectionDirtyFields, sectionEditingTargets, sectionOpen, terms])
 
     const programsForSelectedCollege = React.useMemo(() => {
         const collegeId = str(sectionCollegeId)
@@ -1454,30 +1577,32 @@ export function useMasterDataManagement() {
         const yearLevel = buildStoredSectionYearLevel(sectionYear, programId, programs)
         const yearNumber = extractSectionYearNumber(yearLevel)
         const name = normalizeSectionNameValue(sectionName)
-
-        if (!departmentId) {
-            toast.error("College is required for Sections.")
-            return
-        }
-        if (!yearLevel || !yearNumber || !YEAR_LEVEL_OPTIONS.map(String).includes(yearNumber)) {
-            toast.error("Year level must be valid.")
-            return
-        }
-        if (subjectIds.length === 0) {
-            toast.error("Link at least one subject for this section.")
-            return
-        }
-        if (!name) {
-            toast.error("Section name is required.")
-            return
-        }
-        if (!SECTION_NAME_OPTIONS.includes(name as any)) {
-            toast.error(`Invalid section name. Use A-Z or "Others".`)
-            return
-        }
-
         const studentCount = str(sectionStudentCount) ? num(sectionStudentCount, 0) : null
         const editingSectionId = sectionEditing?.$id ?? null
+
+        if (!isBulkEditingSections) {
+            if (!departmentId) {
+                toast.error("College is required for Sections.")
+                return
+            }
+            if (!yearLevel || !yearNumber || !YEAR_LEVEL_OPTIONS.map(String).includes(yearNumber)) {
+                toast.error("Year level must be valid.")
+                return
+            }
+            if (subjectIds.length === 0) {
+                toast.error("Link at least one subject for this section.")
+                return
+            }
+            if (!name) {
+                toast.error("Section name is required.")
+                return
+            }
+            if (!SECTION_NAME_OPTIONS.includes(name as any)) {
+                toast.error(`Invalid section name. Use A-Z or "Others".`)
+                return
+            }
+        }
+
         const subjectPayload = {
             ...buildSectionSubjectPayload(sectionEditing as any, primarySubjectId || null),
             ...buildSectionSubjectIdsPayload(sectionEditing as any, subjectIds),
@@ -1494,6 +1619,130 @@ export function useMasterDataManagement() {
         }
 
         try {
+            if (isBulkEditingSections) {
+                const editingTargets = sectionEditingTargets
+                const editingIds = new Set(editingTargets.map((section) => str(section.$id)).filter(Boolean))
+                const dirtyFields = sectionDirtyFields
+                const hasPersistedSectionChanges =
+                    Boolean(dirtyFields.departmentId) ||
+                    Boolean(dirtyFields.programId) ||
+                    Boolean(dirtyFields.subjectIds) ||
+                    Boolean(dirtyFields.yearLevel) ||
+                    Boolean(dirtyFields.name) ||
+                    Boolean(dirtyFields.studentCount) ||
+                    Boolean(dirtyFields.isActive)
+
+                if (!hasPersistedSectionChanges) {
+                    toast.error("Change at least one section field before saving the selected records.")
+                    return
+                }
+
+                const plannedScopeKeys = new Set<string>()
+                let updatedCount = 0
+
+                for (const targetSection of editingTargets) {
+                    const nextDepartmentId = dirtyFields.departmentId
+                        ? departmentId
+                        : str(targetSection.departmentId)
+                    const nextProgramId = dirtyFields.programId
+                        ? programId
+                        : str(targetSection.programId) || null
+                    const nextSubjectIds = dirtyFields.subjectIds
+                        ? subjectIds
+                        : resolveSectionSubjectIds(targetSection as any).length > 0
+                            ? resolveSectionSubjectIds(targetSection as any)
+                            : targetSection.subjectId
+                                ? [str(targetSection.subjectId)]
+                                : []
+                    const nextPrimarySubjectId = nextSubjectIds[0] ?? ""
+                    const nextYearSource = dirtyFields.yearLevel
+                        ? sectionYear
+                        : normalizeSectionYearLevelValue(targetSection.yearLevel)
+                    const nextYearLevel = buildStoredSectionYearLevel(nextYearSource, nextProgramId, programs)
+                    const nextYearNumber = extractSectionYearNumber(nextYearLevel)
+                    const nextName = dirtyFields.name
+                        ? name
+                        : normalizeSectionNameValue(targetSection.name)
+                    const nextStudentCount = dirtyFields.studentCount
+                        ? studentCount
+                        : targetSection.studentCount != null
+                            ? Number(targetSection.studentCount)
+                            : null
+                    const nextIsActive = dirtyFields.isActive
+                        ? Boolean(sectionActive)
+                        : Boolean(targetSection.isActive)
+
+                    if (!nextDepartmentId) {
+                        toast.error("College is required for bulk section edits.")
+                        return
+                    }
+                    if (!nextYearLevel || !nextYearNumber || !YEAR_LEVEL_OPTIONS.map(String).includes(nextYearNumber)) {
+                        toast.error("Each selected section must end with a valid year level.")
+                        return
+                    }
+                    if (nextSubjectIds.length === 0) {
+                        toast.error("Each selected section must remain linked to at least one subject.")
+                        return
+                    }
+                    if (!nextName) {
+                        toast.error("Section name is required for bulk edits.")
+                        return
+                    }
+                    if (!SECTION_NAME_OPTIONS.includes(nextName as any)) {
+                        toast.error(`Invalid section name. Use A-Z or "Others".`)
+                        return
+                    }
+
+                    const nextDuplicateScopeKey = buildSectionDuplicateScopeKey(
+                        {
+                            departmentId: nextDepartmentId,
+                            programId: nextProgramId,
+                            yearLevel: nextYearLevel,
+                            name: nextName,
+                        },
+                        programs
+                    )
+
+                    if (plannedScopeKeys.has(nextDuplicateScopeKey)) {
+                        toast.error("Bulk edit would create duplicate reusable section labels among the selected records.")
+                        return
+                    }
+
+                    const conflictingSection = sections.find((doc: any) => {
+                        const sectionId = str(doc?.$id)
+                        if (editingIds.has(sectionId) || sectionId === str(targetSection.$id)) return false
+
+                        return buildSectionDuplicateScopeKey(doc, programs) === nextDuplicateScopeKey
+                    })
+
+                    if (conflictingSection) {
+                        toast.error("Bulk edit would conflict with an existing reusable section label.")
+                        return
+                    }
+
+                    plannedScopeKeys.add(nextDuplicateScopeKey)
+
+                    const nextPayload: any = {
+                        departmentId: nextDepartmentId,
+                        programId: nextProgramId,
+                        ...buildSectionSubjectPayload(targetSection as any, nextPrimarySubjectId || null),
+                        ...buildSectionSubjectIdsPayload(targetSection as any, nextSubjectIds),
+                        yearLevel: nextYearLevel,
+                        name: nextName,
+                        studentCount: nextStudentCount,
+                        isActive: nextIsActive,
+                    }
+
+                    await databases.updateDocument(DATABASE_ID, COLLECTIONS.SECTIONS, targetSection.$id, nextPayload)
+                    updatedCount += 1
+                }
+
+                toast.success(`Updated ${updatedCount} section record${updatedCount === 1 ? "" : "s"}.`)
+                closeSectionDialog()
+                await refreshAll()
+                return
+            }
+
             const currentDuplicateScopeKey = buildSectionDuplicateScopeKey(
                 {
                     departmentId,
@@ -1527,8 +1776,7 @@ export function useMasterDataManagement() {
                 )
             }
 
-            setSectionOpen(false)
-            setSectionEditing(null)
+            closeSectionDialog()
             await refreshAll()
         } catch (e: any) {
             toast.error(e?.message || "Failed to save Section.")
@@ -1991,8 +2239,16 @@ export function useMasterDataManagement() {
         // sections dialog
         sectionOpen,
         setSectionOpen,
+        closeSectionDialog,
         sectionEditing,
         setSectionEditing,
+        sectionEditingBatch,
+        setSectionEditingBatch,
+        sectionEditingTargets,
+        isBulkEditingSections,
+        sectionDirtyFields,
+        markSectionFieldDirty,
+        resetSectionDirtyFields,
         sectionTermId,
         setSectionTermId,
         sectionCollegeId,

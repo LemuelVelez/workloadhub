@@ -681,14 +681,39 @@ export function MasterDataDialogs({ vm }: Props) {
             </Dialog>
 
             {/* Section Dialog */}
-            <Dialog open={vm.sectionOpen} onOpenChange={vm.setSectionOpen}>
+            <Dialog
+                open={vm.sectionOpen}
+                onOpenChange={(open) => {
+                    if (open) {
+                        vm.setSectionOpen(true)
+                        return
+                    }
+
+                    vm.closeSectionDialog()
+                }}
+            >
                 <DialogContent className={DIALOG_CONTENT_CLASS}>
                     <DialogHeader>
-                        <DialogTitle>{vm.sectionEditing ? "Edit Section" : "Add Section"}</DialogTitle>
+                        <DialogTitle>
+                            {vm.isBulkEditingSections
+                                ? `Edit Selected Sections (${vm.sectionEditingTargets.length})`
+                                : vm.sectionEditing
+                                    ? "Edit Section"
+                                    : "Add Section"}
+                        </DialogTitle>
                         <DialogDescription>
-                            Sections are reusable across all academic terms. Use the optional subject filter term below only to narrow linked subject choices while the saved section remains globally reusable.
+                            {vm.isBulkEditingSections
+                                ? "Only the fields you change below will be applied to every selected section record. Leave untouched fields as they are to preserve each section's current values."
+                                : "Sections are reusable across all academic terms. Use the optional subject filter term below only to narrow linked subject choices while the saved section remains globally reusable."}
                         </DialogDescription>
                     </DialogHeader>
+
+                    {vm.isBulkEditingSections ? (
+                        <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
+                            Editing <span className="font-medium text-foreground">{vm.sectionEditingTargets.length}</span> selected section records.
+                            Only changed fields will be saved across all selected records.
+                        </div>
+                    ) : null}
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
@@ -728,7 +753,13 @@ export function MasterDataDialogs({ vm }: Props) {
 
                         <div className="grid gap-2">
                             <Label>College</Label>
-                            <Select value={vm.sectionCollegeId} onValueChange={vm.setSectionCollegeId}>
+                            <Select
+                                value={vm.sectionCollegeId}
+                                onValueChange={(value) => {
+                                    vm.markSectionFieldDirty("departmentId")
+                                    vm.setSectionCollegeId(value)
+                                }}
+                            >
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select College" />
                                 </SelectTrigger>
@@ -768,6 +799,7 @@ export function MasterDataDialogs({ vm }: Props) {
                             <Select
                                 value={vm.sectionProgramId || "__none__"}
                                 onValueChange={(v) => {
+                                    vm.markSectionFieldDirty("programId")
                                     const nextProgramId = v === "__none__" ? "" : v
                                     vm.setSectionProgramId(nextProgramId)
 
@@ -831,6 +863,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                                         checked={checked}
                                                         onCheckedChange={(value) => {
                                                             const isChecked = Boolean(value)
+                                                            vm.markSectionFieldDirty("subjectIds")
                                                             vm.setSectionSubjectIds((current) => {
                                                                 if (isChecked) {
                                                                     return current.includes(subject.$id)
@@ -881,7 +914,8 @@ export function MasterDataDialogs({ vm }: Props) {
                                 <Label>Year Level</Label>
                                 <Select
                                     value={sectionYearSelectValue}
-                                    onValueChange={(value) =>
+                                    onValueChange={(value) => {
+                                        vm.markSectionFieldDirty("yearLevel")
                                         vm.setSectionYear(
                                             buildSectionYearLevelValue({
                                                 yearLevel: currentSectionTrackPrefix
@@ -891,7 +925,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                                 programName: selectedSectionProgram?.name,
                                             })
                                         )
-                                    }
+                                    }}
                                 >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Year Level" />
@@ -911,7 +945,13 @@ export function MasterDataDialogs({ vm }: Props) {
 
                             <div className="grid gap-2">
                                 <Label>Section Name</Label>
-                                <Select value={vm.sectionName} onValueChange={vm.setSectionName}>
+                                <Select
+                                    value={vm.sectionName}
+                                    onValueChange={(value) => {
+                                        vm.markSectionFieldDirty("name")
+                                        vm.setSectionName(value)
+                                    }}
+                                >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Section Name" />
                                     </SelectTrigger>
@@ -930,7 +970,10 @@ export function MasterDataDialogs({ vm }: Props) {
                             <Label>Student Count (optional)</Label>
                             <Input
                                 value={vm.sectionStudentCount}
-                                onChange={(e) => vm.setSectionStudentCount(e.target.value)}
+                                onChange={(e) => {
+                                    vm.markSectionFieldDirty("studentCount")
+                                    vm.setSectionStudentCount(e.target.value)
+                                }}
                                 inputMode="numeric"
                                 placeholder="e.g. 35"
                             />
@@ -939,7 +982,10 @@ export function MasterDataDialogs({ vm }: Props) {
                         <div className="flex items-center gap-2">
                             <Checkbox
                                 checked={vm.sectionActive}
-                                onCheckedChange={(v) => vm.setSectionActive(Boolean(v))}
+                                onCheckedChange={(v) => {
+                                    vm.markSectionFieldDirty("isActive")
+                                    vm.setSectionActive(Boolean(v))
+                                }}
                                 id="section-active"
                             />
                             <Label htmlFor="section-active">Active</Label>
@@ -947,10 +993,14 @@ export function MasterDataDialogs({ vm }: Props) {
                     </div>
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => vm.setSectionOpen(false)}>
+                        <Button variant="outline" onClick={() => vm.closeSectionDialog()}>
                             Cancel
                         </Button>
-                        <Button onClick={() => void vm.saveSection()}>Save</Button>
+                        <Button onClick={() => void vm.saveSection()}>
+                            {vm.isBulkEditingSections
+                                ? `Apply to Selected (${vm.sectionEditingTargets.length})`
+                                : "Save"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
