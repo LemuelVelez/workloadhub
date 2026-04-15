@@ -404,9 +404,6 @@ function buildMergedSectionPayload(vm: MasterDataManagementVM, sections: any[], 
         name: normalizeSectionNameValue(canonical?.name ?? sections[0]?.name),
         studentCount: getBestStudentCount(sections),
         isActive: sections.some((section) => Boolean(section?.isActive)),
-        termId: null,
-        semester: null,
-        academicTermLabel: null,
     }
 }
 
@@ -475,6 +472,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
     const [sectionDedupeBusy, setSectionDedupeBusy] = React.useState(false)
     const [subjectDedupeBusy, setSubjectDedupeBusy] = React.useState(false)
     const [pendingSectionAction, setPendingSectionAction] = React.useState<PendingSectionAction | null>(null)
+    const [sectionMergeKeepByGroup, setSectionMergeKeepByGroup] = React.useState<Record<string, string>>({})
 
     const compactActionButtonClassName = "h-8 w-full justify-center px-2 text-xs sm:h-9 sm:w-auto sm:px-3 sm:text-sm"
     const compactInlineButtonClassName = "h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
@@ -570,6 +568,14 @@ export function MasterDataSectionsTab({ vm }: Props) {
     const allDuplicateSectionGroups = React.useMemo(
         () => allSectionGroups.filter((group) => group.sections.length > 1),
         [allSectionGroups]
+    )
+
+    const pendingMergeSectionGroups = React.useMemo(
+        () =>
+            pendingSectionAction?.kind === "mergeSections"
+                ? allSectionGroups.filter((group) => pendingSectionAction.groupKeys.includes(group.key))
+                : [],
+        [allSectionGroups, pendingSectionAction]
     )
 
     const duplicateSubjectGroups = React.useMemo(() => {
@@ -952,7 +958,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
     }, [vm])
 
 
-    const mergeSectionGroups = React.useCallback(async (groups: SectionGroup[]) => {
+    const mergeSectionGroups = React.useCallback(async (groups: SectionGroup[], keepByGroup: Record<string, string> = {}) => {
         if (groups.length === 0) {
             toast.error("No duplicate reusable section groups found.")
             return
@@ -966,7 +972,10 @@ export function MasterDataSectionsTab({ vm }: Props) {
             const failed: string[] = []
 
             for (const group of groups) {
-                const canonical = getCanonicalRecord(group.sections)
+                const selectedKeepId = String(keepByGroup[group.key] ?? "").trim()
+                const canonical =
+                    group.sections.find((section) => String(section.$id) === selectedKeepId) ??
+                    getCanonicalRecord(group.sections)
                 const duplicates = group.sections.filter((section) => String(section.$id) !== String(canonical.$id))
                 if (duplicates.length === 0) continue
 
@@ -1004,7 +1013,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
             }
 
             if (mergedGroups > 0 && failed.length === 0) {
-                toast.success(`Merged ${mergedGroups} duplicate section group${mergedGroups === 1 ? "" : "s"}, removed ${deleted} duplicates, and rewired ${rewiredClasses} class reference${rewiredClasses === 1 ? "" : "s"}.`)
+                toast.success(`Merged ${mergedGroups} duplicate section group${mergedGroups === 1 ? "" : "s"}, deleted ${deleted} duplicate record${deleted === 1 ? "" : "s"}, and rewired ${rewiredClasses} class reference${rewiredClasses === 1 ? "" : "s"}.`)
                 return
             }
 
@@ -1026,6 +1035,11 @@ export function MasterDataSectionsTab({ vm }: Props) {
         }
 
         const duplicateCount = groups.reduce((count, group) => count + Math.max(group.sections.length - 1, 0), 0)
+        setSectionMergeKeepByGroup(
+            Object.fromEntries(
+                groups.map((group) => [group.key, String(getCanonicalRecord(group.sections)?.$id ?? "")])
+            )
+        )
         setPendingSectionAction({
             kind: "mergeSections",
             groupKeys: groups.map((group) => group.key),
@@ -1104,7 +1118,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
             }
 
             if (mergedGroups > 0 && failed.length === 0) {
-                toast.success(`Merged ${mergedGroups} duplicate subject group${mergedGroups === 1 ? "" : "s"}, removed ${deleted} duplicates, rewired ${rewiredSections} section reference${rewiredSections === 1 ? "" : "s"}, and rewired ${rewiredClasses} class reference${rewiredClasses === 1 ? "" : "s"}.`)
+                toast.success(`Merged ${mergedGroups} duplicate subject group${mergedGroups === 1 ? "" : "s"}, deleted ${deleted} duplicate record${deleted === 1 ? "" : "s"}, rewired ${rewiredSections} section reference${rewiredSections === 1 ? "" : "s"}, and rewired ${rewiredClasses} class reference${rewiredClasses === 1 ? "" : "s"}.`)
                 return
             }
 
@@ -1146,12 +1160,20 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
         if (action.kind === "mergeSections") {
             const groups = allSectionGroups.filter((group) => action.groupKeys.includes(group.key))
-            await mergeSectionGroups(groups)
+            const normalizedKeepByGroup = Object.fromEntries(
+                groups.map((group) => {
+                    const selectedKeepId = String(sectionMergeKeepByGroup[group.key] ?? "").trim()
+                    const fallbackKeepId = String(getCanonicalRecord(group.sections)?.$id ?? "")
+                    return [group.key, selectedKeepId || fallbackKeepId]
+                })
+            )
+            await mergeSectionGroups(groups, normalizedKeepByGroup)
+            setSectionMergeKeepByGroup({})
             return
         }
 
         await mergeDuplicateSubjects()
-    }, [allSectionGroups, mergeDuplicateSubjects, mergeSectionGroups, pendingSectionAction, unlinkSectionIds])
+    }, [allSectionGroups, mergeDuplicateSubjects, mergeSectionGroups, pendingSectionAction, sectionMergeKeepByGroup, unlinkSectionIds])
     const openSubjectViewer = React.useCallback((config: { title: string; description: string; subjects: any[] }) => {
         setSubjectViewerTitle(config.title)
         setSubjectViewerDescription(config.description)
@@ -1267,7 +1289,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                     onClick={() => requestMergeSectionGroups(allDuplicateSectionGroups)}
                                     disabled={allDuplicateSectionGroups.length === 0 || sectionDedupeBusy}
                                 >
-                                    <span className="min-w-0 truncate">Remove Duplicated Sections ({allDuplicateSectionGroups.length})</span>
+                                    <span className="min-w-0 truncate">Delete Duplicated Sections ({allDuplicateSectionGroups.length})</span>
                                 </Button>
 
                                 <Button
@@ -1278,7 +1300,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                     onClick={requestMergeDuplicateSubjects}
                                     disabled={duplicateSubjectGroups.length === 0 || subjectDedupeBusy}
                                 >
-                                    <span className="min-w-0 truncate">Remove Duplicated Subjects ({duplicateSubjectGroups.length})</span>
+                                    <span className="min-w-0 truncate">Delete Duplicated Subjects ({duplicateSubjectGroups.length})</span>
                                 </Button>
                             </div>
                         </div>
@@ -1387,7 +1409,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                                     disabled={sectionDedupeBusy}
                                                                     onClick={() => requestMergeSectionGroups([group])}
                                                                 >
-                                                                    <span className="min-w-0 truncate">Merge Group Duplicates</span>
+                                                                    <span className="min-w-0 truncate">Delete Group Duplicates</span>
                                                                 </Button>
                                                             ) : null}
                                                         </div>
@@ -1556,26 +1578,113 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 )}
             </div>
 
-            <AlertDialog open={Boolean(pendingSectionAction)} onOpenChange={(open) => !open && setPendingSectionAction(null)}>
-                <AlertDialogContent>
+            <AlertDialog
+                open={Boolean(pendingSectionAction)}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingSectionAction(null)
+                        setSectionMergeKeepByGroup({})
+                    }
+                }}
+            >
+                <AlertDialogContent className="max-h-[90svh] overflow-hidden sm:max-w-3xl">
                     <AlertDialogHeader>
                         <AlertDialogTitle>
                             {pendingSectionAction?.kind === "unlink"
                                 ? "Unlink Section Group"
                                 : pendingSectionAction?.kind === "mergeSections"
-                                    ? "Remove Duplicated Sections"
-                                    : "Remove Duplicated Subjects"}
+                                    ? "Delete Duplicated Sections"
+                                    : "Delete Duplicated Subjects"}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                             {pendingSectionAction?.kind === "unlink"
                                 ? `This will remove all linked subjects from ${pendingSectionAction.count} section record${pendingSectionAction.count === 1 ? "" : "s"} in ${pendingSectionAction.label}.`
                                 : pendingSectionAction?.kind === "mergeSections"
-                                    ? `This will merge ${pendingSectionAction.groupCount} duplicate section group${pendingSectionAction.groupCount === 1 ? "" : "s"} and remove ${pendingSectionAction.duplicateCount} extra duplicate record${pendingSectionAction.duplicateCount === 1 ? "" : "s"}.`
+                                    ? `Review each duplicate section group below. Choose the section record to keep, then continue. The other duplicate record${pendingSectionAction.duplicateCount === 1 ? " will" : "s will"} be deleted and their class references will be moved automatically.`
                                     : pendingSectionAction
-                                        ? `This will merge ${pendingSectionAction.groupCount} duplicate subject group${pendingSectionAction.groupCount === 1 ? "" : "s"} and remove ${pendingSectionAction.duplicateCount} extra duplicate subject record${pendingSectionAction.duplicateCount === 1 ? "" : "s"}. Sections and classes that point to the duplicates will be rewired automatically.`
+                                        ? `This will merge ${pendingSectionAction.groupCount} duplicate subject group${pendingSectionAction.groupCount === 1 ? "" : "s"} and delete ${pendingSectionAction.duplicateCount} extra duplicate subject record${pendingSectionAction.duplicateCount === 1 ? "" : "s"}. Sections and classes that point to the duplicates will be rewired automatically.`
                                         : ""}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
+
+                    {pendingSectionAction?.kind === "mergeSections" ? (
+                        <ScrollArea className="max-h-[52svh] rounded-md border">
+                            <div className="space-y-3 p-3">
+                                {pendingMergeSectionGroups.map((group) => {
+                                    const selectedKeepId =
+                                        String(sectionMergeKeepByGroup[group.key] ?? "").trim() ||
+                                        String(getCanonicalRecord(group.sections)?.$id ?? "")
+
+                                    return (
+                                        <div key={group.key} className="rounded-xl border bg-muted/20 p-3">
+                                            <div className="space-y-1">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <div className="text-sm font-semibold">{group.label}</div>
+                                                    <Badge variant="secondary" className="rounded-full">
+                                                        {group.sections.length} duplicate records
+                                                    </Badge>
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">{group.scopeSummary}</div>
+                                            </div>
+
+                                            <div className="mt-3 grid gap-3">
+                                                {group.sections.map((section: { $id?: any; studentCount?: any; isActive?: any; yearLevel?: string | number | null | undefined; name?: string | null | undefined; programId?: string | null | undefined; subjectId?: string | null | undefined; subjectIds?: string[] | null | undefined }) => {
+                                                    const sectionId = String(section.$id)
+                                                    const keepSelected = sectionId === selectedKeepId
+                                                    return (
+                                                        <div
+                                                            key={sectionId}
+                                                            className={
+                                                                keepSelected
+                                                                    ? "rounded-xl border border-primary bg-primary/5 p-3"
+                                                                    : "rounded-xl border bg-background p-3"
+                                                            }
+                                                        >
+                                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                                <div className="min-w-0 flex-1 space-y-2">
+                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                        <div className="font-medium wrap-break-word">{buildSectionDisplayLabel(vm, section)}</div>
+                                                                        <Badge variant={keepSelected ? "default" : "outline"} className="rounded-full">
+                                                                            {keepSelected ? "Keep" : "Delete"}
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        Academic term: {resolveSectionReferenceTermLabel(vm, section)}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        Students: {section.studentCount != null ? section.studentCount : "—"} • Active: {section.isActive ? "Yes" : "No"}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        Subjects: {buildSectionSubjectSummary(vm, section)}
+                                                                    </div>
+                                                                </div>
+
+                                                                <Button
+                                                                    type="button"
+                                                                    variant={keepSelected ? "default" : "outline"}
+                                                                    size="sm"
+                                                                    className="h-8 w-full px-3 text-xs sm:w-auto"
+                                                                    onClick={() =>
+                                                                        setSectionMergeKeepByGroup((current) => ({
+                                                                            ...current,
+                                                                            [group.key]: sectionId,
+                                                                        }))
+                                                                    }
+                                                                >
+                                                                    {keepSelected ? "Keeping this record" : "Keep this record"}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </ScrollArea>
+                    ) : null}
+
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={linkUpdating || sectionDedupeBusy || subjectDedupeBusy}>
                             Cancel
@@ -1586,7 +1695,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                 void handleConfirmPendingSectionAction()
                             }}
                             disabled={linkUpdating || sectionDedupeBusy || subjectDedupeBusy}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            className="bg-destructive text-white! hover:bg-destructive/90"
                         >
                             {linkUpdating || sectionDedupeBusy || subjectDedupeBusy ? "Processing..." : "Continue"}
                         </AlertDialogAction>
