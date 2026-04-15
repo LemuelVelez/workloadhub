@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as React from "react"
-import { Link2, Loader2, Pencil, Plus } from "lucide-react"
+import { Link2, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
@@ -680,6 +680,19 @@ export function MasterDataSectionsTab({ vm }: Props) {
     const toggleVisibleSelection = React.useCallback((checked: boolean) => {
         setSelectedSectionIds(checked ? sortedSections.map((section) => String(section.$id)) : [])
     }, [sortedSections])
+
+    const toggleGroupSelection = React.useCallback((sectionIds: string[], checked: boolean) => {
+        setSelectedSectionIds((current) => {
+            const currentSet = new Set(current)
+
+            for (const sectionId of sectionIds) {
+                if (checked) currentSet.add(sectionId)
+                else currentSet.delete(sectionId)
+            }
+
+            return Array.from(currentSet)
+        })
+    }, [])
 
     const openScopeEditDialog = React.useCallback(() => {
         setScopeEditProgramId("__keep__")
@@ -1388,29 +1401,47 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
+                                                    <TableHead className="w-14">
+                                                        <span className="sr-only">Select</span>
+                                                    </TableHead>
                                                     <TableHead>Section</TableHead>
                                                     <TableHead className="w-32 text-right">Details</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {visibleGroups.map((group) => (
-                                                    <TableRow key={group.key}>
-                                                        <TableCell className="font-medium">
-                                                            <div className="wrap-break-word">{group.label}</div>
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className={compactInlineButtonClassName}
-                                                                onClick={() => setSelectedSectionDetail(group)}
-                                                            >
-                                                                Details
-                                                            </Button>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
+                                                {visibleGroups.map((group) => {
+                                                    const groupSectionIds = group.sections.map((section) => String(section.$id))
+                                                    const groupSelectedCount = groupSectionIds.filter((sectionId) => selectedSectionIdSet.has(sectionId)).length
+                                                    const allGroupSelected = groupSelectedCount > 0 && groupSelectedCount === groupSectionIds.length
+                                                    const someGroupSelected = groupSelectedCount > 0 && !allGroupSelected
+
+                                                    return (
+                                                        <TableRow key={group.key}>
+                                                            <TableCell className="w-14">
+                                                                <Checkbox
+                                                                    checked={allGroupSelected ? true : someGroupSelected ? "indeterminate" : false}
+                                                                    onCheckedChange={(value) => toggleGroupSelection(groupSectionIds, Boolean(value))}
+                                                                    aria-label={`Select ${group.label} group`}
+                                                                    disabled={groupSectionIds.length === 0}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell className="font-medium">
+                                                                <div className="wrap-break-word">{group.label}</div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className={compactInlineButtonClassName}
+                                                                    onClick={() => setSelectedSectionDetail(group)}
+                                                                >
+                                                                    Details
+                                                                </Button>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    )
+                                                })}
                                             </TableBody>
                                         </Table>
                                     </div>
@@ -1621,6 +1652,36 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                                             {section.isActive ? "Active" : "Inactive"}
                                                         </Badge>
                                                     </div>
+                                                </div>
+
+                                                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className={compactInlineButtonClassName}
+                                                        onClick={() => {
+                                                            vm.setSectionEditing(section)
+                                                            vm.setSectionOpen(true)
+                                                            setSelectedSectionDetail(null)
+                                                        }}
+                                                    >
+                                                        <Pencil className="mr-2 h-4 w-4" />
+                                                        Edit
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="destructive"
+                                                        size="sm"
+                                                        className={compactInlineButtonClassName}
+                                                        onClick={() => {
+                                                            vm.setDeleteIntent({ type: "section", doc: section })
+                                                            setSelectedSectionDetail(null)
+                                                        }}
+                                                    >
+                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                        Delete
+                                                    </Button>
                                                 </div>
                                             </div>
                                         ))}
