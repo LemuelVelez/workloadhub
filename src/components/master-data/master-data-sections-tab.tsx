@@ -6,7 +6,7 @@ import * as React from "react";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { databases, DATABASE_ID, COLLECTIONS, ID } from "@/lib/db";
+import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db";
 import type { MasterDataManagementVM } from "./use-master-data";
 
 import {
@@ -62,19 +62,12 @@ type SectionGroup = {
   representative: any;
 };
 
-type PendingSectionAction =
-  | {
-      kind: "mergeSections";
-      groupKeys: string[];
-      groupCount: number;
-      duplicateCount: number;
-    }
-  | {
-      kind: "linkAcademicTerms";
-      groupKeys: string[];
-      groupCount: number;
-      missingLinkCount: number;
-    };
+type PendingSectionAction = {
+  kind: "mergeSections";
+  groupKeys: string[];
+  groupCount: number;
+  duplicateCount: number;
+};
 
 type MissingAcademicTermGroup = {
   group: SectionGroup;
@@ -245,6 +238,36 @@ function normalizeSectionCoverageLabel(value?: string | null) {
   return normalized;
 }
 
+function hasOwnSectionField(section: any, key: string) {
+  return Boolean(section) && Object.prototype.hasOwnProperty.call(section, key);
+}
+
+function hasLegacySectionTermScope(section: any) {
+  return Boolean(
+    String(section?.termId ?? "").trim() ||
+      normalizeSectionCoverageLabel(section?.semester) ||
+      normalizeSectionCoverageLabel(section?.academicTermLabel),
+  );
+}
+
+function buildSectionAllTermsUpdatePayload(section: any) {
+  const payload: Record<string, null> = {};
+
+  if (hasOwnSectionField(section, "termId")) {
+    payload.termId = null;
+  }
+
+  if (hasOwnSectionField(section, "semester")) {
+    payload.semester = null;
+  }
+
+  if (hasOwnSectionField(section, "academicTermLabel")) {
+    payload.academicTermLabel = null;
+  }
+
+  return payload;
+}
+
 function resolveSectionReferenceTermLabel(
   vm: MasterDataManagementVM,
   section: any,
@@ -285,18 +308,6 @@ function buildSectionDuplicateScopeKey(
 
 function buildSectionGroupKey(vm: MasterDataManagementVM, section: any) {
   return buildSectionDuplicateScopeKey(vm, section);
-}
-
-function buildSectionTermCoverageKey(section: any) {
-  const normalizedTermId = String(section?.termId ?? "").trim();
-  return normalizedTermId || "__all_terms__";
-}
-
-function buildSectionMergeGroupKey(
-  vm: MasterDataManagementVM,
-  section: any,
-) {
-  return `${buildSectionDuplicateScopeKey(vm, section)}::${buildSectionTermCoverageKey(section)}`;
 }
 
 function getPreferredStringValue(values: Array<string | null | undefined>) {
@@ -422,68 +433,10 @@ function buildMergedSectionPayload(
   };
 }
 
-function buildSectionGroup(vm: MasterDataManagementVM, key: string, sections: any[]) {
-  const representative = getCanonicalRecord(sections);
-  const uniqueSubjectIds = uniqueStrings(
-    sections.flatMap((section) => resolveSectionSubjectIds(section)),
-  );
-  const linkedSubjects = uniqueSubjectIds
-    .map((subjectId) =>
-      vm.subjects.find((subject) => String(subject.$id) === subjectId),
-    )
-    .filter(Boolean)
-    .sort((a, b) =>
-      `${a?.code} ${a?.title}`.localeCompare(`${b?.code} ${b?.title}`),
-    );
-  const inheritedSubjectCount = linkedSubjects.filter(
-    (subject) => !resolveSubjectTermId(subject),
-  ).length;
-
-  return {
-    key,
-    label: buildSectionDisplayLabel(vm, representative),
-    scopeSummary: buildSectionGroupScopeSummary(vm, sections),
-    sections,
-    uniqueSubjectIds,
-    linkedSubjects,
-    inheritedSubjectCount,
-    representative,
-  };
-}
-
-function buildLinkedSectionTermPayload(
-  vm: MasterDataManagementVM,
-  group: SectionGroup,
-  term: { id: string; label: string; semester?: string | null },
-) {
-  const canonical = getCanonicalRecord(group.sections);
-  const mergedPayload = buildMergedSectionPayload(vm, group.sections, canonical);
-
-  const preferredSubjectIds = uniqueStrings(
-    group.linkedSubjects
-      .filter((subject) => {
-        const subjectTermId = resolveSubjectTermId(subject);
-        return !subjectTermId || subjectTermId === term.id;
-      })
-      .map((subject) => String(subject?.$id ?? "").trim()),
-  );
-
-  const subjectIds =
-    preferredSubjectIds.length > 0 ? preferredSubjectIds : mergedPayload.subjectIds;
-
-  return {
-    ...mergedPayload,
-    subjectId: subjectIds[0] ?? mergedPayload.subjectId ?? null,
-    subjectIds,
-    termId: term.id,
-    semester: String(term.semester ?? "").trim() || null,
-    academicTermLabel: term.label,
-  };
-}
-
 export function MasterDataSectionsTab({ vm }: Props) {
   const [missingTermDialogOpen, setMissingTermDialogOpen] =
     React.useState(false);
+  const [sectionTermLinkBusy, setSectionTermLinkBusy] = React.useState(false);
 
   const [selectedSectionDetail, setSelectedSectionDetail] =
     React.useState<SectionGroup | null>(null);
@@ -498,7 +451,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
   >([]);
 
   const [sectionDedupeBusy, setSectionDedupeBusy] = React.useState(false);
-  const [sectionTermLinkBusy, setSectionTermLinkBusy] = React.useState(false);
   const [pendingSectionAction, setPendingSectionAction] =
     React.useState<PendingSectionAction | null>(null);
   const [pendingSectionActionSubmitting, setPendingSectionActionSubmitting] =
@@ -535,7 +487,33 @@ export function MasterDataSectionsTab({ vm }: Props) {
     }
 
     return Array.from(grouped.entries())
-      .map(([key, sections]) => buildSectionGroup(vm, key, sections))
+      .map(([key, sections]) => {
+        const representative = getCanonicalRecord(sections);
+        const uniqueSubjectIds = uniqueStrings(
+          sections.flatMap((section) => resolveSectionSubjectIds(section)),
+        );
+        const linkedSubjects = uniqueSubjectIds
+          .map((subjectId) =>
+            vm.subjects.find((subject) => subject.$id === subjectId),
+          )
+          .filter(Boolean)
+          .sort((a, b) =>
+            `${a?.code} ${a?.title}`.localeCompare(`${b?.code} ${b?.title}`),
+          );
+        const inheritedSubjectCount = linkedSubjects.filter(
+          (subject) => !resolveSubjectTermId(subject),
+        ).length;
+        return {
+          key,
+          label: buildSectionDisplayLabel(vm, representative),
+          scopeSummary: buildSectionGroupScopeSummary(vm, sections),
+          sections,
+          uniqueSubjectIds,
+          linkedSubjects,
+          inheritedSubjectCount,
+          representative,
+        };
+      })
       .sort((a, b) =>
         a.label.localeCompare(b.label, undefined, {
           numeric: true,
@@ -544,18 +522,45 @@ export function MasterDataSectionsTab({ vm }: Props) {
       );
   }, [sortedSections, vm]);
 
-  const allMergeCandidateGroups = React.useMemo<SectionGroup[]>(() => {
+  const allSectionGroups = React.useMemo<SectionGroup[]>(() => {
     const grouped = new Map<string, any[]>();
 
     for (const section of vm.sections) {
-      const key = buildSectionMergeGroupKey(vm, section);
+      const key = buildSectionGroupKey(vm, section);
       const current = grouped.get(key) || [];
       current.push(section);
       grouped.set(key, current);
     }
 
     return Array.from(grouped.entries())
-      .map(([key, sections]) => buildSectionGroup(vm, key, sections))
+      .map(([key, sections]) => {
+        const representative = getCanonicalRecord(sections);
+        const uniqueSubjectIds = uniqueStrings(
+          sections.flatMap((section) => resolveSectionSubjectIds(section)),
+        );
+        const linkedSubjects = uniqueSubjectIds
+          .map((subjectId) =>
+            vm.subjects.find((subject) => subject.$id === subjectId),
+          )
+          .filter(Boolean)
+          .sort((a, b) =>
+            `${a?.code} ${a?.title}`.localeCompare(`${b?.code} ${b?.title}`),
+          );
+        const inheritedSubjectCount = linkedSubjects.filter(
+          (subject) => !resolveSubjectTermId(subject),
+        ).length;
+
+        return {
+          key,
+          label: buildSectionDisplayLabel(vm, representative),
+          scopeSummary: buildSectionGroupScopeSummary(vm, sections),
+          sections,
+          uniqueSubjectIds,
+          linkedSubjects,
+          inheritedSubjectCount,
+          representative,
+        };
+      })
       .sort((a, b) =>
         a.label.localeCompare(b.label, undefined, {
           numeric: true,
@@ -565,19 +570,22 @@ export function MasterDataSectionsTab({ vm }: Props) {
   }, [vm]);
 
   const allDuplicateSectionGroups = React.useMemo(
-    () => allMergeCandidateGroups.filter((group) => group.sections.length > 1),
-    [allMergeCandidateGroups],
+    () => allSectionGroups.filter((group) => group.sections.length > 1),
+    [allSectionGroups],
   );
 
   const pendingMergeSectionGroups = React.useMemo(
     () =>
       pendingSectionAction?.kind === "mergeSections"
-        ? allMergeCandidateGroups.filter((group) =>
+        ? allSectionGroups.filter((group) =>
             pendingSectionAction.groupKeys.includes(group.key),
           )
         : [],
-    [allMergeCandidateGroups, pendingSectionAction],
+    [allSectionGroups, pendingSectionAction],
   );
+
+  const pendingSectionActionBusy =
+    pendingSectionActionSubmitting || sectionDedupeBusy;
 
   const academicTerms = React.useMemo(
     () =>
@@ -585,7 +593,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
         .map((term) => ({
           id: String(term?.$id ?? "").trim(),
           label: resolveAcademicTermLabel(vm, term),
-          semester: String(term?.semester ?? "").trim() || null,
         }))
         .filter((term) => term.id)
         .sort((a, b) =>
@@ -618,9 +625,16 @@ export function MasterDataSectionsTab({ vm }: Props) {
               }),
             );
 
+          if (!group.sections.some((section) => hasLegacySectionTermScope(section))) {
+            return {
+              group,
+              linkedTerms,
+              missingTerms: [],
+            };
+          }
+
           const missingTerms = academicTerms.filter(
-            (term) =>
-              !linkedTerms.some((linkedTerm) => linkedTerm.id === term.id),
+            (term) => !linkedTerms.some((linkedTerm) => linkedTerm.id === term.id),
           );
 
           return {
@@ -655,28 +669,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
     setMissingTermDialogOpen(true);
   }, [academicTerms.length, visibleGroups.length]);
-
-  const requestLinkAcademicTerms = React.useCallback(
-    (groups: MissingAcademicTermGroup[]) => {
-      if (groups.length === 0) {
-        toast.success(
-          "All visible section groups are already linked to every academic term.",
-        );
-        return;
-      }
-
-      setPendingSectionAction({
-        kind: "linkAcademicTerms",
-        groupKeys: groups.map((result) => result.group.key),
-        groupCount: groups.length,
-        missingLinkCount: groups.reduce(
-          (count, result) => count + result.missingTerms.length,
-          0,
-        ),
-      });
-    },
-    [],
-  );
 
   const mergeSectionGroups = React.useCallback(
     async (
@@ -779,87 +771,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
     [vm],
   );
 
-  const linkSectionGroupsToAcademicTerms = React.useCallback(
-    async (groups: MissingAcademicTermGroup[]) => {
-      if (groups.length === 0) {
-        toast.success(
-          "All visible section groups are already linked to every academic term.",
-        );
-        return;
-      }
-
-      setSectionTermLinkBusy(true);
-      try {
-        let created = 0;
-        let skipped = 0;
-        const failed: string[] = [];
-
-        for (const result of groups) {
-          for (const term of result.missingTerms) {
-            try {
-              await databases.createDocument(
-                DATABASE_ID,
-                COLLECTIONS.SECTIONS,
-                ID.unique(),
-                buildLinkedSectionTermPayload(vm, result.group, {
-                  ...term,
-                  semester:
-                    academicTerms.find(
-                      (academicTerm) => academicTerm.id === term.id,
-                    )?.semester ?? null,
-                }),
-              );
-              created += 1;
-            } catch (error: any) {
-              const message = String(error?.message ?? "").trim();
-
-              if (
-                message &&
-                /(duplicate|already exists|document with the requested ID already exists)/i.test(
-                  message,
-                )
-              ) {
-                skipped += 1;
-                continue;
-              }
-
-              failed.push(
-                `${result.group.label} • ${term.label} (${formatSectionBulkEditError(error)})`,
-              );
-            }
-          }
-        }
-
-        if (created > 0 || skipped > 0) {
-          await vm.refreshAll();
-        }
-
-        if (created > 0 && failed.length === 0) {
-          toast.success(
-            `Linked ${created} missing section record${created === 1 ? "" : "s"} to academic terms.${skipped > 0 ? ` Skipped ${skipped}.` : ""}`,
-          );
-          return;
-        }
-
-        if (created > 0 || skipped > 0) {
-          toast.error(
-            `Created ${created} section term link${created === 1 ? "" : "s"}${skipped > 0 ? ` and skipped ${skipped}` : ""}, but failed for: ${failed.join(", ")}`,
-          );
-          return;
-        }
-
-        toast.error(
-          failed.length > 0
-            ? `Failed to link sections to academic terms: ${failed.join(", ")}`
-            : "No section term links were created.",
-        );
-      } finally {
-        setSectionTermLinkBusy(false);
-      }
-    },
-    [academicTerms, vm],
-  );
-
   const requestMergeSectionGroups = React.useCallback(
     (groups: SectionGroup[]) => {
       if (groups.length === 0) {
@@ -896,17 +807,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
     setPendingSectionActionSubmitting(true);
 
     try {
-      if (action.kind === "linkAcademicTerms") {
-        const groups = missingAcademicTermGroups.filter((result) =>
-          action.groupKeys.includes(result.group.key),
-        );
-        await linkSectionGroupsToAcademicTerms(groups);
-        setPendingSectionAction(null);
-        setMissingTermDialogOpen(false);
-        return;
-      }
-
-      const groups = allMergeCandidateGroups.filter((group) =>
+      const groups = allSectionGroups.filter((group) =>
         action.groupKeys.includes(group.key),
       );
       const normalizedKeepByGroup = Object.fromEntries(
@@ -927,17 +828,94 @@ export function MasterDataSectionsTab({ vm }: Props) {
       setPendingSectionActionSubmitting(false);
     }
   }, [
-    allMergeCandidateGroups,
-    linkSectionGroupsToAcademicTerms,
+    allSectionGroups,
     mergeSectionGroups,
-    missingAcademicTermGroups,
     pendingSectionAction,
     pendingSectionActionSubmitting,
     sectionMergeKeepByGroup,
   ]);
+  const linkVisibleSectionGroupsAcrossAllTerms = React.useCallback(
+    async (groups: MissingAcademicTermGroup[]) => {
+      if (groups.length === 0) {
+        toast.success(
+          "All visible section groups are already reusable across all academic terms.",
+        );
+        return;
+      }
 
-  const pendingSectionActionBusy =
-    pendingSectionActionSubmitting || sectionDedupeBusy || sectionTermLinkBusy;
+      setSectionTermLinkBusy(true);
+      try {
+        let updatedGroups = 0;
+        let updatedSections = 0;
+        let skippedSections = 0;
+        const failed: string[] = [];
+
+        for (const result of groups) {
+          let groupUpdated = false;
+
+          for (const section of result.group.sections) {
+            if (!hasLegacySectionTermScope(section)) {
+              skippedSections += 1;
+              continue;
+            }
+
+            const payload = buildSectionAllTermsUpdatePayload(section);
+            if (Object.keys(payload).length === 0) {
+              skippedSections += 1;
+              continue;
+            }
+
+            try {
+              await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.SECTIONS,
+                section.$id,
+                payload,
+              );
+              updatedSections += 1;
+              groupUpdated = true;
+            } catch (error: any) {
+              failed.push(
+                `${result.group.label} (${formatSectionBulkEditError(error)})`,
+              );
+              break;
+            }
+          }
+
+          if (groupUpdated) {
+            updatedGroups += 1;
+          }
+        }
+
+        if (updatedSections > 0) {
+          await vm.refreshAll();
+        }
+
+        if (updatedSections > 0 && failed.length === 0) {
+          toast.success(
+            `Linked ${updatedGroups} section group${updatedGroups === 1 ? "" : "s"} across all academic terms by clearing legacy term scope on ${updatedSections} section record${updatedSections === 1 ? "" : "s"}.`,
+          );
+          return;
+        }
+
+        if (updatedSections > 0) {
+          toast.error(
+            `Linked ${updatedGroups} section group${updatedGroups === 1 ? "" : "s"}, but failed for: ${failed.join(", ")}`,
+          );
+          return;
+        }
+
+        toast.error(
+          failed.length > 0
+            ? `Failed to link visible sections across all academic terms: ${failed.join(", ")}`
+            : `No section records needed updates. Skipped ${skippedSections} section record${skippedSections === 1 ? "" : "s"}.`,
+        );
+      } finally {
+        setSectionTermLinkBusy(false);
+      }
+    },
+    [vm],
+  );
 
   const openSubjectViewer = React.useCallback(
     (config: { title: string; description: string; subjects: any[] }) => {
@@ -1006,18 +984,17 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 variant="secondary"
                 className={`rounded-full ${wrappingBadgeClassName}`}
               >
-                {sortedSections.length} visible records
+                {sortedSections.length} visible
               </Badge>
               <Badge
                 variant="outline"
                 className={`rounded-full ${wrappingBadgeClassName}`}
               >
-                {visibleGroups.length} section group
-                {visibleGroups.length === 1 ? "" : "s"}
+                {missingAcademicTermGroups.length} group
+                {missingAcademicTermGroups.length === 1 ? "" : "s"} still
+                using legacy term scope
               </Badge>
-              <span>
-                Term-linking now runs directly from the visible section list.
-              </span>
+              <span>Bulk actions apply to the current visible section list.</span>
             </div>
 
             <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
@@ -1031,12 +1008,20 @@ export function MasterDataSectionsTab({ vm }: Props) {
                   disabled={visibleGroups.length === 0 || academicTerms.length === 0}
                 >
                   <span className="min-w-0 truncate">
-                    Link Sections to Academic Terms
+                    Review Academic Term Coverage
                   </span>
                 </Button>
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Badge
+                  variant="outline"
+                  className={`rounded-full ${wrappingBadgeClassName}`}
+                >
+                  Applies to all academic terms
+                </Badge>
+
+
                 <Badge
                   variant="outline"
                   className={`rounded-full ${wrappingBadgeClassName}`}
@@ -1105,14 +1090,13 @@ export function MasterDataSectionsTab({ vm }: Props) {
                       className={`rounded-full ${wrappingBadgeClassName}`}
                     >
                       {allDuplicateSectionGroups.length} duplicate group
-                      {allDuplicateSectionGroups.length === 1 ? "" : "s"} with
-                      matching term coverage
+                      {allDuplicateSectionGroups.length === 1 ? "" : "s"} across
+                      all terms
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    Open to view all visible section groups below. Duplicate
-                    detection only merges records that share the same term
-                    coverage.
+                    Open to view all visible sections below. Duplicate detection
+                    checks all section records across all academic terms.
                   </div>
                 </div>
               </AccordionTrigger>
@@ -1208,9 +1192,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         {visibleGroups.map((group) => (
                           <TableRow key={group.key}>
                             <TableCell className="font-medium">
-                              <div className="wrap-break-word">
-                                {group.label}
-                              </div>
+                              <div className="wrap-break-word">{group.label}</div>
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -1246,74 +1228,15 @@ export function MasterDataSectionsTab({ vm }: Props) {
       >
         <AlertDialogContent className="max-h-[90svh] overflow-hidden sm:max-w-3xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingSectionAction?.kind === "linkAcademicTerms"
-                ? "Link Missing Academic Terms"
-                : "Delete Duplicated Sections"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Delete Duplicated Sections</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingSectionAction?.kind === "linkAcademicTerms"
-                ? `Create ${pendingSectionAction.missingLinkCount} missing academic-term section record${pendingSectionAction.missingLinkCount === 1 ? "" : "s"} across ${pendingSectionAction.groupCount} visible section group${pendingSectionAction.groupCount === 1 ? "" : "s"}.`
-                : pendingSectionAction?.kind === "mergeSections"
-                  ? `Review each duplicate section group below. Choose the section record to keep, then continue. The other duplicate record${pendingSectionAction.duplicateCount === 1 ? " will" : "s will"} be deleted and their class references will be moved automatically.`
-                  : ""}
+              {pendingSectionAction
+                ? `Review each duplicate section group below. Choose the section record to keep, then continue. The other duplicate record${pendingSectionAction.duplicateCount === 1 ? " will" : "s will"} be deleted and their class references will be moved automatically.`
+                : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          {pendingSectionAction?.kind === "linkAcademicTerms" ? (
-            <ScrollArea className="max-h-[52svh] rounded-md border">
-              <div className="space-y-3 p-3">
-                {missingAcademicTermGroups
-                  .filter((result) =>
-                    pendingSectionAction.groupKeys.includes(result.group.key),
-                  )
-                  .map((result) => (
-                    <div
-                      key={result.group.key}
-                      className="rounded-xl border bg-muted/20 p-3"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-sm font-semibold">
-                            {result.group.label}
-                          </div>
-                          <Badge
-                            variant="secondary"
-                            className={`rounded-full ${wrappingBadgeClassName}`}
-                          >
-                            {result.missingTerms.length} missing term
-                            {result.missingTerms.length === 1 ? "" : "s"}
-                          </Badge>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {result.group.scopeSummary}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Current links:{" "}
-                          {result.linkedTerms.length > 0
-                            ? result.linkedTerms
-                                .map((term) => term.label)
-                                .join(", ")
-                            : "None"}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {result.missingTerms.map((term) => (
-                          <Badge
-                            key={`${result.group.key}-${term.id}`}
-                            variant="outline"
-                            className={wrappingBadgeClassName}
-                          >
-                            {term.label}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </ScrollArea>
-          ) : pendingSectionAction?.kind === "mergeSections" ? (
+          {pendingSectionAction?.kind === "mergeSections" ? (
             <ScrollArea className="max-h-[52svh] rounded-md border">
               <div className="space-y-3 p-3">
                 {pendingMergeSectionGroups.map((group) => {
@@ -1436,19 +1359,13 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 void handleConfirmPendingSectionAction();
               }}
               disabled={pendingSectionActionBusy}
-              className={
-                pendingSectionAction?.kind === "mergeSections"
-                  ? "bg-destructive text-white! hover:bg-destructive/90"
-                  : ""
-              }
+              className="bg-destructive text-white! hover:bg-destructive/90"
             >
               {pendingSectionActionBusy ? (
-                <span className="inline-flex items-center gap-2">
+                <span className="inline-flex items-center gap-2 text-white">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Processing...
                 </span>
-              ) : pendingSectionAction?.kind === "linkAcademicTerms" ? (
-                "Link Academic Terms"
               ) : (
                 "Continue"
               )}
@@ -1640,10 +1557,10 @@ export function MasterDataSectionsTab({ vm }: Props) {
       >
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Link Sections to Academic Terms</DialogTitle>
+            <DialogTitle>Academic Term Coverage</DialogTitle>
             <DialogDescription>
-              Review the visible section groups below, then create the missing
-              academic-term section records in one action.
+              Reviews the current visible section groups and highlights any
+              records that still keep legacy term-only scope.
             </DialogDescription>
           </DialogHeader>
 
@@ -1667,7 +1584,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
               </div>
               <div className="rounded-xl border bg-muted/20 px-3 py-3">
                 <div className="text-xs font-medium text-muted-foreground">
-                  Missing Links Found
+                  Missing Academic Term Links
                 </div>
                 <div className="mt-1 text-lg font-semibold">
                   {missingAcademicTermCount}
@@ -1677,7 +1594,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
             {missingAcademicTermGroups.length === 0 ? (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
-                All visible section groups already have linked records for every
+                All visible section groups are already reusable across every
                 academic term.
               </div>
             ) : (
@@ -1705,12 +1622,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                             {result.group.scopeSummary}
                           </div>
                           <div className="text-xs text-muted-foreground wrap-break-word">
-                            Linked terms:{" "}
-                            {result.linkedTerms.length > 0
-                              ? result.linkedTerms
-                                  .map((term) => term.label)
-                                  .join(", ")
-                              : "None"}
+                            Current legacy links: {result.linkedTerms.length > 0 ? result.linkedTerms.map((term) => term.label).join(", ") : "Legacy term label only"}
                           </div>
                         </div>
                       </div>
@@ -1738,17 +1650,29 @@ export function MasterDataSectionsTab({ vm }: Props) {
               type="button"
               variant="outline"
               onClick={() => setMissingTermDialogOpen(false)}
+              disabled={sectionTermLinkBusy}
             >
               Close
             </Button>
             <Button
               type="button"
               onClick={() =>
-                requestLinkAcademicTerms(missingAcademicTermGroups)
+                void linkVisibleSectionGroupsAcrossAllTerms(
+                  missingAcademicTermGroups,
+                )
               }
-              disabled={missingAcademicTermGroups.length === 0}
+              disabled={
+                missingAcademicTermGroups.length === 0 || sectionTermLinkBusy
+              }
             >
-              Link Missing Academic Terms
+              {sectionTermLinkBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Linking...
+                </span>
+              ) : (
+                "Link All Visible Sections to All Terms"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
