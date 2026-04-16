@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -161,36 +160,6 @@ function buildSectionYearLevelValue({
     return prefix ? `${prefix} ${yearNumber}` : yearNumber
 }
 
-function buildSectionPreviewLabel({
-    yearLevel,
-    sectionName,
-    programCode,
-    programName,
-}: {
-    yearLevel?: string | number | null
-    sectionName?: string | null
-    programCode?: string | null
-    programName?: string | null
-}) {
-    const yearNumber = extractSectionYearNumber(yearLevel)
-    const safeSectionName = String(sectionName ?? "").trim()
-
-    const inferredPrefixFromProgram = inferSectionTrackPrefix([programCode, programName])
-    const existingPrefix =
-        extractSectionTrackPrefixFromYearLevel(yearLevel) || inferSectionTrackPrefix([String(yearLevel ?? "")])
-
-    const prefix = inferredPrefixFromProgram || existingPrefix
-
-    if (!yearNumber && !safeSectionName) return "—"
-
-    const core = yearNumber && safeSectionName
-        ? `${yearNumber} - ${safeSectionName}`
-        : yearNumber
-            ? yearNumber
-            : safeSectionName
-
-    return prefix ? `${prefix} ${core}` : core
-}
 
 export function MasterDataDialogs({ vm }: Props) {
     const selectedSectionProgram = vm.programsForSelectedCollege.find(
@@ -204,24 +173,6 @@ export function MasterDataDialogs({ vm }: Props) {
 
     const sectionYearSelectValue = extractSectionYearNumber(vm.sectionYear)
     const currentSectionTrackPrefix = extractSectionTrackPrefixFromYearLevel(vm.sectionYear)
-
-    const sectionStoredYearLevelValue = buildSectionYearLevelValue({
-        yearLevel: vm.sectionYear,
-        programCode: selectedSectionProgram?.code,
-        programName: selectedSectionProgram?.name,
-    })
-
-    const sectionPreviewLabel = buildSectionPreviewLabel({
-        yearLevel: vm.sectionYear,
-        sectionName: vm.sectionName,
-        programCode: selectedSectionProgram?.code,
-        programName: selectedSectionProgram?.name,
-    })
-
-    const selectedSectionSubjectLabels = vm.sectionSubjectIds
-        .map((subjectId) => vm.sectionSubjectsForSelectedScope.find((subject) => subject.$id === subjectId))
-        .filter(Boolean)
-        .map((subject) => `${subject?.code} — ${subject?.title}`)
 
     const normalizedSectionTermFilterId = String(vm.sectionSubjectFilterTermId ?? "").trim()
     const selectedSectionTermLabel = normalizedSectionTermFilterId
@@ -260,9 +211,6 @@ export function MasterDataDialogs({ vm }: Props) {
                 <DialogContent className={DIALOG_CONTENT_CLASS}>
                     <DialogHeader>
                         <DialogTitle>{vm.collegeEditing ? "Edit College" : "Add College"}</DialogTitle>
-                        <DialogDescription>
-                            Colleges organize Programs, Subjects, and Faculty assignments.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
@@ -308,7 +256,6 @@ export function MasterDataDialogs({ vm }: Props) {
                 <DialogContent className={DIALOG_CONTENT_CLASS}>
                     <DialogHeader>
                         <DialogTitle>{vm.programEditing ? "Edit Program" : "Add Program"}</DialogTitle>
-                        <DialogDescription>Programs/Courses belong to a college.</DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
@@ -375,9 +322,6 @@ export function MasterDataDialogs({ vm }: Props) {
                 <DialogContent className={DIALOG_CONTENT_CLASS}>
                     <DialogHeader>
                         <DialogTitle>{vm.subjectEditing ? "Edit Subject" : "Add Subject"}</DialogTitle>
-                        <DialogDescription>
-                            Subjects are now scoped to a college, program, year level, and semester so records only show the correct subjects for matching sections.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
@@ -493,9 +437,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                 <div className="grid gap-2">
                                     <Label>Reference Semester</Label>
                                     <Input value={vm.subjectSemester || "—"} disabled />
-                                    <div className="text-xs text-muted-foreground">
-                                        Filled automatically from the selected semester.
-                                    </div>
                                 </div>
 
                                 <div className="grid gap-2">
@@ -525,30 +466,8 @@ export function MasterDataDialogs({ vm }: Props) {
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    <div className="text-xs text-muted-foreground">
-                                        Select a semester record to fill the subject semester automatically.
-                                    </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                            Subject scope preview:{" "}
-                            <span className="font-medium text-foreground">
-                                {vm.subjectProgramIds.length === 0
-                                    ? "Select at least one program"
-                                    : vm.subjectProgramIds
-                                        .map((programId) => vm.programLabel(vm.programs, programId))
-                                        .join(", ")}
-                            </span>
-                            {" • "}
-                            <span className="font-medium text-foreground">
-                                {vm.subjectYearLevels.length === 0 ? "Select year levels" : vm.subjectYearLevels.join(", ")}
-                            </span>
-                            {" • "}
-                            <span className="font-medium text-foreground">
-                                {vm.subjectSemester || "Select semester record"}
-                            </span>
                         </div>
 
                         <div className="grid gap-2">
@@ -604,9 +523,6 @@ export function MasterDataDialogs({ vm }: Props) {
                 <DialogContent className={DIALOG_CONTENT_CLASS}>
                     <DialogHeader>
                         <DialogTitle>{vm.facultyEditing ? "Edit Faculty" : "Add Faculty"}</DialogTitle>
-                        <DialogDescription>
-                            Select a Faculty user from USER_PROFILES (role: FACULTY / CHAIR / DEAN). Faculty load units and hours are automatically derived from the assigned subjects, so they are no longer manually encoded here.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
@@ -616,9 +532,6 @@ export function MasterDataDialogs({ vm }: Props) {
                             {vm.facultyEditing ? (
                                 <div className="grid gap-2">
                                     <Input value={vm.facultyUserId} disabled />
-                                    <div className="text-xs text-muted-foreground">
-                                        Faculty User ID cannot be changed once created.
-                                    </div>
                                 </div>
                             ) : (
                                 <Select value={vm.facultyUserId} onValueChange={vm.setFacultyUserId}>
@@ -650,11 +563,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                         <span className="font-medium text-foreground">{vm.selectedFacultyUser.userId}</span>
                                     </div>
                                 </div>
-                            ) : (
-                                <div className="text-xs text-muted-foreground">
-                                    Pick from faculty users only (auto-fetched from USER_PROFILES).
-                                </div>
-                            )}
+                            ) : null}
                         </div>
 
                         <div className="grid gap-2">
@@ -731,19 +640,8 @@ export function MasterDataDialogs({ vm }: Props) {
                                     ? "Edit Section"
                                     : "Add Section"}
                         </DialogTitle>
-                        <DialogDescription>
-                            {vm.isBulkEditingSections
-                                ? "Only the fields you change below will be applied to every selected section record. Leave untouched fields as they are to preserve each section's current values."
-                                : "Sections are reusable across all academic terms. Use the optional subject filter term below only to narrow linked subject choices while the saved section remains globally reusable."}
-                        </DialogDescription>
                     </DialogHeader>
 
-                    {vm.isBulkEditingSections ? (
-                        <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
-                            Editing <span className="font-medium text-foreground">{vm.sectionEditingTargets.length}</span> selected section records.
-                            Only changed fields will be saved across all selected records.
-                        </div>
-                    ) : null}
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
@@ -774,9 +672,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <div className="text-xs text-muted-foreground">
-                                This dropdown only filters the linked subject options. The saved section still remains reusable across every academic term.
-                            </div>
                         </div>
 
                         <div className="grid gap-2">
@@ -808,9 +703,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                     value="All Academic Terms"
                                     disabled
                                 />
-                                <div className="text-xs text-muted-foreground">
-                                    Sections are shared across all academic terms. The academic-term dropdown above only narrows the linked subject list.
-                                </div>
                             </div>
 
                             <div className="grid gap-2">
@@ -854,9 +746,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <div className="text-xs text-muted-foreground">
-                                Optional, but recommended if your schedule rules are program-based.
-                            </div>
                         </div>
 
                         <div className="grid gap-2">
@@ -934,28 +823,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                     )}
                                 </div>
                             </ScrollArea>
-                            <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                                Linked subject preview:{" "}
-                                <span className="font-medium text-foreground">
-                                    {selectedSectionSubjectLabels.length === 0
-                                        ? "Select at least one subject"
-                                        : selectedSectionSubjectLabels.join(", ")}
-                                </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                                Subject options are filtered by the selected college, program, year level, and the optional term filter.
-                            </div>
-                        </div>
-
-                        <div className="rounded-md border border-dashed p-3">
-                            <div className="text-xs text-muted-foreground">Section CS/IS Reference Preview</div>
-                            <div className="mt-1 font-medium">{sectionPreviewLabel}</div>
-                            <div className="mt-2 text-xs text-muted-foreground">
-                                Stored yearLevel:{" "}
-                                <span className="font-medium text-foreground">
-                                    {sectionStoredYearLevelValue || "—"}
-                                </span>
-                            </div>
                         </div>
 
                         <div className="grid gap-4 sm:grid-cols-2">
@@ -987,9 +854,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                <div className="text-xs text-muted-foreground">
-                                    Saved automatically as CS 1 / IS 1 based on the selected program.
-                                </div>
                             </div>
 
                             <div className="grid gap-2">

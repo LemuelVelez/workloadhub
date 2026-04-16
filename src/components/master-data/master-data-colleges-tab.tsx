@@ -18,7 +18,6 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -37,12 +36,7 @@ export function MasterDataCollegesTab({ vm }: Props) {
     return (
         <TabsContent value="colleges" className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-                <div>
-                    <div className="font-medium">Colleges</div>
-                    <div className="text-sm text-muted-foreground">
-                        Add/edit college records.
-                    </div>
-                </div>
+                <div className="font-medium">Colleges</div>
 
                 <Button
                     size="sm"
@@ -155,9 +149,6 @@ export function MasterDataCollegesTab({ vm }: Props) {
                                 <DialogTitle>
                                     {selectedCollegeDetail?.name || selectedCollegeDetail?.code || "College Details"}
                                 </DialogTitle>
-                                <DialogDescription>
-                                    View the selected college record.
-                                </DialogDescription>
                             </DialogHeader>
 
                             {selectedCollegeDetail ? (

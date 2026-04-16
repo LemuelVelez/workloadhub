@@ -23,14 +23,12 @@ import { Button } from "@/components/ui/button"
 import {
     Card,
     CardContent,
-    CardDescription,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -85,13 +83,7 @@ export function MasterDataFacultyTab({ vm }: Props) {
     return (
         <TabsContent value="faculty" className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-                <div>
-                    <div className="font-medium">Faculty</div>
-                    <div className="text-sm text-muted-foreground">
-                        Faculty info, rank, and auto-calculated teaching load based on
-                        assigned subjects.
-                    </div>
-                </div>
+                <div className="font-medium">Faculty</div>
 
                 <Button
                     size="sm"
@@ -294,20 +286,6 @@ export function MasterDataFacultyTab({ vm }: Props) {
                                                                 </div>
                                                             </div>
 
-                                                            <div className="grid gap-1">
-                                                                <div className="text-xs font-medium text-muted-foreground">
-                                                                    Source
-                                                                </div>
-                                                                <div className="whitespace-pre-wrap wrap-break-word text-muted-foreground">
-                                                                    Load is derived automatically
-                                                                    from the faculty
-                                                                    member&apos;s assigned
-                                                                    subjects and records, so
-                                                                    units and hours no longer
-                                                                    need manual encoding in
-                                                                    Faculty.
-                                                                </div>
-                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -356,9 +334,6 @@ export function MasterDataFacultyTab({ vm }: Props) {
                         <DialogContent className="sm:max-w-xl">
                             <DialogHeader>
                                 <DialogTitle>{selectedFacultyName}</DialogTitle>
-                                <DialogDescription>
-                                    View the selected faculty profile and teaching load.
-                                </DialogDescription>
                             </DialogHeader>
 
                             {selectedFacultyDetail ? (
@@ -428,10 +403,6 @@ export function MasterDataFacultyTab({ vm }: Props) {
                                                     {formatLoadNumber(selectedFacultyLoad.totalHours)}
                                                 </div>
                                             </div>
-                                            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                                                Teaching load is computed automatically from the faculty
-                                                member&apos;s assigned subjects and records.
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -475,13 +446,7 @@ export function MasterDataFacultyTab({ vm }: Props) {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Optional: Encode List of Faculties</CardTitle>
-                    <CardDescription>
-                        Useful when the same faculty roster repeats every semester. Format per
-                        line: userId,employeeNo,rank,maxUnits,maxHours,notes. Max units and max
-                        hours remain legacy optional caps, while the displayed teaching load is
-                        automatically computed from assigned subjects.
-                    </CardDescription>
+                    <CardTitle>Encode List of Faculties</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                     <div className="grid gap-3 sm:grid-cols-2">

@@ -24,7 +24,6 @@ import {
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -259,9 +258,6 @@ export function RecordMobileCards({
                         <DialogTitle>
                             {selectedRecord?.subjectCode || selectedRecord?.subjectTitle || "Record Details"}
                         </DialogTitle>
-                        <DialogDescription>
-                            View the selected record details.
-                        </DialogDescription>
                     </DialogHeader>
 
                     {selectedRecord ? (
