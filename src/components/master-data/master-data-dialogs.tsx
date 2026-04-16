@@ -223,6 +223,36 @@ export function MasterDataDialogs({ vm }: Props) {
         .filter(Boolean)
         .map((subject) => `${subject?.code} — ${subject?.title}`)
 
+    const normalizedSectionTermId = String(vm.sectionTermId ?? "").trim()
+    const selectedSectionTermLabel = normalizedSectionTermId
+        ? vm.termLabel(vm.terms, normalizedSectionTermId)
+        : ""
+    const sectionSubjectGroups = Array.from(
+        vm.sectionSubjectsForSelectedScope.reduce((map, subject) => {
+            const subjectTermId = String(subject?.termId ?? "").trim()
+            const subjectTermLabel = subjectTermId
+                ? vm.termLabel(vm.terms, subjectTermId)
+                : String(subject?.semester ?? "").trim() || "No Academic Term Linked"
+
+            const currentItems = map.get(subjectTermLabel) ?? []
+            currentItems.push(subject)
+            map.set(subjectTermLabel, currentItems)
+            return map
+        }, new Map<string, typeof vm.sectionSubjectsForSelectedScope>())
+    ).sort(([leftLabel], [rightLabel]) => {
+        const leftPriority = selectedSectionTermLabel && leftLabel === selectedSectionTermLabel ? 0 : 1
+        const rightPriority = selectedSectionTermLabel && rightLabel === selectedSectionTermLabel ? 0 : 1
+
+        if (leftPriority !== rightPriority) {
+            return leftPriority - rightPriority
+        }
+
+        return leftLabel.localeCompare(rightLabel, undefined, {
+            numeric: true,
+            sensitivity: "base",
+        })
+    })
+
     return (
         <>
             {/* College Dialog */}
@@ -844,44 +874,69 @@ export function MasterDataDialogs({ vm }: Props) {
                             </div>
                             <ScrollArea className="h-44 rounded-md border">
                                 <div className="space-y-2 p-3">
-                                    {vm.sectionSubjectsForSelectedScope.length === 0 ? (
+                                    {sectionSubjectGroups.length === 0 ? (
                                         <div className="text-sm text-muted-foreground">
                                             No matching subjects found for the selected reusable section scope.
                                         </div>
                                     ) : (
-                                        vm.sectionSubjectsForSelectedScope.map((subject) => {
-                                            const checked = vm.sectionSubjectIds.includes(subject.$id)
+                                        sectionSubjectGroups.map(([groupLabel, groupedSubjects]) => (
+                                            <div key={groupLabel} className="space-y-2">
+                                                <div className="rounded-md bg-muted px-3 py-2 text-xs font-medium text-foreground">
+                                                    {groupLabel}
+                                                </div>
 
-                                            return (
-                                                <label
-                                                    key={subject.$id}
-                                                    htmlFor={`section-subject-${subject.$id}`}
-                                                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
-                                                >
-                                                    <Checkbox
-                                                        id={`section-subject-${subject.$id}`}
-                                                        checked={checked}
-                                                        onCheckedChange={(value) => {
-                                                            const isChecked = Boolean(value)
-                                                            vm.markSectionFieldDirty("subjectIds")
-                                                            vm.setSectionSubjectIds((current) => {
-                                                                if (isChecked) {
-                                                                    return current.includes(subject.$id)
-                                                                        ? current
-                                                                        : [...current, subject.$id]
-                                                                }
-                                                                return current.filter((id) => id !== subject.$id)
-                                                            })
-                                                        }}
-                                                    />
+                                                {groupedSubjects.map((subject) => {
+                                                    const checked = vm.sectionSubjectIds.includes(subject.$id)
+                                                    const subjectTermId = String(subject?.termId ?? "").trim()
+                                                    const subjectTermLabel = subjectTermId
+                                                        ? vm.termLabel(vm.terms, subjectTermId)
+                                                        : String(subject?.semester ?? "").trim() || "No Academic Term Linked"
+                                                    const isOutsideSelectedTerm = Boolean(
+                                                        normalizedSectionTermId &&
+                                                        subjectTermId &&
+                                                        subjectTermId !== normalizedSectionTermId
+                                                    )
 
-                                                    <div className="min-w-0 flex-1 text-sm">
-                                                        <div className="font-medium">{subject.code}</div>
-                                                        <div className="text-muted-foreground">{subject.title}</div>
-                                                    </div>
-                                                </label>
-                                            )
-                                        })
+                                                    return (
+                                                        <label
+                                                            key={subject.$id}
+                                                            htmlFor={`section-subject-${subject.$id}`}
+                                                            className="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition hover:bg-muted/40"
+                                                        >
+                                                            <Checkbox
+                                                                id={`section-subject-${subject.$id}`}
+                                                                checked={checked}
+                                                                onCheckedChange={(value) => {
+                                                                    const isChecked = Boolean(value)
+                                                                    vm.markSectionFieldDirty("subjectIds")
+                                                                    vm.setSectionSubjectIds((current) => {
+                                                                        if (isChecked) {
+                                                                            return current.includes(subject.$id)
+                                                                                ? current
+                                                                                : [...current, subject.$id]
+                                                                        }
+                                                                        return current.filter((id) => id !== subject.$id)
+                                                                    })
+                                                                }}
+                                                            />
+
+                                                            <div className="min-w-0 flex-1 text-sm">
+                                                                <div className="font-medium">{subject.code}</div>
+                                                                <div className="text-muted-foreground">{subject.title}</div>
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    Academic Term: {subjectTermLabel}
+                                                                </div>
+                                                                {isOutsideSelectedTerm ? (
+                                                                    <div className="text-xs text-amber-600">
+                                                                        Currently linked outside the selected term filter.
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                        </label>
+                                                    )
+                                                })}
+                                            </div>
+                                        ))
                                     )}
                                 </div>
                             </ScrollArea>

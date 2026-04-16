@@ -1524,39 +1524,65 @@ export function useMasterDataManagement() {
             .sort((a, b) => `${a.code} ${a.name}`.localeCompare(`${b.code} ${b.name}`))
     }, [programs, sectionCollegeId])
 
+    const sectionReferenceTerm = React.useMemo(() => {
+        const referenceTermId = str(sectionTermId)
+        if (!referenceTermId) return null
+
+        return terms.find((term) => str(term.$id) === referenceTermId) ?? null
+    }, [sectionTermId, terms])
+
     const sectionSubjectsForSelectedScope = React.useMemo(() => {
         const collegeId = str(sectionCollegeId)
         const programId = str(sectionProgramId) === "__none__" ? "" : str(sectionProgramId)
         const termId = str(sectionTermId)
-        const semester = str(sectionSemester) || str(terms.find((term) => str(term.$id) === termId)?.semester)
+        const selectedSubjectIds = new Set(sectionSubjectIds.map((subjectId) => str(subjectId)).filter(Boolean))
+        const semester = normalizeSemesterLabel(
+            str(sectionSemester) || str(sectionReferenceTerm?.semester)
+        )
         const yearNumber = extractSectionYearNumber(sectionYear)
 
         return subjects
             .filter((subject) => {
+                const subjectId = str(subject.$id)
+                const isCurrentlySelected = selectedSubjectIds.has(subjectId)
+
                 const subjectDepartmentId = str(subject.departmentId)
-                if (collegeId && subjectDepartmentId && subjectDepartmentId !== collegeId) return false
+                if (collegeId && subjectDepartmentId && subjectDepartmentId !== collegeId) {
+                    return isCurrentlySelected
+                }
 
                 const subjectTermId = str(subject.termId)
-                if (termId && subjectTermId && subjectTermId !== termId) return false
+                if (termId) {
+                    if (!subjectTermId) return isCurrentlySelected
+                    if (subjectTermId !== termId) return isCurrentlySelected
+                }
 
                 const subjectProgramIds = resolveSubjectProgramIds(subject)
                 if (programId && subjectProgramIds.length > 0 && !subjectProgramIds.includes(programId)) {
-                    return false
+                    return isCurrentlySelected
                 }
 
                 const subjectYearLevels = resolveSubjectYearLevels(subject)
                 if (yearNumber && subjectYearLevels.length > 0 && !subjectYearLevels.includes(yearNumber)) {
-                    return false
+                    return isCurrentlySelected
                 }
 
-                const subjectSemester = str(subject.semester)
-                if (semester && subjectSemester && subjectSemester !== semester) return false
+                if (!termId) {
+                    const subjectSemester = normalizeSemesterLabel(
+                        str(subject.semester) ||
+                        str(terms.find((term) => str(term.$id) === subjectTermId)?.semester)
+                    )
+
+                    if (semester && subjectSemester && subjectSemester !== semester) {
+                        return isCurrentlySelected
+                    }
+                }
 
                 return true
             })
             .slice()
             .sort((a, b) => `${a.code} ${a.title}`.localeCompare(`${b.code} ${b.title}`))
-    }, [sectionCollegeId, sectionProgramId, sectionTermId, sectionSemester, sectionYear, subjects, terms])
+    }, [sectionCollegeId, sectionProgramId, sectionSubjectIds, sectionTermId, sectionSemester, sectionYear, sectionReferenceTerm, subjects, terms])
 
     React.useEffect(() => {
         if (sectionSubjectIds.length === 0) return

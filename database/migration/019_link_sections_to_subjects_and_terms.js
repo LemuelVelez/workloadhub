@@ -1,4 +1,3 @@
-\
 import { Client, Databases, Query } from "node-appwrite"
 
 const MIGRATION_ID = "019_link_sections_to_subjects_and_terms"
