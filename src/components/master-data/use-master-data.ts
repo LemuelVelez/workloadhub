@@ -1361,6 +1361,7 @@ export function useMasterDataManagement() {
         setSectionOpen(false)
         setSectionEditing(null)
         setSectionEditingBatch([])
+        setSectionSubjectFilterTermId("")
         setSectionDirtyFields({})
     }, [])
 
@@ -1383,6 +1384,7 @@ export function useMasterDataManagement() {
     const isBulkEditingSections = sectionEditingTargets.length > 1
 
     const [sectionTermId, setSectionTermId] = React.useState("")
+    const [sectionSubjectFilterTermId, setSectionSubjectFilterTermId] = React.useState("")
     const [sectionCollegeId, setSectionCollegeId] = React.useState("")
     const [sectionProgramId, setSectionProgramId] = React.useState<string>("__none__")
     const [sectionSubjectIds, setSectionSubjectIds] = React.useState<string[]>([])
@@ -1400,6 +1402,7 @@ export function useMasterDataManagement() {
 
         if (sectionEditingTargets.length === 0) {
             setSectionTermId("")
+            setSectionSubjectFilterTermId(str(selectedTermId))
             setSectionCollegeId(defaultCollegeId)
             setSectionProgramId("__none__")
             setSectionSubjectIds([])
@@ -1418,6 +1421,7 @@ export function useMasterDataManagement() {
             const fallbackReferenceTerm = terms.find((term) => str(term.$id) === fallbackReferenceTermId)
 
             setSectionTermId(fallbackReferenceTermId)
+            setSectionSubjectFilterTermId(fallbackReferenceTermId || str(selectedTermId))
             setSectionCollegeId(str(targetSection?.departmentId))
             setSectionProgramId(targetSection?.programId ? str(targetSection.programId) : "__none__")
             setSectionSubjectIds(
@@ -1501,6 +1505,7 @@ export function useMasterDataManagement() {
             : Boolean(firstSection?.isActive)
 
         setSectionTermId(commonTermId)
+        setSectionSubjectFilterTermId(commonTermId || str(selectedTermId))
         setSectionCollegeId(commonDepartmentId)
         setSectionProgramId(commonProgramId || "__none__")
         setSectionSubjectIds(matchingSubjectIds ? firstSubjectIds : [])
@@ -1514,7 +1519,7 @@ export function useMasterDataManagement() {
         setSectionName(commonName)
         setSectionStudentCount(commonStudentCount)
         setSectionActive(commonActive)
-    }, [defaultCollegeId, resetSectionDirtyFields, sectionEditingTargets, sectionOpen, terms])
+    }, [defaultCollegeId, resetSectionDirtyFields, sectionEditingTargets, sectionOpen, selectedTermId, terms])
 
     const programsForSelectedCollege = React.useMemo(() => {
         const collegeId = str(sectionCollegeId)
@@ -1525,16 +1530,16 @@ export function useMasterDataManagement() {
     }, [programs, sectionCollegeId])
 
     const sectionReferenceTerm = React.useMemo(() => {
-        const referenceTermId = str(sectionTermId)
+        const referenceTermId = str(sectionSubjectFilterTermId)
         if (!referenceTermId) return null
 
         return terms.find((term) => str(term.$id) === referenceTermId) ?? null
-    }, [sectionTermId, terms])
+    }, [sectionSubjectFilterTermId, terms])
 
     const sectionSubjectsForSelectedScope = React.useMemo(() => {
         const collegeId = str(sectionCollegeId)
         const programId = str(sectionProgramId) === "__none__" ? "" : str(sectionProgramId)
-        const termId = str(sectionTermId)
+        const termId = str(sectionSubjectFilterTermId)
         const selectedSubjectIds = new Set(sectionSubjectIds.map((subjectId) => str(subjectId)).filter(Boolean))
         const semester = normalizeSemesterLabel(
             str(sectionSemester) || str(sectionReferenceTerm?.semester)
@@ -1582,7 +1587,7 @@ export function useMasterDataManagement() {
             })
             .slice()
             .sort((a, b) => `${a.code} ${a.title}`.localeCompare(`${b.code} ${b.title}`))
-    }, [sectionCollegeId, sectionProgramId, sectionSubjectIds, sectionTermId, sectionSemester, sectionYear, sectionReferenceTerm, subjects, terms])
+    }, [sectionCollegeId, sectionProgramId, sectionSubjectFilterTermId, sectionSubjectIds, sectionSemester, sectionYear, sectionReferenceTerm, subjects, terms])
 
     React.useEffect(() => {
         if (sectionSubjectIds.length === 0) return
@@ -1914,9 +1919,17 @@ export function useMasterDataManagement() {
     }, [programs, q])
 
     const filteredSubjects = React.useMemo(() => {
-        if (!q) return subjects
+        const activeTermId = str(selectedTermId)
+
         return subjects.filter((s: any) => {
             const linkedTermText = readFirstStringValue(s, SUBJECT_TERM_KEYS)
+
+            if (activeTermId && linkedTermText !== activeTermId) {
+                return false
+            }
+
+            if (!q) return true
+
             const subjectProgramText = resolveSubjectProgramIds(s)
                 .map((programId) => programLabel(programs, programId || null))
                 .join(" ")
@@ -1924,7 +1937,7 @@ export function useMasterDataManagement() {
             const subjectSemesterText = readFirstStringValue(s, SUBJECT_SEMESTER_KEYS)
             return `${s.code} ${s.title} ${linkedTermText} ${subjectProgramText} ${subjectYearLevelText} ${subjectSemesterText}`.toLowerCase().includes(q)
         })
-    }, [subjects, q, programs])
+    }, [subjects, q, programs, selectedTermId])
 
     const filteredFaculty = React.useMemo(() => {
         if (!q) return facultyProfiles
@@ -1935,7 +1948,26 @@ export function useMasterDataManagement() {
         })
     }, [facultyProfiles, q, facultyUserMap])
 
-    const visibleSectionsByTerm = React.useMemo(() => sections, [sections])
+    const visibleSectionsByTerm = React.useMemo(() => {
+        const activeTermId = str(selectedTermId)
+        if (!activeTermId) return sections
+
+        return sections.filter((section) => {
+            if (str(section.termId) === activeTermId) {
+                return true
+            }
+
+            const linkedSubjectIds = resolveSectionSubjectIds(section as any)
+            if (linkedSubjectIds.length === 0) {
+                return false
+            }
+
+            return linkedSubjectIds.some((subjectId) => {
+                const linkedSubject = subjectMap.get(str(subjectId))
+                return str(linkedSubject?.termId) === activeTermId
+            })
+        })
+    }, [sections, selectedTermId, subjectMap])
 
     const filteredSections = React.useMemo(() => {
         const base = visibleSectionsByTerm
@@ -2061,10 +2093,12 @@ export function useMasterDataManagement() {
     }, [subjects])
 
     const filteredRecordRows = React.useMemo(() => {
+        const activeTermId = str(selectedTermId)
         const subjectId = recordSubjectFilter === "__all__" ? "" : str(recordSubjectFilter)
         const unitValue = recordUnitFilter === "__all__" ? null : num(recordUnitFilter, NaN)
 
         return recordRows.filter((r) => {
+            if (activeTermId && str(r.termId) !== activeTermId) return false
             if (subjectId && str(r.subjectId) !== subjectId) return false
             if (unitValue != null && Number.isFinite(unitValue) && num(r.units, -1) !== unitValue) return false
 
@@ -2073,7 +2107,7 @@ export function useMasterDataManagement() {
             const hay = `${r.termLabel} ${r.dayOfWeek} ${r.startTime} ${r.endTime} ${r.roomLabel} ${r.facultyLabel} ${r.subjectCode} ${r.subjectTitle} ${r.classCode} ${r.collegeLabel} ${r.programLabel}`.toLowerCase()
             return hay.includes(q)
         })
-    }, [recordRows, q, recordSubjectFilter, recordUnitFilter])
+    }, [recordRows, q, recordSubjectFilter, recordUnitFilter, selectedTermId])
 
     const bulkDeleteSubjectPreview =
         deleteIntent?.type === "subjects"
@@ -2277,6 +2311,8 @@ export function useMasterDataManagement() {
         resetSectionDirtyFields,
         sectionTermId,
         setSectionTermId,
+        sectionSubjectFilterTermId,
+        setSectionSubjectFilterTermId,
         sectionCollegeId,
         setSectionCollegeId,
         sectionProgramId,

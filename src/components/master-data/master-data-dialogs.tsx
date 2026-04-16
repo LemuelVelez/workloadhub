@@ -223,9 +223,9 @@ export function MasterDataDialogs({ vm }: Props) {
         .filter(Boolean)
         .map((subject) => `${subject?.code} — ${subject?.title}`)
 
-    const normalizedSectionTermId = String(vm.sectionTermId ?? "").trim()
-    const selectedSectionTermLabel = normalizedSectionTermId
-        ? vm.termLabel(vm.terms, normalizedSectionTermId)
+    const normalizedSectionTermFilterId = String(vm.sectionSubjectFilterTermId ?? "").trim()
+    const selectedSectionTermLabel = normalizedSectionTermFilterId
+        ? vm.termLabel(vm.terms, normalizedSectionTermFilterId)
         : ""
     const sectionSubjectGroups = Array.from(
         vm.sectionSubjectsForSelectedScope.reduce((map, subject) => {
@@ -747,21 +747,19 @@ export function MasterDataDialogs({ vm }: Props) {
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <Label>Subject Filter Term (optional)</Label>
+                            <Label>Academic Term Filter</Label>
                             <Select
-                                value={vm.sectionTermId || "__all__"}
+                                value={vm.sectionSubjectFilterTermId || "__all__"}
                                 onValueChange={(value) => {
                                     if (value === "__all__") {
-                                        vm.setSectionTermId("")
+                                        vm.setSectionSubjectFilterTermId("")
                                         vm.setSectionSemester("")
-                                        vm.setSectionAcademicTermLabel("All Academic Terms")
                                         return
                                     }
 
-                                    vm.setSectionTermId(value)
+                                    vm.setSectionSubjectFilterTermId(value)
                                     const selectedTerm = vm.terms.find((term) => term.$id === value)
                                     vm.setSectionSemester(String(selectedTerm?.semester ?? ""))
-                                    vm.setSectionAcademicTermLabel(vm.termLabel(vm.terms, value))
                                 }}
                             >
                                 <SelectTrigger>
@@ -777,7 +775,7 @@ export function MasterDataDialogs({ vm }: Props) {
                                 </SelectContent>
                             </Select>
                             <div className="text-xs text-muted-foreground">
-                                This only narrows the subject picker. The saved section remains reusable across every academic term.
+                                This dropdown only filters the linked subject options. The saved section still remains reusable across every academic term.
                             </div>
                         </div>
 
@@ -807,15 +805,11 @@ export function MasterDataDialogs({ vm }: Props) {
                             <div className="grid gap-2">
                                 <Label>Academic Term Coverage</Label>
                                 <Input
-                                    value={
-                                        vm.sectionTermId
-                                            ? vm.sectionAcademicTermLabel || vm.termLabel(vm.terms, vm.sectionTermId)
-                                            : "All Academic Terms"
-                                    }
+                                    value="All Academic Terms"
                                     disabled
                                 />
                                 <div className="text-xs text-muted-foreground">
-                                    Sections are shared across all academic terms. The optional filter only helps narrow the linked subject list.
+                                    Sections are shared across all academic terms. The academic-term dropdown above only narrows the linked subject list.
                                 </div>
                             </div>
 
@@ -892,9 +886,9 @@ export function MasterDataDialogs({ vm }: Props) {
                                                         ? vm.termLabel(vm.terms, subjectTermId)
                                                         : String(subject?.semester ?? "").trim() || "No Academic Term Linked"
                                                     const isOutsideSelectedTerm = Boolean(
-                                                        normalizedSectionTermId &&
+                                                        normalizedSectionTermFilterId &&
                                                         subjectTermId &&
-                                                        subjectTermId !== normalizedSectionTermId
+                                                        subjectTermId !== normalizedSectionTermFilterId
                                                     )
 
                                                     return (
