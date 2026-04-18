@@ -20,7 +20,6 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
-    DialogDescription as ShadDialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -669,13 +668,6 @@ export function MasterDataRecordEditDialog({
             <DialogContent className="sm:max-w-3xl">
                 <DialogHeader>
                     <DialogTitle>Edit Record</DialogTitle>
-                    <ShadDialogDescription>
-                        Update term/day/time/room/faculty/subject for this record.
-                        Subject choices are now limited by the selected term semester
-                        plus the current section's program and year level, and missing
-                        subject scope values can automatically inherit the current
-                        section and term when saved.
-                    </ShadDialogDescription>
                 </DialogHeader>
 
                 <div className="grid gap-4 py-2">
@@ -859,12 +851,6 @@ export function MasterDataRecordEditDialog({
                                     )}
                                 </SelectContent>
                             </Select>
-                            <div className="text-xs text-muted-foreground">
-                                Units are taken automatically from the selected subject.
-                                Subjects are filtered by the current section scope when available.
-                                Subjects without a direct term/program/year scope will inherit the
-                                selected section and term when possible.
-                            </div>
                         </div>
                     </div>
                 </div>

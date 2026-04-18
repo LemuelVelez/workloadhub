@@ -15,7 +15,6 @@ export default function AdminMasterDataManagementPage() {
     return (
         <DashboardLayout
             title="Master Data Management"
-            subtitle="Maintain core academic records used in scheduling and workload rules."
             actions={
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => void vm.refreshAll()}>

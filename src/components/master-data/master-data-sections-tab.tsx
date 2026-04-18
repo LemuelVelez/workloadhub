@@ -37,7 +37,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -739,8 +738,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
   const [subjectViewerOpen, setSubjectViewerOpen] = React.useState(false);
   const [subjectViewerTitle, setSubjectViewerTitle] =
     React.useState("Linked Subjects");
-  const [subjectViewerDescription, setSubjectViewerDescription] =
-    React.useState("");
+  const [, setSubjectViewerDescription] = React.useState("");
   const [subjectViewerSubjects, setSubjectViewerSubjects] = React.useState<
     any[]
   >([]);
@@ -748,8 +746,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
   const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
   const [linkDialogTitle, setLinkDialogTitle] =
     React.useState("Link Sections to Subjects and Academic Term");
-  const [linkDialogDescription, setLinkDialogDescription] =
-    React.useState("");
+  const [, setLinkDialogDescription] = React.useState("");
   const [linkTargetGroupKeys, setLinkTargetGroupKeys] = React.useState<string[]>(
     [],
   );
@@ -2334,9 +2331,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
             <DialogTitle>
               {selectedSectionDetail?.label ?? "Section Details"}
             </DialogTitle>
-            <DialogDescription>
-              View the selected section group details.
-            </DialogDescription>
           </DialogHeader>
 
           {selectedSectionDetail ? (
@@ -2529,10 +2523,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Academic Term Coverage</DialogTitle>
-            <DialogDescription>
-              Reviews the current visible section groups and highlights any
-              missing academic-term coverage based on their stored section-term links.
-            </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 text-sm">
@@ -2647,7 +2637,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{subjectViewerTitle}</DialogTitle>
-            <DialogDescription>{subjectViewerDescription}</DialogDescription>
           </DialogHeader>
 
           <ScrollArea className="max-h-[60svh] rounded-md border">
@@ -2713,7 +2702,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
         <DialogContent className="flex max-h-[92svh] flex-col overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>{linkDialogTitle}</DialogTitle>
-            <DialogDescription>{linkDialogDescription}</DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
@@ -2748,10 +2736,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
               <div className="overflow-hidden rounded-xl border">
                 <div className="border-b px-3 py-3">
                   <div className="text-sm font-medium">Academic Terms</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Select one or more academic terms. This filters the candidate subjects
-                    and keeps subject-to-section links aligned with the selected term scope.
-                  </div>
                 </div>
 
                 <div className="flex flex-col gap-3 border-b bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2807,9 +2791,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
                             <div className="min-w-0 flex-1">
                               <div className="wrap-break-word font-medium">{term.label}</div>
-                              <div className="text-xs text-muted-foreground">
-                                Semester: {normalizeSectionCoverageLabel(term.raw?.semester) || "—"}
-                              </div>
                             </div>
                           </label>
                         );
@@ -2822,10 +2803,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
               <div className="overflow-hidden rounded-xl border">
                 <div className="border-b px-3 py-3">
                   <div className="text-sm font-medium">Candidate Subjects</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Subjects are filtered using the selected section groups&apos; college,
-                    program, and year-level scope.
-                  </div>
                 </div>
 
                 <div className="flex flex-col gap-3 border-b bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2865,8 +2842,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
                         const subjectId = String(subject.$id);
                         const checked = linkSelectedSubjectIds.includes(subjectId);
                         const currentTermId = resolveSubjectTermId(subject);
-                        const currentSectionIds = resolveSubjectSectionIds(subject);
-                        const currentLinkedSectionIds = resolveSubjectLinkedSectionIds(subject);
 
                         return (
                           <label
@@ -2924,14 +2899,6 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                 </span>
                               </div>
 
-                              <div className="grid gap-1 text-xs text-muted-foreground">
-                                <div className="break-all">
-                                  Current sectionIds: {currentSectionIds.join(", ") || "—"}
-                                </div>
-                                <div className="break-all">
-                                  linkedSectionIds: {currentLinkedSectionIds.join(", ") || "—"}
-                                </div>
-                              </div>
                             </div>
                           </label>
                         );

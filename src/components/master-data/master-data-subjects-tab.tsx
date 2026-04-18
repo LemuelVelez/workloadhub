@@ -23,7 +23,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -1717,9 +1716,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                 ? `${selectedSubjectDetail.code} — ${selectedSubjectDetail.title}`
                                 : "Subject Details"}
                         </DialogTitle>
-                        <DialogDescription>
-                            View the selected subject record.
-                        </DialogDescription>
                     </DialogHeader>
 
                     {selectedSubjectDetail ? (
@@ -1829,9 +1825,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                 <DialogContent className="sm:max-w-3xl">
                     <DialogHeader>
                         <DialogTitle>Edit Visible Subject Scope</DialogTitle>
-                        <DialogDescription>
-                            Apply one unified scope using college, academic term, programs, and database-driven year levels to the selected visible subjects.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
@@ -1883,7 +1876,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             <div className="grid gap-2">
                                 <div className="flex items-center justify-between gap-2">
                                     <label className="text-sm font-medium">Programs</label>
-                                    <span className="text-xs text-muted-foreground">{bulkCollegeProgramIds.length} selected</span>
                                 </div>
                                 <ScrollArea className="h-44 rounded-md border">
                                     <div className="space-y-2 p-3">
@@ -1930,7 +1922,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                             <div className="grid gap-2">
                                 <div className="flex items-center justify-between gap-2">
                                     <label className="text-sm font-medium">Year Levels</label>
-                                    <span className="text-xs text-muted-foreground">{bulkCollegeYearLevels.length} selected</span>
                                 </div>
                                 <ScrollArea className="h-44 rounded-md border">
                                     <div className="space-y-2 p-3">
@@ -2124,13 +2115,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                     ? "Link Subject to Semester"
                                     : "Edit Subject Semester Links"}
                         </DialogTitle>
-                        <DialogDescription>
-                            {bulkTermActionMode === "transfer"
-                                ? "Create reusable copies of the selected subjects in another academic term. The source subjects stay in their current term."
-                                : isSingleSubjectLinkMode
-                                    ? "Permanently connect this subject to a semester record for proper semester scope."
-                                    : "Bulk edit the selected subjects and link or relink them to the correct semester record."}
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-2">
@@ -2158,13 +2142,6 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                                     )}
                                 </SelectContent>
                             </Select>
-                            <div className="text-xs text-muted-foreground">
-                                {bulkTermActionMode === "transfer"
-                                    ? "Choose the target term. Transfer creates new subject records and keeps the source records untouched."
-                                    : normalizedBulkLinkSemesterHint
-                                        ? `Filtered for ${normalizedBulkLinkSemesterHint} subjects.`
-                                        : "Choose the target term for the selected subjects."}
-                            </div>
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">

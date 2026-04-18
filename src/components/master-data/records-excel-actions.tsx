@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -746,9 +745,6 @@ export function RecordsExcelActions({
                             Excel Preview — List of Records
                             {singleFacultyLabel ? ` — ${singleFacultyLabel}` : ""}
                         </DialogTitle>
-                        <DialogDescription>
-                            Preview the branded Excel layout before downloading. The downloaded file includes the JRMSU and CCS images.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="rounded-md border bg-muted/20 px-4 py-5">

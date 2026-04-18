@@ -20,7 +20,7 @@ import {
     AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
@@ -198,7 +198,7 @@ export function MasterDataTabs({ vm }: Props) {
                 {vm.stats.map((s) => (
                     <Card key={s.label}>
                         <CardHeader className="pb-2">
-                            <CardDescription>{s.label}</CardDescription>
+                            <div className="text-sm font-medium">{s.label}</div>
                         </CardHeader>
                         <CardContent className="flex items-baseline justify-between">
                             <div className="text-2xl font-semibold">{s.value}</div>

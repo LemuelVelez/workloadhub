@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -795,9 +794,6 @@ export function RecordsPdfActions({
                             PDF Preview — List of Records
                             {singleFacultyLabel ? ` — ${singleFacultyLabel}` : ""}
                         </DialogTitle>
-                        <DialogDescription>
-                            Preview the branded PDF layout before downloading. Conflict rows are highlighted.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="flex flex-wrap items-center gap-2">

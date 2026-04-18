@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button"
 import {
     Card,
     CardContent,
-    CardDescription,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
@@ -85,9 +84,9 @@ export function FacultyMobileCards({ vm }: Props) {
                                     <CardTitle className="wrap-break-word text-sm leading-5">
                                         {facultyName}
                                     </CardTitle>
-                                    <CardDescription className="wrap-break-word text-xs leading-5">
+                                    <div className="wrap-break-word text-xs leading-5 text-muted-foreground">
                                         {collegeName}
-                                    </CardDescription>
+                                    </div>
                                 </div>
 
                                 <Badge

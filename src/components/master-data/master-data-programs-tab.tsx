@@ -18,7 +18,6 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -37,12 +36,7 @@ export function MasterDataProgramsTab({ vm }: Props) {
     return (
         <TabsContent value="programs" className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-                <div>
-                    <div className="font-medium">Programs / Courses</div>
-                    <div className="text-sm text-muted-foreground">
-                        Manage programs handled by colleges.
-                    </div>
-                </div>
+                <div className="font-medium">Programs / Courses</div>
 
                 <Button
                     size="sm"
@@ -159,9 +153,6 @@ export function MasterDataProgramsTab({ vm }: Props) {
                                 <DialogTitle>
                                     {selectedProgramDetail?.name || selectedProgramDetail?.code || "Program Details"}
                                 </DialogTitle>
-                                <DialogDescription>
-                                    View the selected program record.
-                                </DialogDescription>
                             </DialogHeader>
 
                             {selectedProgramDetail ? (

@@ -348,9 +348,6 @@ export function MasterDataDialogs({ vm }: Props) {
                             <div className="grid gap-2">
                                 <div className="flex items-center justify-between gap-2">
                                     <Label>Programs</Label>
-                                    <span className="text-xs text-muted-foreground">
-                                        {vm.subjectProgramIds.length} selected
-                                    </span>
                                 </div>
                                 <ScrollArea className="h-44 rounded-md border">
                                     <div className="space-y-2 p-3">
@@ -398,9 +395,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                 <div className="grid gap-2">
                                     <div className="flex items-center justify-between gap-2">
                                         <Label>Year Levels</Label>
-                                        <span className="text-xs text-muted-foreground">
-                                            {vm.subjectYearLevels.length} selected
-                                        </span>
                                     </div>
                                     <div className="grid grid-cols-3 gap-2 rounded-md border p-3">
                                         {YEAR_LEVEL_OPTIONS.map((year) => {
@@ -556,7 +550,6 @@ export function MasterDataDialogs({ vm }: Props) {
 
                             {vm.selectedFacultyUser ? (
                                 <div className="rounded-md border p-3 text-xs">
-                                    <div className="text-muted-foreground">Selected Faculty</div>
                                     <div className="mt-1 font-medium">{vm.facultyDisplay(vm.selectedFacultyUser)}</div>
                                     <div className="mt-1 text-muted-foreground">
                                         userId:{" "}
@@ -751,9 +744,6 @@ export function MasterDataDialogs({ vm }: Props) {
                         <div className="grid gap-2">
                             <div className="flex items-center justify-between gap-2">
                                 <Label>Linked Subjects</Label>
-                                <span className="text-xs text-muted-foreground">
-                                    {vm.sectionSubjectIds.length} selected
-                                </span>
                             </div>
                             <ScrollArea className="h-44 rounded-md border">
                                 <div className="space-y-2 p-3">
@@ -774,11 +764,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                                     const subjectTermLabel = subjectTermId
                                                         ? vm.termLabel(vm.terms, subjectTermId)
                                                         : String(subject?.semester ?? "").trim() || "No Academic Term Linked"
-                                                    const isOutsideSelectedTerm = Boolean(
-                                                        normalizedSectionTermFilterId &&
-                                                        subjectTermId &&
-                                                        subjectTermId !== normalizedSectionTermFilterId
-                                                    )
 
                                                     return (
                                                         <label
@@ -809,11 +794,6 @@ export function MasterDataDialogs({ vm }: Props) {
                                                                 <div className="text-xs text-muted-foreground">
                                                                     Academic Term: {subjectTermLabel}
                                                                 </div>
-                                                                {isOutsideSelectedTerm ? (
-                                                                    <div className="text-xs text-amber-600">
-                                                                        Currently linked outside the selected term filter.
-                                                                    </div>
-                                                                ) : null}
                                                             </div>
                                                         </label>
                                                     )
