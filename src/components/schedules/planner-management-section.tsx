@@ -33,7 +33,6 @@ import {
     AlertDialogAction,
     AlertDialogCancel,
     AlertDialogContent,
-    AlertDialogDescription,
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
@@ -42,12 +41,11 @@ import {
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -235,7 +233,6 @@ export function SubjectMatchingFiltersCard({
     onDeleteYearLevel,
     subjectAcademicTermOptions,
     filteredSubjectCount,
-    activeSubjectFilterBadges,
     onClearSubjectFilters,
     onApplyScheduleContextSubjectFilters,
     className,
@@ -306,9 +303,6 @@ export function SubjectMatchingFiltersCard({
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div className="space-y-1">
                             <CardTitle>Subject Matching Filters</CardTitle>
-                            <CardDescription>
-                                Use the same scope fields from Add Subject so the schedule entry dialog only offers the subjects that match the selected college, programs, sections, year levels, and linked semester record.
-                            </CardDescription>
                         </div>
 
                         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
@@ -359,11 +353,6 @@ export function SubjectMatchingFiltersCard({
                     ))}
                 </SelectContent>
             </Select>
-            {!hasSelectedCollege ? (
-                <div className="text-sm text-muted-foreground">
-                    Select a college first to load semester options.
-                </div>
-            ) : null}
         </div>
 
         <div className="grid gap-2">
@@ -435,9 +424,6 @@ export function SubjectMatchingFiltersCard({
                     <DialogContent>
                         <DialogHeader>
                             <DialogTitle>Add Year Level</DialogTitle>
-                            <DialogDescription>
-                                Create a new sections entry for a missing year level so it becomes available in the Year Levels filter.
-                            </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-2">
                             <Label htmlFor={`${idPrefix}-add-year-level`}>Year Level</Label>
@@ -592,12 +578,6 @@ export function SubjectMatchingFiltersCard({
         </div>
     </div>
 
-    <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-        Subject scope preview:{" "}
-        <span className="font-medium text-foreground">
-            {activeSubjectFilterBadges.length > 0 ? activeSubjectFilterBadges.join(" • ") : "No additional subject filters are applied."}
-        </span>
-    </div>
 </CardContent>
             </Card>
 
@@ -605,9 +585,6 @@ export function SubjectMatchingFiltersCard({
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete Section</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will delete the selected section record for {deletingSection?.label || "this section"}.
-                        </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={sectionMutating}>Cancel</AlertDialogCancel>
@@ -622,9 +599,6 @@ export function SubjectMatchingFiltersCard({
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Edit Year Level</DialogTitle>
-                        <DialogDescription>
-                            Update the selected year level across the matching sections entries.
-                        </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-2">
                         <Label htmlFor={`${idPrefix}-edit-year-level`}>Year Level</Label>
@@ -650,9 +624,6 @@ export function SubjectMatchingFiltersCard({
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete Year Level</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will delete all sections records currently assigned to {deletingYearLevel || "this year level"}.
-                        </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -714,7 +685,6 @@ type LaboratoryAccordionGroup = {
 
 type PdfPreviewState = {
     title: string
-    description: string
     rows: PlannerDisplayRow[]
     fileNameBase: string
     scopeLabel?: string
@@ -1401,16 +1371,12 @@ function SchedulePdfDocument({
 type ExtraSmallPlannerCardShellProps = {
     value: string
     title: string
-    description?: string
-    dialogTitle?: string
-    dialogDescription?: string
     children: React.ReactNode
 }
 
 function ExtraSmallPlannerCardShell({
     value,
     title,
-    description,
     children,
 }: ExtraSmallPlannerCardShellProps) {
     return (
@@ -1422,7 +1388,6 @@ function ExtraSmallPlannerCardShell({
                     </AccordionTrigger>
                     <AccordionContent className="px-4 pb-4">
                         <div className="space-y-3">
-                            {description ? <p className="text-sm text-muted-foreground wrap-anywhere">{description}</p> : null}
                             <Dialog>
                                 <DialogTrigger asChild>
                                     <Button
@@ -2278,9 +2243,6 @@ export function PlannerManagementSection({
             <Card className="rounded-2xl">
                 <CardHeader className="pb-4">
                     <CardTitle>Schedule Planner & Conflict Manager</CardTitle>
-                    <CardDescription>
-                        Assign one subject per entry, faculty, and room. Subject matching now uses the same College, Programs, Sections, Year Levels, and Semester scope fields used by Add Subject.
-                    </CardDescription>
                 </CardHeader>
 
                 <CardContent className="space-y-4">
@@ -2316,7 +2278,6 @@ export function PlannerManagementSection({
                                 onClick={() =>
                                     openPdfPreview({
                                         title: "Schedule PDF Preview",
-                                        description: "Preview the generated PDF before export.",
                                         rows: displayedPlannerRows,
                                         fileNameBase: `schedule-report-${sanitizeFileNamePart(scheduleScopeKey || scheduleScopeLabel || selectedTermLabel || "active-scope")}`,
                                     })
@@ -2353,7 +2314,6 @@ export function PlannerManagementSection({
                             <Card className="rounded-2xl">
                                 <CardHeader className="pb-3">
                                     <CardTitle className="text-sm font-medium">Total Entries</CardTitle>
-                                    <CardDescription>All class meetings</CardDescription>
                                 </CardHeader>
                                 <CardContent className="text-2xl font-semibold">{plannerStats.total}</CardContent>
                             </Card>
@@ -2361,7 +2321,6 @@ export function PlannerManagementSection({
                             <Card className="rounded-2xl">
                                 <CardHeader className="pb-3">
                                     <CardTitle className="text-sm font-medium">Conflicts</CardTitle>
-                                    <CardDescription>Room / Faculty / Section</CardDescription>
                                 </CardHeader>
                                 <CardContent className="text-2xl font-semibold">{plannerStats.conflicts}</CardContent>
                             </Card>
@@ -2369,7 +2328,6 @@ export function PlannerManagementSection({
                             <Card className="rounded-2xl">
                                 <CardHeader className="pb-3">
                                     <CardTitle className="text-sm font-medium">Laboratory Entries</CardTitle>
-                                    <CardDescription>LAB meeting or LAB room</CardDescription>
                                 </CardHeader>
                                 <CardContent className="text-2xl font-semibold">{plannerStats.labs}</CardContent>
                             </Card>
@@ -2409,9 +2367,6 @@ export function PlannerManagementSection({
                                     <div className="flex items-center gap-2 text-sm font-semibold">
                                         <SlidersHorizontal className="size-4" />
                                         Table filters & sorting
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                        Search, filter, and sort visible planner rows before reviewing or exporting.
                                     </div>
                                 </div>
 
@@ -2640,9 +2595,6 @@ export function PlannerManagementSection({
                                                     <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
                                                         <DialogHeader>
                                                             <DialogTitle className="wrap-anywhere">{courseGroup.label}</DialogTitle>
-                                                            <DialogDescription className="wrap-anywhere">
-                                                                {courseGroup.subtitle}
-                                                            </DialogDescription>
                                                         </DialogHeader>
 
                                                         <div className="flex flex-wrap gap-2">
@@ -2665,7 +2617,6 @@ export function PlannerManagementSection({
                                                                 onClick={() =>
                                                                     openPdfPreview({
                                                                         title: `${courseGroup.label} PDF Preview`,
-                                                                        description: "Preview the generated PDF for this course group before export.",
                                                                         rows: courseGroup.rows,
                                                                         fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
                                                                         scopeLabel: courseGroup.label,
@@ -2810,7 +2761,6 @@ export function PlannerManagementSection({
                         <FlaskConical className="size-5" />
                         Laboratory Assignments
                     </CardTitle>
-                    <CardDescription>View who is assigned in laboratories and their scheduled time.</CardDescription>
                 </CardHeader>
 
                 <CardContent>
@@ -2846,9 +2796,6 @@ export function PlannerManagementSection({
                                                     <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
                                                         <DialogHeader>
                                                             <DialogTitle className="wrap-anywhere">{group.label}</DialogTitle>
-                                                            <DialogDescription className="wrap-anywhere">
-                                                                Review laboratory assignments for this room on extra small screens inside a clean dialog view.
-                                                            </DialogDescription>
                                                         </DialogHeader>
 
                                                         <div className="flex flex-wrap gap-2">
@@ -2880,9 +2827,6 @@ export function PlannerManagementSection({
                             </div>
 
                             <div className="hidden overflow-hidden rounded-xl border sm:block">
-                                <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                                    Drag left or right anywhere in the table to scroll horizontally.
-                                </div>
 
                                 <Table className="min-w-245 w-full table-fixed">
                                     <TableHeader>
@@ -2956,7 +2900,6 @@ export function PlannerManagementSection({
                 <ExtraSmallPlannerCardShell
                     value="schedule-planner-conflict-manager"
                     title="Schedule Planner & Conflict Manager"
-                    description="Assign one subject per entry, faculty, and room. Subject matching now uses the same College, Programs, Sections, Year Levels, and Semester scope fields used by Add Subject."
                 >
                     {plannerCard}
                 </ExtraSmallPlannerCardShell>
@@ -2964,7 +2907,6 @@ export function PlannerManagementSection({
                 <ExtraSmallPlannerCardShell
                     value="laboratory-assignments"
                     title="Laboratory Assignments"
-                    description="View who is assigned in laboratories and their scheduled time."
                 >
                     {laboratoryAssignmentsCard}
                 </ExtraSmallPlannerCardShell>
@@ -2984,9 +2926,6 @@ export function PlannerManagementSection({
                 <DialogContent className="z-120 min-w-0 h-[95svh] overflow-auto sm:max-w-6xl">
                     <DialogHeader>
                         <DialogTitle>{pdfPreviewState?.title || "Schedule PDF Preview"}</DialogTitle>
-                        <DialogDescription>
-                            {pdfPreviewState?.description || "Preview the branded PDF layout before downloading."}
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
@@ -3023,12 +2962,7 @@ export function PlannerManagementSection({
                         )}
                     </div>
 
-                    <DialogFooter className="shrink-0 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="text-xs text-muted-foreground">
-                            PDF export now includes the JRMSU and CCS logos, official institutional header,
-                            branded title area, footer rules, and conflict highlighting.
-                        </div>
-
+                    <DialogFooter className="shrink-0 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-end">
                         <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={closePdfPreview}>
                                 Close
@@ -3069,9 +3003,6 @@ export function PlannerManagementSection({
                         <DialogTitle className="wrap-anywhere pr-6 text-left">
                             {editingEntry ? "Edit Schedule Entry" : "Create Schedule Entry"}
                         </DialogTitle>
-                        <DialogDescription className="wrap-anywhere text-left">
-                            Review the selected scope, then assign the subject, instructor, room, meeting day, time, and type.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className={ENTRY_DIALOG_BODY_CLASS}>
@@ -3095,17 +3026,6 @@ export function PlannerManagementSection({
                                         {editingEntry ? "Resolved Section Reference" : "Selected Section Scope"}
                                     </div>
                                     <div className="mt-2 font-medium wrap-anywhere">{selectedSectionsSummaryLabel}</div>
-                                    <div className="mt-2 text-xs text-muted-foreground wrap-anywhere">
-                                        {filteredSections.length === 0
-                                            ? "No matching section was found for the current subject filters."
-                                            : editingEntry
-                                                ? "Editing updates the currently selected schedule entry only."
-                                                : selectedSectionsForSave.length > 1
-                                                    ? `This will create one schedule entry for each selected section (${selectedSectionsForSave.length}) and automatically skip existing duplicates.`
-                                                    : selectedSectionsForSave.length === 1
-                                                        ? "Create Schedule Entry now uses the selected section from Subject Matching Filters."
-                                                        : "Select at least one section to continue."}
-                                    </div>
                                     {selectedSectionsPreviewBadges.length > 0 ? (
                                         <div className="mt-3 flex min-w-0 flex-wrap gap-2">
                                             {selectedSectionsPreviewBadges.slice(0, 8).map((section) => (
@@ -3155,11 +3075,6 @@ export function PlannerManagementSection({
                             </div>
 
                             <div className="min-w-0 space-y-3">
-                                <div className={ENTRY_DIALOG_CARD_CLASS}>
-                                    <div className="text-xs text-muted-foreground wrap-anywhere">
-                                        Sections and subjects shown here are automatically scoped by the linked college, program, year level, semester, and linked semester records.
-                                    </div>
-                                </div>
 
                                 <div className="min-w-0 w-full space-y-1">
                                     <Label>Subject</Label>
@@ -3411,9 +3326,6 @@ export function PlannerManagementSection({
                         ) : (
                             <Alert>
                                 <AlertTitle>No conflict detected</AlertTitle>
-                                <AlertDescription className="wrap-anywhere">
-                                    Current entry does not overlap with existing room, faculty, or section schedule.
-                                </AlertDescription>
                             </Alert>
                         )}
                     </div>
@@ -3431,9 +3343,6 @@ export function PlannerManagementSection({
                                     <AlertDialogContent className="z-210">
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Delete this schedule entry?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                This will permanently remove the selected schedule entry from the planner. This action cannot be undone.
-                                            </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel disabled={entrySaving}>Cancel</AlertDialogCancel>

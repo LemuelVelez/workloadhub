@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -1975,11 +1974,6 @@ export function RoomSchedulePrintSheet({
                         <DialogTitle>
                             PDF Preview — {roomLabel} ({selectedScheduleLabel})
                         </DialogTitle>
-                        <DialogDescription>
-                            Room monitoring sheet with adaptive text fitting, dynamic time-slot generation,
-                            switchable paper size, and auto-scaled table height so the signatory stays on
-                            the same page.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -2041,12 +2035,7 @@ export function RoomSchedulePrintSheet({
                         )}
                     </div>
 
-                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="text-xs text-muted-foreground">
-                            The table now automatically scales to fit the current page height so the
-                            signatory block remains on the same page.
-                        </div>
-
+                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
                         <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
                                 Close
