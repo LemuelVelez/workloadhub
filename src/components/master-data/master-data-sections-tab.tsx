@@ -4,6 +4,8 @@
 
 import * as React from "react";
 import {
+  Download,
+  Eye,
   Link2,
   Loader2,
   Pencil,
@@ -84,6 +86,169 @@ type MissingAcademicTermGroup = {
   hasLegacySectionScope: boolean;
   hasAllTermSubjectCoverage: boolean;
 };
+
+type SectionPdfPreviewTarget = {
+  mode: "overall" | "individual";
+  title: string;
+  groups: SectionGroup[];
+};
+
+const LEFT_LOGO_PATH = "/logo.png";
+const RIGHT_LOGO_PATH = "/CCS.jpg";
+
+const HEADER_REPUBLIC = "Republic of the Philippines";
+const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY";
+const HEADER_SUBTITLE = "The Premier University in Zamboanga del Norte";
+const HEADER_COLLEGE = "COLLEGE OF COMPUTING STUDIES";
+const HEADER_DOCUMENT = "LIST OF SECTIONS";
+
+const assetUrlCache = new Map<string, Promise<string>>();
+
+let pdfRendererPromise: Promise<any> | null = null;
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function formatTimestamp(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = pad2(d.getMonth() + 1);
+  const dd = pad2(d.getDate());
+  const hh = pad2(d.getHours());
+  const mi = pad2(d.getMinutes());
+  return `${yyyy}-${mm}-${dd}_${hh}${mi}`;
+}
+
+function formatDateTimeAmPm(d: Date) {
+  try {
+    return d.toLocaleString(undefined, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    const yyyy = d.getFullYear();
+    const mm = pad2(d.getMonth() + 1);
+    const dd = pad2(d.getDate());
+    const hh = d.getHours();
+    const mi = d.getMinutes();
+    const suffix = hh >= 12 ? "PM" : "AM";
+    const h12 = hh % 12 === 0 ? 12 : hh % 12;
+    return `${yyyy}-${mm}-${dd} ${h12}:${pad2(mi)} ${suffix}`;
+  }
+}
+
+function sanitizeFilenamePart(value: unknown) {
+  const sanitized = String(value ?? "")
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+
+  return sanitized || "sections";
+}
+
+async function loadPdfRenderer() {
+  if (!pdfRendererPromise) {
+    pdfRendererPromise = import("@react-pdf/renderer").then(
+      (module: any) => module?.default ?? module,
+    );
+  }
+
+  return pdfRendererPromise;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function blobToDataUrl(blob: Blob) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Failed to read file data."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function isSvgAsset(path: string, blob: Blob) {
+  return /\.svg(?:$|\?)/i.test(path) || /image\/svg\+xml/i.test(blob.type);
+}
+
+async function loadImageElement(src: string) {
+  return await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to decode image asset."));
+    image.src = src;
+  });
+}
+
+async function rasterizeSvgBlobToPngDataUrl(blob: Blob) {
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    const image = await loadImageElement(objectUrl);
+    const width = Math.max(image.naturalWidth || image.width || 1, 1);
+    const height = Math.max(image.naturalHeight || image.height || 1, 1);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to prepare canvas for SVG conversion.");
+    }
+
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    return canvas.toDataURL("image/png");
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function assetBlobToPdfDataUrl(path: string, blob: Blob) {
+  if (isSvgAsset(path, blob)) {
+    return await rasterizeSvgBlobToPngDataUrl(blob);
+  }
+
+  return await blobToDataUrl(blob);
+}
+
+function getAssetAsDataUrl(path: string) {
+  if (!assetUrlCache.has(path)) {
+    const promise = (async () => {
+      try {
+        const response = await fetch(path, { cache: "force-cache" });
+        if (!response.ok) {
+          throw new Error(`Failed to load asset: ${path}`);
+        }
+
+        const blob = await response.blob();
+        return await assetBlobToPdfDataUrl(path, blob);
+      } catch (error) {
+        assetUrlCache.delete(path);
+        throw error;
+      }
+    })();
+
+    assetUrlCache.set(path, promise);
+  }
+
+  return assetUrlCache.get(path)!;
+}
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(
@@ -734,6 +899,14 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
   const [selectedSectionDetail, setSelectedSectionDetail] =
     React.useState<SectionGroup | null>(null);
+
+  const [sectionPdfPreviewTarget, setSectionPdfPreviewTarget] =
+    React.useState<SectionPdfPreviewTarget | null>(null);
+  const [sectionPdfBusy, setSectionPdfBusy] = React.useState(false);
+  const [sectionPdfPreviewBusy, setSectionPdfPreviewBusy] =
+    React.useState(false);
+  const [sectionPdfUrl, setSectionPdfUrl] = React.useState<string | null>(null);
+  const sectionPdfUrlRef = React.useRef<string | null>(null);
 
   const [subjectViewerOpen, setSubjectViewerOpen] = React.useState(false);
   const [subjectViewerTitle, setSubjectViewerTitle] =
@@ -1694,6 +1867,471 @@ export function MasterDataSectionsTab({ vm }: Props) {
     [selectedSectionDetail],
   );
 
+  const selectedSectionPreviewRows = React.useMemo(
+    () =>
+      sectionPdfPreviewTarget
+        ? sectionPdfPreviewTarget.groups.flatMap((group) =>
+            group.sections.map((section) => ({
+              id: String(section?.$id ?? "").trim() || `${group.key}-${group.label}`,
+              groupLabel: group.label,
+              sectionLabel: buildSectionDisplayLabel(vm, section),
+              scopeSummary: group.scopeSummary,
+              academicTermCoverage: resolveSectionReferenceTermLabel(vm, section),
+              linkedSubjects: buildSectionSubjectSummary(vm, section),
+              studentCount:
+                section?.studentCount != null &&
+                String(section.studentCount).trim() !== ""
+                  ? String(section.studentCount)
+                  : "—",
+              status: section?.isActive ? "Active" : "Inactive",
+            })),
+          )
+        : [],
+    [sectionPdfPreviewTarget, vm],
+  );
+
+  const selectedSectionPreviewTermLabels = React.useMemo(
+    () =>
+      sectionPdfPreviewTarget
+        ? uniqueStrings(
+            sectionPdfPreviewTarget.groups.flatMap((group) =>
+              group.sections.map((section) =>
+                resolveSectionReferenceTermLabel(vm, section),
+              ),
+            ),
+          )
+        : [],
+    [sectionPdfPreviewTarget, vm],
+  );
+
+  const resetSectionPdfPreviewUrl = React.useCallback(() => {
+    if (sectionPdfUrlRef.current) {
+      URL.revokeObjectURL(sectionPdfUrlRef.current);
+      sectionPdfUrlRef.current = null;
+    }
+
+    setSectionPdfUrl(null);
+    setSectionPdfPreviewBusy(false);
+  }, []);
+
+  const openOverallSectionPreview = React.useCallback(() => {
+    if (visibleGroups.length === 0) {
+      toast.error("No visible section groups found.");
+      return;
+    }
+
+    resetSectionPdfPreviewUrl();
+    setSectionPdfPreviewTarget({
+      mode: "overall",
+      title: "Overall Section Preview",
+      groups: visibleGroups,
+    });
+  }, [resetSectionPdfPreviewUrl, visibleGroups]);
+
+  const openIndividualSectionPreview = React.useCallback(
+    (group: SectionGroup) => {
+      resetSectionPdfPreviewUrl();
+      setSectionPdfPreviewTarget({
+        mode: "individual",
+        title: group.label,
+        groups: [group],
+      });
+    },
+    [resetSectionPdfPreviewUrl],
+  );
+
+  const buildSectionPdfBlob = React.useCallback(
+    async (target: SectionPdfPreviewTarget) => {
+      const pdfRows = target.groups.flatMap((group) =>
+        group.sections.map((section) => ({
+          id: String(section?.$id ?? "").trim() || `${group.key}-${group.label}`,
+          groupLabel: group.label,
+          sectionLabel: buildSectionDisplayLabel(vm, section),
+          scopeSummary: group.scopeSummary,
+          academicTermCoverage: resolveSectionReferenceTermLabel(vm, section),
+          linkedSubjects: buildSectionSubjectSummary(vm, section),
+          studentCount:
+            section?.studentCount != null &&
+            String(section.studentCount).trim() !== ""
+              ? String(section.studentCount)
+              : "—",
+          status: section?.isActive ? "Active" : "Inactive",
+        })),
+      );
+
+      const isIndividual = target.mode === "individual";
+      const generatedAt = new Date();
+
+      const filename = isIndividual
+        ? `list-of-sections_${sanitizeFilenamePart(target.title)}_${formatTimestamp(generatedAt)}.pdf`
+        : `list-of-sections_overall_${formatTimestamp(generatedAt)}.pdf`;
+
+      const subtitle = isIndividual
+        ? `Section: ${target.title}`
+        : `Overall Preview: ${target.groups.length} section group${target.groups.length === 1 ? "" : "s"}`;
+
+      const generatedLabel = `Generated at: ${formatDateTimeAmPm(generatedAt)}`;
+
+      const m: any = await loadPdfRenderer();
+      const Document = m.Document as any;
+      const Page = m.Page as any;
+      const Text = m.Text as any;
+      const View = m.View as any;
+      const Image = m.Image as any;
+      const StyleSheet = m.StyleSheet as any;
+      const pdf = m.pdf as any;
+
+      const [leftLogoSrc, rightLogoSrc] = await Promise.all([
+        getAssetAsDataUrl(LEFT_LOGO_PATH),
+        getAssetAsDataUrl(RIGHT_LOGO_PATH),
+      ]);
+
+      const cols = isIndividual
+        ? ([
+            { key: "academicTermCoverage", label: "Academic Term Coverage", w: "18%" },
+            { key: "linkedSubjects", label: "Linked Subjects", w: "42%" },
+            { key: "studentCount", label: "Students", w: "10%" },
+            { key: "status", label: "Status", w: "10%" },
+            { key: "scopeSummary", label: "Scope", w: "20%" },
+          ] as const)
+        : ([
+            { key: "sectionLabel", label: "Section", w: "18%" },
+            { key: "scopeSummary", label: "Scope", w: "17%" },
+            { key: "academicTermCoverage", label: "Academic Term Coverage", w: "16%" },
+            { key: "linkedSubjects", label: "Linked Subjects", w: "31%" },
+            { key: "studentCount", label: "Students", w: "8%" },
+            { key: "status", label: "Status", w: "10%" },
+          ] as const);
+
+      const styles = StyleSheet.create({
+        page: {
+          paddingTop: 18,
+          paddingRight: 22,
+          paddingBottom: 36,
+          paddingLeft: 22,
+          fontFamily: "Helvetica",
+          color: "#1F2937",
+          fontSize: 8.5,
+        },
+        headerWrap: {
+          width: "100%",
+        },
+        headerRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+        },
+        logoWrap: {
+          width: 72,
+          height: 60,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        logo: {
+          width: 54,
+          height: 54,
+          objectFit: "contain",
+        },
+        centerHeader: {
+          flexGrow: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 6,
+        },
+        republic: {
+          fontSize: 7,
+          color: "#4B5563",
+          textAlign: "center",
+          marginBottom: 1,
+        },
+        school: {
+          fontSize: 10.5,
+          fontWeight: "bold",
+          textAlign: "center",
+          marginBottom: 1,
+        },
+        campusLine: {
+          fontSize: 7.2,
+          color: "#4B5563",
+          textAlign: "center",
+          marginBottom: 4,
+        },
+        college: {
+          fontSize: 9.25,
+          fontWeight: "bold",
+          textAlign: "center",
+          marginBottom: 1,
+        },
+        documentTitle: {
+          fontSize: 15.5,
+          fontStyle: "italic",
+          textAlign: "center",
+          color: "#4B5563",
+          marginTop: 8,
+          marginBottom: 2,
+        },
+        metaCenter: {
+          fontSize: 8.1,
+          textAlign: "center",
+          color: "#475569",
+          marginBottom: 1,
+        },
+        table: {
+          marginTop: 10,
+          borderWidth: 1,
+          borderColor: "#CBD5E1",
+        },
+        headerRowTable: {
+          flexDirection: "row",
+          backgroundColor: "#0F172A",
+        },
+        headerCell: {
+          padding: 6,
+          color: "#FFFFFF",
+          fontWeight: "bold",
+          borderRightWidth: 1,
+          borderRightColor: "#CBD5E1",
+          textAlign: "center",
+        },
+        row: {
+          flexDirection: "row",
+        },
+        cell: {
+          padding: 6,
+          borderTopWidth: 1,
+          borderTopColor: "#CBD5E1",
+          borderRightWidth: 1,
+          borderRightColor: "#CBD5E1",
+          color: "#0F172A",
+        },
+        zebra: {
+          backgroundColor: "#F8FAFC",
+        },
+        footerText: {
+          position: "absolute",
+          bottom: 12,
+          left: 22,
+          right: 22,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          fontSize: 8,
+          color: "#64748B",
+        },
+        footerRuleWrap: {
+          position: "absolute",
+          bottom: 24,
+          left: 22,
+          right: 22,
+        },
+        blueRule: {
+          height: 2,
+          backgroundColor: "#7FA7E8",
+          width: "100%",
+        },
+        goldRule: {
+          height: 1.5,
+          backgroundColor: "#E9C76B",
+          width: "100%",
+          marginTop: 2,
+        },
+      });
+
+      const SectionPdfDocument = () => (
+        <Document title={`${HEADER_DOCUMENT}${isIndividual ? ` - ${target.title}` : ""}`}>
+          <Page size="A4" orientation="landscape" style={styles.page}>
+            <View style={styles.headerWrap}>
+              <View style={styles.headerRow}>
+                <View style={styles.logoWrap}>
+                  <Image src={leftLogoSrc} style={styles.logo} />
+                </View>
+
+                <View style={styles.centerHeader}>
+                  <Text style={styles.republic}>{HEADER_REPUBLIC}</Text>
+                  <Text style={styles.school}>{HEADER_INSTITUTION}</Text>
+                  <Text style={styles.campusLine}>{HEADER_SUBTITLE}</Text>
+                  <Text style={styles.college}>{HEADER_COLLEGE}</Text>
+                </View>
+
+                <View style={styles.logoWrap}>
+                  <Image src={rightLogoSrc} style={styles.logo} />
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.documentTitle}>{HEADER_DOCUMENT}</Text>
+            <Text style={styles.metaCenter}>{subtitle}</Text>
+            <Text style={styles.metaCenter}>{generatedLabel}</Text>
+
+            <View style={styles.table}>
+              <View style={styles.headerRowTable} wrap={false}>
+                {cols.map((column, index) => (
+                  <View
+                    key={column.key}
+                    style={{
+                      width: column.w,
+                      borderRightWidth: index === cols.length - 1 ? 0 : 1,
+                      borderRightColor: "#CBD5E1",
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.headerCell,
+                        {
+                          borderRightWidth: 0,
+                          textAlign:
+                            column.key === "studentCount" || column.key === "status"
+                              ? "center"
+                              : "left",
+                        },
+                      ]}
+                    >
+                      {column.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              {pdfRows.map((row, index) => {
+                const zebra = index % 2 === 0 ? undefined : styles.zebra;
+
+                return (
+                  <View key={row.id || `${row.groupLabel}-${index}`} style={[styles.row, zebra]} wrap={false}>
+                    {cols.map((column, columnIndex) => {
+                      const value = String(row[column.key] ?? "—");
+                      const isLast = columnIndex === cols.length - 1;
+
+                      return (
+                        <View
+                          key={column.key}
+                          style={{
+                            width: column.w,
+                            borderRightWidth: isLast ? 0 : 1,
+                            borderRightColor: "#CBD5E1",
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.cell,
+                              {
+                                borderRightWidth: 0,
+                                textAlign:
+                                  column.key === "studentCount" || column.key === "status"
+                                    ? "center"
+                                    : "left",
+                                fontWeight:
+                                  column.key === "status" ? "bold" : "normal",
+                                color:
+                                  column.key === "status"
+                                    ? value === "Active"
+                                      ? "#065F46"
+                                      : "#7C2D12"
+                                    : "#0F172A",
+                              },
+                            ]}
+                          >
+                            {value}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </View>
+
+            <View style={styles.footerRuleWrap} fixed>
+              <View style={styles.blueRule} />
+              <View style={styles.goldRule} />
+            </View>
+
+            <View style={styles.footerText} fixed>
+              <Text>
+                {pdfRows.length} section record{pdfRows.length === 1 ? "" : "s"}
+              </Text>
+              <Text>WorkloadHub</Text>
+            </View>
+          </Page>
+        </Document>
+      );
+
+      const blob: Blob = await pdf(<SectionPdfDocument />).toBlob();
+      return { blob, filename };
+    },
+    [vm],
+  );
+
+  const ensureSectionPdfPreview = React.useCallback(async () => {
+    if (!sectionPdfPreviewTarget) return;
+    if (sectionPdfUrl) return;
+    if (sectionPdfPreviewBusy) return;
+
+    setSectionPdfPreviewBusy(true);
+
+    try {
+      const { blob } = await buildSectionPdfBlob(sectionPdfPreviewTarget);
+      const url = URL.createObjectURL(blob);
+
+      if (sectionPdfUrlRef.current) {
+        URL.revokeObjectURL(sectionPdfUrlRef.current);
+      }
+
+      sectionPdfUrlRef.current = url;
+      setSectionPdfUrl(url);
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to generate section PDF preview.");
+    } finally {
+      setSectionPdfPreviewBusy(false);
+    }
+  }, [
+    buildSectionPdfBlob,
+    sectionPdfPreviewBusy,
+    sectionPdfPreviewTarget,
+    sectionPdfUrl,
+  ]);
+
+  React.useEffect(() => {
+    if (!sectionPdfPreviewTarget) {
+      resetSectionPdfPreviewUrl();
+      return;
+    }
+
+    void ensureSectionPdfPreview();
+  }, [
+    ensureSectionPdfPreview,
+    resetSectionPdfPreviewUrl,
+    sectionPdfPreviewTarget,
+  ]);
+
+  React.useEffect(
+    () => () => {
+      if (sectionPdfUrlRef.current) {
+        URL.revokeObjectURL(sectionPdfUrlRef.current);
+        sectionPdfUrlRef.current = null;
+      }
+    },
+    [],
+  );
+
+  const onDownloadSectionPdf = React.useCallback(async () => {
+    if (!sectionPdfPreviewTarget) {
+      toast.error("No section preview is available.");
+      return;
+    }
+
+    setSectionPdfBusy(true);
+
+    try {
+      const { blob, filename } = await buildSectionPdfBlob(sectionPdfPreviewTarget);
+      downloadBlob(blob, filename);
+      toast.success("Section PDF exported.");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to export section PDF.");
+    } finally {
+      setSectionPdfBusy(false);
+    }
+  }, [buildSectionPdfBlob, sectionPdfPreviewTarget]);
+
   return (
     <TabsContent value="sections" className="space-y-4">
       <div className="space-y-4">
@@ -1720,6 +2358,22 @@ export function MasterDataSectionsTab({ vm }: Props) {
             >
               <Plus className="mr-2 h-4 w-4" />
               <span className="min-w-0 truncate">Add Section</span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={compactActionButtonClassName}
+              onClick={openOverallSectionPreview}
+              disabled={
+                visibleGroups.length === 0 || sectionPdfBusy || sectionPdfPreviewBusy
+              }
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              <span className="min-w-0 truncate">
+                Preview Overall ({visibleGroups.length})
+              </span>
             </Button>
           </div>
         </div>
@@ -1959,6 +2613,17 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                   variant="outline"
                                   size="sm"
                                   className={compactInlineButtonClassName}
+                                  onClick={() => openIndividualSectionPreview(group)}
+                                  disabled={sectionPdfBusy || sectionPdfPreviewBusy}
+                                >
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  Preview
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className={compactInlineButtonClassName}
                                   onClick={() => setSelectedSectionDetail(group)}
                                 >
                                   Details
@@ -2075,6 +2740,17 @@ export function MasterDataSectionsTab({ vm }: Props) {
                                   variant="outline"
                                   size="sm"
                                   className={compactInlineButtonClassName}
+                                  onClick={() => openIndividualSectionPreview(group)}
+                                  disabled={sectionPdfBusy || sectionPdfPreviewBusy}
+                                >
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  Preview
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className={compactInlineButtonClassName}
                                   onClick={() => setSelectedSectionDetail(group)}
                                 >
                                   Details
@@ -2110,6 +2786,98 @@ export function MasterDataSectionsTab({ vm }: Props) {
           </Accordion>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(sectionPdfPreviewTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSectionPdfPreviewTarget(null);
+          }
+        }}
+      >
+        <DialogContent className="min-w-0 overflow-auto sm:max-w-6xl h-[95svh]">
+          <DialogHeader>
+            <DialogTitle>
+              PDF Preview — {sectionPdfPreviewTarget?.title ?? "Sections"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">
+              {sectionPdfPreviewTarget?.mode === "individual"
+                ? "Individual Section Preview"
+                : "Overall Section Preview"}
+            </Badge>
+            <Badge variant="outline">
+              {sectionPdfPreviewTarget?.groups.length ?? 0} group
+              {(sectionPdfPreviewTarget?.groups.length ?? 0) === 1 ? "" : "s"}
+            </Badge>
+            <Badge variant="outline">
+              {selectedSectionPreviewRows.length} record
+              {selectedSectionPreviewRows.length === 1 ? "" : "s"}
+            </Badge>
+            {selectedSectionPreviewTermLabels.slice(0, 2).map((label) => (
+              <Badge
+                key={label}
+                variant="outline"
+                className={wrappingBadgeClassName}
+              >
+                {label}
+              </Badge>
+            ))}
+            {selectedSectionPreviewTermLabels.length > 2 ? (
+              <Badge variant="outline">
+                +{selectedSectionPreviewTermLabels.length - 2} more term
+                {selectedSectionPreviewTermLabels.length - 2 === 1 ? "" : "s"}
+              </Badge>
+            ) : null}
+          </div>
+
+          <div className="mt-3 max-w-full min-w-0 overflow-hidden rounded-md border">
+            {sectionPdfPreviewBusy ? (
+              <div className="space-y-3 p-4">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating PDF preview...
+                </div>
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-[52vh] w-full" />
+              </div>
+            ) : sectionPdfUrl ? (
+              <iframe
+                title="Section PDF Preview"
+                src={sectionPdfUrl}
+                className="h-[60vh] w-full"
+              />
+            ) : (
+              <div className="p-4 text-sm text-muted-foreground">
+                PDF preview is not ready yet.
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => setSectionPdfPreviewTarget(null)}
+            >
+              Close
+            </Button>
+
+            <Button
+              onClick={() => void onDownloadSectionPdf()}
+              disabled={sectionPdfBusy || sectionPdfPreviewBusy || !sectionPdfPreviewTarget}
+            >
+              {sectionPdfBusy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {sectionPdfBusy ? "Downloading..." : "Download PDF"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={selectedSectionDeleteDialogOpen}
@@ -2488,6 +3256,19 @@ export function MasterDataSectionsTab({ vm }: Props) {
           ) : null}
 
           <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!selectedSectionDetail) return;
+                openIndividualSectionPreview(selectedSectionDetail);
+              }}
+              disabled={
+                !selectedSectionDetail || sectionPdfBusy || sectionPdfPreviewBusy
+              }
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              Preview PDF
+            </Button>
             <Button
               variant="outline"
               onClick={() => {
