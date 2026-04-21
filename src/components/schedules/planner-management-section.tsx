@@ -2546,207 +2546,209 @@ export function PlannerManagementSection({
                         </div>
                     ) : (
                         <div className="overflow-hidden rounded-xl border">
-                            <div className="flex flex-col gap-2 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                                <span>Accordion groups are shown by course/year. Planner rows are grouped by section, descriptive title, and meeting type.</span>
+                            <div className="flex justify-end border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:px-4">
                                 <span>
                                     Showing {displayedPlannerRows.length} grouped entries from {visibleRows.length} visible meetings
                                 </span>
                             </div>
 
                             <Accordion type="multiple" className="w-full">
-                                {plannerCourseAccordionGroups.map((courseGroup, courseIndex) => (
-                                    <AccordionItem
-                                        key={`${courseGroup.key}-${courseIndex}`}
-                                        value={`${courseGroup.key}-${courseIndex}`}
-                                        className="px-3 sm:px-4"
-                                    >
-                                        <AccordionTrigger className="min-w-0 gap-3 py-4 text-left hover:no-underline">
-                                            <div className="min-w-0 flex-1 text-left">
-                                                <div className="wrap-anywhere text-sm font-semibold leading-5">
-                                                    {courseGroup.label}
-                                                </div>
-                                                {courseGroup.subtitle ? (
-                                                    <div className="mt-1 hidden text-xs text-muted-foreground sm:block">
-                                                        {courseGroup.subtitle}
+                                {plannerCourseAccordionGroups.map((courseGroup, courseIndex) => {
+                                    const courseGroupFileNameBase = `course-group-${sanitizeFileNamePart(courseGroup.label)}`
+                                    const courseGroupPreviewState: PdfPreviewState = {
+                                        title: `${courseGroup.label} PDF Preview`,
+                                        rows: courseGroup.rows,
+                                        fileNameBase: courseGroupFileNameBase,
+                                        scopeLabel: courseGroup.label,
+                                    }
+
+                                    return (
+                                        <AccordionItem
+                                            key={`${courseGroup.key}-${courseIndex}`}
+                                            value={`${courseGroup.key}-${courseIndex}`}
+                                            className="px-3 sm:px-4"
+                                        >
+                                            <AccordionTrigger className="min-w-0 gap-3 py-4 text-left hover:no-underline">
+                                                <div className="min-w-0 flex-1 text-left">
+                                                    <div className="wrap-anywhere text-sm font-semibold leading-5">
+                                                        {courseGroup.label}
                                                     </div>
-                                                ) : null}
-                                                <div className="mt-2 hidden min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground sm:flex">
-                                                    <span>{courseGroup.rowCount} grouped entries</span>
-                                                    <span>•</span>
-                                                    <span>{courseGroup.instructorCount} instructors</span>
-                                                    <span>•</span>
-                                                    <span>{courseGroup.conflictedCount} conflicts</span>
+                                                    {courseGroup.subtitle ? (
+                                                        <div className="mt-1 hidden text-xs text-muted-foreground sm:block">
+                                                            {courseGroup.subtitle}
+                                                        </div>
+                                                    ) : null}
+                                                    <div className="mt-2 hidden min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-muted-foreground sm:flex">
+                                                        <span>{courseGroup.rowCount} grouped entries</span>
+                                                        <span>•</span>
+                                                        <span>{courseGroup.instructorCount} instructors</span>
+                                                        <span>•</span>
+                                                        <span>{courseGroup.conflictedCount} conflicts</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </AccordionTrigger>
+                                            </AccordionTrigger>
 
-                                        <AccordionContent className="space-y-4 pb-4">
-                                            <div className="sm:hidden">
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            className="w-full rounded-xl whitespace-normal wrap-anywhere"
-                                                        >
-                                                            Details
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
-                                                        <DialogHeader>
-                                                            <DialogTitle className="wrap-anywhere">{courseGroup.label}</DialogTitle>
-                                                        </DialogHeader>
+                                            <AccordionContent className="space-y-4 pb-4">
+                                                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto"
+                                                        onClick={() => openPdfPreview(courseGroupPreviewState)}
+                                                    >
+                                                        <Eye className="mr-2 size-4" />
+                                                        Preview PDF
+                                                    </Button>
 
-                                                        <div className="flex flex-wrap gap-2">
-                                                            <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
-                                                                {courseGroup.rowCount} grouped entr{courseGroup.rowCount === 1 ? "y" : "ies"}
-                                                            </Badge>
-                                                            <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
-                                                                {courseGroup.instructorCount} instructor{courseGroup.instructorCount === 1 ? "" : "s"}
-                                                            </Badge>
-                                                            <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
-                                                                {courseGroup.conflictedCount} conflict{courseGroup.conflictedCount === 1 ? "" : "s"}
-                                                            </Badge>
-                                                        </div>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto"
+                                                        onClick={() =>
+                                                            void downloadRowsPdf({
+                                                                rows: courseGroup.rows,
+                                                                fileNameBase: courseGroupFileNameBase,
+                                                                scopeLabel: courseGroup.label,
+                                                            })
+                                                        }
+                                                    >
+                                                        <Printer className="mr-2 size-4" />
+                                                        Export PDF
+                                                    </Button>
+                                                </div>
 
-                                                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                                <div className="sm:hidden">
+                                                    <Dialog>
+                                                        <DialogTrigger asChild>
                                                             <Button
                                                                 type="button"
                                                                 variant="outline"
-                                                                className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto"
-                                                                onClick={() =>
-                                                                    openPdfPreview({
-                                                                        title: `${courseGroup.label} PDF Preview`,
-                                                                        rows: courseGroup.rows,
-                                                                        fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
-                                                                        scopeLabel: courseGroup.label,
-                                                                    })
-                                                                }
+                                                                className="w-full rounded-xl whitespace-normal wrap-anywhere"
                                                             >
-                                                                <Eye className="mr-2 size-4" />
-                                                                Preview PDF
+                                                                Details
                                                             </Button>
+                                                        </DialogTrigger>
+                                                        <DialogContent className="max-h-[95svh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto px-4 sm:px-6">
+                                                            <DialogHeader>
+                                                                <DialogTitle className="wrap-anywhere">{courseGroup.label}</DialogTitle>
+                                                            </DialogHeader>
 
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                className="w-full rounded-xl whitespace-normal wrap-anywhere sm:w-auto"
-                                                                onClick={() =>
-                                                                    void downloadRowsPdf({
-                                                                        rows: courseGroup.rows,
-                                                                        fileNameBase: `course-group-${sanitizeFileNamePart(courseGroup.label)}`,
-                                                                        scopeLabel: courseGroup.label,
-                                                                    })
-                                                                }
-                                                            >
-                                                                <Printer className="mr-2 size-4" />
-                                                                Export PDF
-                                                            </Button>
-                                                        </div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <Badge variant="secondary" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                    {courseGroup.rowCount} grouped entr{courseGroup.rowCount === 1 ? "y" : "ies"}
+                                                                </Badge>
+                                                                <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                    {courseGroup.instructorCount} instructor{courseGroup.instructorCount === 1 ? "" : "s"}
+                                                                </Badge>
+                                                                <Badge variant="outline" className="max-w-full rounded-full whitespace-normal wrap-anywhere">
+                                                                    {courseGroup.conflictedCount} conflict{courseGroup.conflictedCount === 1 ? "" : "s"}
+                                                                </Badge>
+                                                            </div>
 
-                                                        <div className="space-y-3">
-                                                            {courseGroup.rows.map((row) => (
-                                                                <React.Fragment key={`mobile-dialog-${courseGroup.key}-${row.key}`}>
-                                                                    {renderPlannerMobileRowCard({
-                                                                        row,
-                                                                        onFixConflict: goToRoomsAndFacilities,
-                                                                        renderConflictBadges,
-                                                                        renderGroupedEditButtons,
-                                                                    })}
-                                                                </React.Fragment>
-                                                            ))}
-                                                        </div>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            </div>
+                                                            <div className="space-y-3">
+                                                                {courseGroup.rows.map((row) => (
+                                                                    <React.Fragment key={`mobile-dialog-${courseGroup.key}-${row.key}`}>
+                                                                        {renderPlannerMobileRowCard({
+                                                                            row,
+                                                                            onFixConflict: goToRoomsAndFacilities,
+                                                                            renderConflictBadges,
+                                                                            renderGroupedEditButtons,
+                                                                        })}
+                                                                    </React.Fragment>
+                                                                ))}
+                                                            </div>
+                                                        </DialogContent>
+                                                    </Dialog>
+                                                </div>
 
-                                            <div className="hidden overflow-x-auto rounded-xl border sm:block">
-                                                <Table className="w-full min-w-275 table-fixed">
-                                                    <TableHeader>
-                                                        <TableRow>
-                                                            <TableHead className="w-28 whitespace-normal wrap-anywhere align-top">Code</TableHead>
-                                                            <TableHead className="w-72 whitespace-normal wrap-anywhere align-top">Descriptive Title</TableHead>
-                                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Section</TableHead>
-                                                            <TableHead className="w-20 whitespace-normal wrap-anywhere align-top">Type</TableHead>
-                                                            <TableHead className="w-24 whitespace-normal wrap-anywhere align-top">Day</TableHead>
-                                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Time</TableHead>
-                                                            <TableHead className="w-44 whitespace-normal wrap-anywhere align-top">Room</TableHead>
-                                                            <TableHead className="w-52 whitespace-normal wrap-anywhere align-top">Instructor</TableHead>
-                                                            <TableHead className="w-32 whitespace-normal wrap-anywhere align-top text-right">Actions</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {courseGroup.rows.map((row) => (
-                                                            <TableRow key={`desktop-${courseGroup.key}-${row.key}`}>
-                                                                <TableCell className="font-medium whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                                    {row.subjectCodeDisplay || "—"}
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
-                                                                    <div className="min-w-0 space-y-1 leading-relaxed">
-                                                                        <div className="wrap-anywhere font-medium">{row.descriptiveTitleDisplay || "—"}</div>
-                                                                        <div className="text-xs text-muted-foreground wrap-anywhere">
-                                                                            Units: {row.primaryRow.subjectUnits ?? "—"}
-                                                                        </div>
-                                                                    </div>
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                                    {row.sectionDisplay || "—"}
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
-                                                                    <Badge variant="outline" className="rounded-lg whitespace-normal wrap-anywhere text-center">
-                                                                        {row.meetingTypeDisplay}
-                                                                    </Badge>
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                                    {row.dayDisplay}
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
-                                                                    {row.timeDisplay}
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
-                                                                    <div className="min-w-0 space-y-2 leading-relaxed">
-                                                                        <div className="wrap-anywhere">{row.roomDisplay || "—"}</div>
-                                                                        <div className="wrap-anywhere text-xs text-muted-foreground">
-                                                                            {row.roomTypeDisplay}
-                                                                        </div>
-                                                                        <div>{renderConflictBadges(row.conflictFlags)}</div>
-                                                                    </div>
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top">
-                                                                    <div className="min-w-0 space-y-1 leading-relaxed">
-                                                                        <div className="wrap-anywhere">{row.facultyDisplay || "—"}</div>
-                                                                        {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
-                                                                            <Badge variant="secondary" className="rounded-lg">
-                                                                                Manual
-                                                                            </Badge>
-                                                                        ) : null}
-                                                                    </div>
-                                                                </TableCell>
-                                                                <TableCell className="whitespace-normal wrap-anywhere align-top text-right">
-                                                                    <div className="flex flex-col items-end gap-2">
-                                                                        {row.hasConflict ? (
-                                                                            <Button
-                                                                                type="button"
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="rounded-lg whitespace-normal wrap-anywhere text-left"
-                                                                                onClick={goToRoomsAndFacilities}
-                                                                            >
-                                                                                <ArrowRight className="mr-2 size-4" />
-                                                                                Fix
-                                                                            </Button>
-                                                                        ) : null}
-                                                                        {renderGroupedEditButtons(row, "end")}
-                                                                    </div>
-                                                                </TableCell>
+                                                <div className="hidden overflow-x-auto rounded-xl border sm:block">
+                                                    <Table className="w-full min-w-275 table-fixed">
+                                                        <TableHeader>
+                                                            <TableRow>
+                                                                <TableHead className="w-28 whitespace-normal wrap-anywhere align-top">Code</TableHead>
+                                                                <TableHead className="w-72 whitespace-normal wrap-anywhere align-top">Descriptive Title</TableHead>
+                                                                <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Section</TableHead>
+                                                                <TableHead className="w-20 whitespace-normal wrap-anywhere align-top">Type</TableHead>
+                                                                <TableHead className="w-24 whitespace-normal wrap-anywhere align-top">Day</TableHead>
+                                                                <TableHead className="w-32 whitespace-normal wrap-anywhere align-top">Time</TableHead>
+                                                                <TableHead className="w-44 whitespace-normal wrap-anywhere align-top">Room</TableHead>
+                                                                <TableHead className="w-52 whitespace-normal wrap-anywhere align-top">Instructor</TableHead>
+                                                                <TableHead className="w-32 whitespace-normal wrap-anywhere align-top text-right">Actions</TableHead>
                                                             </TableRow>
-                                                        ))}
-                                                    </TableBody>
-                                                </Table>
-                                            </div>
-                                        </AccordionContent>
-                                    </AccordionItem>
-                                ))}
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {courseGroup.rows.map((row) => (
+                                                                <TableRow key={`desktop-${courseGroup.key}-${row.key}`}>
+                                                                    <TableCell className="font-medium whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                                        {row.subjectCodeDisplay || "—"}
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                                        <div className="min-w-0 space-y-1 leading-relaxed">
+                                                                            <div className="wrap-anywhere font-medium">{row.descriptiveTitleDisplay || "—"}</div>
+                                                                            <div className="text-xs text-muted-foreground wrap-anywhere">
+                                                                                Units: {row.primaryRow.subjectUnits ?? "—"}
+                                                                            </div>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                                        {row.sectionDisplay || "—"}
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                                        <Badge variant="outline" className="rounded-lg whitespace-normal wrap-anywhere text-center">
+                                                                            {row.meetingTypeDisplay}
+                                                                        </Badge>
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                                        {row.dayDisplay}
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top leading-relaxed">
+                                                                        {row.timeDisplay}
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                                        <div className="min-w-0 space-y-2 leading-relaxed">
+                                                                            <div className="wrap-anywhere">{row.roomDisplay || "—"}</div>
+                                                                            <div className="wrap-anywhere text-xs text-muted-foreground">
+                                                                                {row.roomTypeDisplay}
+                                                                            </div>
+                                                                            <div>{renderConflictBadges(row.conflictFlags)}</div>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top">
+                                                                        <div className="min-w-0 space-y-1 leading-relaxed">
+                                                                            <div className="wrap-anywhere">{row.facultyDisplay || "—"}</div>
+                                                                            {row.sourceRows.some((sourceRow) => sourceRow.isManualFaculty) ? (
+                                                                                <Badge variant="secondary" className="rounded-lg">
+                                                                                    Manual
+                                                                                </Badge>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-normal wrap-anywhere align-top text-right">
+                                                                        <div className="flex flex-col items-end gap-2">
+                                                                            {row.hasConflict ? (
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="rounded-lg whitespace-normal wrap-anywhere text-left"
+                                                                                    onClick={goToRoomsAndFacilities}
+                                                                                >
+                                                                                    <ArrowRight className="mr-2 size-4" />
+                                                                                    Fix
+                                                                                </Button>
+                                                                            ) : null}
+                                                                            {renderGroupedEditButtons(row, "end")}
+                                                                        </div>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            </AccordionContent>
+                                        </AccordionItem>
+                                    )
+                                })}
                             </Accordion>
                         </div>
                     )}
