@@ -1203,7 +1203,6 @@ function SchedulePdfDocument({
     termLabel,
     deptLabel,
     generatedAt,
-    filteredByConflict,
     scopeLabel,
     leftLogoSrc,
     rightLogoSrc,
@@ -1255,8 +1254,7 @@ function SchedulePdfDocument({
                     Schedule Scope: {scheduleScopeLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
                 </Text>
                 <Text style={pdfStyles.metaCenter}>
-                    Filter: {filteredByConflict ? "Conflicts only" : "All entries"}
-                    {scopeLabel ? ` • Scope: ${scopeLabel}` : ""}
+                    {scopeLabel ? `${scopeLabel}` : ""}
                 </Text>
                 <Text style={pdfStyles.metaCenter}>Generated at: {generatedAt}</Text>
 
