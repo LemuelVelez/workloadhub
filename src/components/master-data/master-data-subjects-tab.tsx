@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as React from "react"
-import { Link2, Pencil, Plus, Trash2, Unlink2 } from "lucide-react"
+import { Link2, Loader2, Pencil, Plus, Trash2, Unlink2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { databases, DATABASE_ID, COLLECTIONS } from "@/lib/db"
@@ -20,6 +20,16 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
     Dialog,
     DialogContent,
@@ -41,7 +51,26 @@ type LooseSubjectDoc = SubjectDoc & Record<string, unknown>
 type LooseAcademicTermDoc = AcademicTermDoc & Record<string, unknown>
 type LooseSectionDoc = SectionDoc & Record<string, unknown>
 
+type SubjectDuplicateGroup = {
+    key: string
+    label: string
+    scopeSummary: string
+    subjects: LooseSubjectDoc[]
+    linkedClassCount: number
+    linkedSectionCount: number
+    representative: LooseSubjectDoc
+}
+
+type PendingSubjectAction = {
+    kind: "mergeSubjects"
+    groupKeys: string[]
+    groupCount: number
+    duplicateCount: number
+}
+
 const SUBJECT_TERM_KEYS = ["termId", "academicTermId", "term", "term_id", "termID"] as const
+const SECTION_SUBJECT_KEYS = ["subjectId", "subject", "subject_id", "subjectID"] as const
+const SECTION_SUBJECT_ARRAY_KEYS = ["subjectIds", "subject_ids"] as const
 const SUBJECT_PROGRAM_KEYS = ["programId", "program", "program_id", "programID"] as const
 const SUBJECT_PROGRAM_ARRAY_KEYS = ["programIds", "program_ids"] as const
 const SUBJECT_SCOPE_YEAR_LEVEL_KEYS = ["yearLevel", "sectionYearLevel", "sectionYear", "year_level"] as const
@@ -82,6 +111,52 @@ const alphanumericCollator = new Intl.Collator(undefined, {
 
 function compareAlphaNumeric(left: string, right: string) {
     return alphanumericCollator.compare(left, right)
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+    return Array.from(
+        new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))
+    )
+}
+
+function hasOwnKey(source: Record<string, unknown> | null | undefined, key: string) {
+    return Boolean(source) && Object.prototype.hasOwnProperty.call(source, key)
+}
+
+function compareByCreatedAt(a: { $id?: string; $createdAt?: string }, b: { $id?: string; $createdAt?: string }) {
+    const aTime = Date.parse(String(a?.$createdAt ?? "")) || 0
+    const bTime = Date.parse(String(b?.$createdAt ?? "")) || 0
+    if (aTime !== bTime) return aTime - bTime
+    return String(a?.$id ?? "").localeCompare(String(b?.$id ?? ""))
+}
+
+function getCanonicalRecord<T extends { $id?: string; $createdAt?: string }>(records: T[]) {
+    return records.slice().sort(compareByCreatedAt)[0]
+}
+
+function getPreferredStringValue(values: Array<string | null | undefined>) {
+    const counts = new Map<string, number>()
+
+    for (const value of values) {
+        const normalized = String(value ?? "").trim()
+        if (!normalized) continue
+        counts.set(normalized, (counts.get(normalized) ?? 0) + 1)
+    }
+
+    return (
+        Array.from(counts.entries()).sort((left, right) => {
+            if (right[1] !== left[1]) return right[1] - left[1]
+            return compareAlphaNumeric(left[0], right[0])
+        })[0]?.[0] ?? ""
+    )
+}
+
+function normalizeSubjectCodeValue(value?: string | null) {
+    return String(value ?? "").trim().toUpperCase().replace(/\s+/g, " ")
+}
+
+function normalizeSubjectTitleValue(value?: string | null) {
+    return String(value ?? "").trim().toUpperCase().replace(/\s+/g, " ")
 }
 
 function readFirstStringValue(
@@ -220,7 +295,164 @@ function resolveSubjectYearLevels(subject: LooseSubjectDoc) {
     )
 }
 
+function resolveSectionSubjectIds(section: LooseSectionDoc) {
+    return readStringArrayValues(section, SECTION_SUBJECT_ARRAY_KEYS, SECTION_SUBJECT_KEYS)
+}
 
+function buildSectionSubjectPayload(
+    source: Record<string, unknown> | null | undefined,
+    subjectIdInput?: string | null
+) {
+    const nextValue = String(subjectIdInput ?? "").trim() || null
+    const existingKeys = SECTION_SUBJECT_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["subjectId"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSectionSubjectIdsPayload(
+    source: Record<string, unknown> | null | undefined,
+    subjectIdsInput: string[] = []
+) {
+    const nextValue = uniqueStrings(subjectIdsInput)
+    const existingKeys = SECTION_SUBJECT_ARRAY_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["subjectIds"]
+
+    return keysToUpdate.reduce<Record<string, string[]>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectTermPayload(
+    source: Record<string, unknown> | null | undefined,
+    termIdInput?: string | null
+) {
+    const nextValue = String(termIdInput ?? "").trim() || null
+    const existingKeys = SUBJECT_TERM_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["termId"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectProgramPayload(
+    source: Record<string, unknown> | null | undefined,
+    programIdInput?: string | null
+) {
+    const nextValue = String(programIdInput ?? "").trim() || null
+    const existingKeys = SUBJECT_PROGRAM_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["programId"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectProgramIdsPayload(
+    source: Record<string, unknown> | null | undefined,
+    programIdsInput: string[] = []
+) {
+    const nextValue = uniqueStrings(programIdsInput)
+    const existingKeys = SUBJECT_PROGRAM_ARRAY_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["programIds"]
+
+    return keysToUpdate.reduce<Record<string, string[]>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectYearLevelPayload(
+    source: Record<string, unknown> | null | undefined,
+    yearLevelInput?: string | null
+) {
+    const nextValue = String(yearLevelInput ?? "").trim() || null
+    const existingKeys = SUBJECT_SCOPE_YEAR_LEVEL_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["yearLevel"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectYearLevelsPayload(
+    source: Record<string, unknown> | null | undefined,
+    yearLevelsInput: string[] = []
+) {
+    const nextValue = uniqueStrings(yearLevelsInput)
+    const existingKeys = SUBJECT_SCOPE_YEAR_LEVEL_ARRAY_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["yearLevels"]
+
+    return keysToUpdate.reduce<Record<string, string[]>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function buildSubjectSemesterPayload(
+    source: Record<string, unknown> | null | undefined,
+    semesterInput?: string | null
+) {
+    const nextValue = String(semesterInput ?? "").trim() || null
+    const existingKeys = SUBJECT_SEMESTER_KEYS.filter((key) => hasOwnKey(source, key))
+    const keysToUpdate = existingKeys.length > 0 ? existingKeys : ["semester"]
+
+    return keysToUpdate.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = nextValue
+        return acc
+    }, {})
+}
+
+function readNumberValue(value: unknown, fallback = 0) {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : fallback
+}
+
+async function updateDocumentIgnoringUnknownAttributes(
+    collectionId: string,
+    documentId: string,
+    payload: Record<string, any>
+) {
+    const nextPayload = { ...payload }
+
+    while (true) {
+        const writableKeys = Object.keys(nextPayload)
+        if (writableKeys.length === 0) {
+            return { applied: false }
+        }
+
+        try {
+            await databases.updateDocument(DATABASE_ID, collectionId, documentId, nextPayload)
+            return { applied: true }
+        } catch (error: any) {
+            const message = String(error?.message ?? "").trim()
+            const unknownAttributeMatch = message.match(/Unknown attribute:\s*"([^"]+)"/i)
+            const rawUnknownKey = String(unknownAttributeMatch?.[1] ?? "").trim()
+
+            if (!rawUnknownKey) {
+                throw error
+            }
+
+            const matchedKey = writableKeys.find(
+                (key) => key.toLowerCase() === rawUnknownKey.toLowerCase()
+            )
+
+            if (!matchedKey) {
+                throw error
+            }
+
+            delete nextPayload[matchedKey]
+        }
+    }
+}
 
 
 function formatProgramScopeLabels(
@@ -354,6 +586,127 @@ function sortSubjects(subjects: LooseSubjectDoc[]) {
     })
 }
 
+function buildSubjectDuplicateKey(
+    subject: LooseSubjectDoc,
+    termMap: Map<string, LooseAcademicTermDoc>
+) {
+    return [
+        String(subject.departmentId ?? "").trim(),
+        normalizeSubjectCodeValue(subject.code as string | null),
+        normalizeSubjectTitleValue(subject.title as string | null),
+        normalizeSemesterLabel(resolveSubjectSemester(subject, termMap)),
+        normalizeAcademicYearLabel(resolveSubjectAcademicYear(subject, termMap)),
+        resolveSubjectProgramIds(subject).slice().sort(compareAlphaNumeric).join(","),
+        resolveSubjectYearLevels(subject).slice().sort(compareAlphaNumeric).join(","),
+        String(readNumberValue(subject.units)).trim(),
+        String(readNumberValue(subject.lectureHours)).trim(),
+        String(readNumberValue(subject.labHours)).trim(),
+    ].join("::")
+}
+
+function buildSubjectDuplicateLabel(subject: LooseSubjectDoc) {
+    const code = String(subject.code ?? "").trim()
+    const title = String(subject.title ?? "").trim()
+    if (code && title) return `${code} — ${title}`
+    return code || title || "Untitled Subject"
+}
+
+function buildSubjectDuplicateScopeSummary(
+    vm: MasterDataManagementVM,
+    termMap: Map<string, LooseAcademicTermDoc>,
+    subjects: LooseSubjectDoc[]
+) {
+    const collegeLabels = uniqueStrings(
+        subjects.map((subject) => {
+            const label = String(
+                vm.collegeLabel(vm.colleges, (subject.departmentId as string | null) ?? null) ?? ""
+            ).trim()
+            return /^(?:—|-|–|unknown)$/i.test(label) ? "" : label
+        })
+    )
+
+    const programLabels = uniqueStrings(
+        subjects.flatMap((subject) => formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)))
+    )
+
+    const yearLevels = uniqueStrings(
+        subjects.flatMap((subject) => formatYearLevelScopeLabels(resolveSubjectYearLevels(subject)))
+    )
+
+    const termLabels = uniqueStrings(
+        subjects.map((subject) => {
+            const termId = resolveSubjectTermId(subject)
+            if (termId) {
+                return vm.termLabel(vm.terms, termId)
+            }
+
+            const semesterLabel = resolveSubjectSemester(subject, termMap)
+            const academicYearLabel = resolveSubjectAcademicYear(subject, termMap)
+            return [semesterLabel, academicYearLabel].filter(Boolean).join(" • ")
+        })
+    )
+
+    const parts = [
+        collegeLabels.length === 1 ? collegeLabels[0] : collegeLabels.length > 1 ? `${collegeLabels.length} colleges` : "",
+        programLabels.length === 1 ? programLabels[0] : programLabels.length > 1 ? `${programLabels.length} program scopes` : "",
+        yearLevels.length === 1 ? `Year ${yearLevels[0]}` : yearLevels.length > 1 ? `${yearLevels.length} year levels` : "",
+        termLabels.length === 1 ? termLabels[0] : termLabels.length > 1 ? `${termLabels.length} academic terms` : "",
+    ].filter(Boolean)
+
+    return parts.join(" • ") || "Scope not set"
+}
+
+function buildMergedSubjectPayload(
+    subjects: LooseSubjectDoc[],
+    canonical: LooseSubjectDoc,
+    termMap: Map<string, LooseAcademicTermDoc>
+) {
+    const mergedProgramIds = uniqueStrings(subjects.flatMap((subject) => resolveSubjectProgramIds(subject)))
+    const mergedYearLevels = uniqueStrings(subjects.flatMap((subject) => resolveSubjectYearLevelLabels(subject)))
+    const mergedDepartmentId =
+        getPreferredStringValue(subjects.map((subject) => String(subject.departmentId ?? "").trim())) || null
+    const mergedTermId = getPreferredStringValue(subjects.map((subject) => resolveSubjectTermId(subject))) || null
+    const mergedSemester =
+        getPreferredStringValue(subjects.map((subject) => resolveSubjectSemester(subject, termMap))) || null
+    const primaryProgramId =
+        getPreferredStringValue(subjects.map((subject) => resolveSubjectProgramIds(subject)[0] ?? "")) ||
+        mergedProgramIds[0] ||
+        null
+    const primaryYearLevel =
+        getPreferredStringValue(subjects.map((subject) => resolveSubjectYearLevelLabels(subject)[0] ?? "")) ||
+        mergedYearLevels[0] ||
+        null
+    const lectureHours = readNumberValue(
+        canonical.lectureHours,
+        Math.max(...subjects.map((subject) => readNumberValue(subject.lectureHours)))
+    )
+    const labHours = readNumberValue(
+        canonical.labHours,
+        Math.max(...subjects.map((subject) => readNumberValue(subject.labHours)))
+    )
+    const units = readNumberValue(
+        canonical.units,
+        Math.max(...subjects.map((subject) => readNumberValue(subject.units)))
+    )
+
+    return {
+        code: String(canonical.code ?? "").trim() || getPreferredStringValue(subjects.map((subject) => String(subject.code ?? "").trim())),
+        title: String(canonical.title ?? "").trim() || getPreferredStringValue(subjects.map((subject) => String(subject.title ?? "").trim())),
+        units,
+        lectureHours,
+        labHours,
+        totalHours: lectureHours + labHours,
+        isActive: subjects.some((subject) => Boolean(subject.isActive)),
+        departmentId: mergedDepartmentId,
+        ...buildSubjectTermPayload(canonical, mergedTermId),
+        ...buildSubjectSemesterPayload(canonical, mergedSemester),
+        ...buildSubjectProgramPayload(canonical, primaryProgramId),
+        ...buildSubjectProgramIdsPayload(canonical, mergedProgramIds),
+        ...buildSubjectYearLevelPayload(canonical, primaryYearLevel),
+        ...buildSubjectYearLevelsPayload(canonical, mergedYearLevels),
+    }
+}
+
 export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkLinkOpen, setBulkLinkOpen] = React.useState(false)
     const [bulkTermActionMode, setBulkTermActionMode] = React.useState<"link" | "transfer">("link")
@@ -375,6 +728,10 @@ export function MasterDataSubjectsTab({ vm }: Props) {
     const [bulkCollegeSubjectIds, setBulkCollegeSubjectIds] = React.useState<string[]>([])
     const [bulkCollegeSaving, setBulkCollegeSaving] = React.useState(false)
     const [selectedSubjectIds, setSelectedSubjectIds] = React.useState<string[]>([])
+    const [subjectDedupeBusy, setSubjectDedupeBusy] = React.useState(false)
+    const [pendingSubjectAction, setPendingSubjectAction] = React.useState<PendingSubjectAction | null>(null)
+    const [pendingSubjectActionSubmitting, setPendingSubjectActionSubmitting] = React.useState(false)
+    const [subjectMergeKeepByGroup, setSubjectMergeKeepByGroup] = React.useState<Record<string, string>>({})
 
     const termMap = React.useMemo(() => {
         const map = new Map<string, LooseAcademicTermDoc>()
@@ -422,6 +779,55 @@ export function MasterDataSubjectsTab({ vm }: Props) {
             ),
         [allVisibleSubjects, selectedSubjectIdSet]
     )
+
+    const allDuplicateSubjectGroups = React.useMemo<SubjectDuplicateGroup[]>(() => {
+        const groups = new Map<string, LooseSubjectDoc[]>()
+
+        for (const subject of vm.subjects as LooseSubjectDoc[]) {
+            const key = buildSubjectDuplicateKey(subject, termMap)
+            const current = groups.get(key) ?? []
+            current.push(subject)
+            groups.set(key, current)
+        }
+
+        return Array.from(groups.entries())
+            .filter(([, subjects]) => subjects.length > 1)
+            .map(([key, subjects]) => {
+                const representative = getCanonicalRecord(subjects)
+                const subjectIdSet = new Set(subjects.map((subject) => String(subject.$id)))
+                const linkedClassCount = vm.classes.filter((classDoc) =>
+                    subjectIdSet.has(String(classDoc.subjectId ?? "").trim())
+                ).length
+                const linkedSectionCount = vm.sections.filter((section) =>
+                    resolveSectionSubjectIds(section as LooseSectionDoc).some((subjectId) =>
+                        subjectIdSet.has(subjectId)
+                    )
+                ).length
+
+                return {
+                    key,
+                    label: buildSubjectDuplicateLabel(representative),
+                    scopeSummary: buildSubjectDuplicateScopeSummary(vm, termMap, subjects),
+                    subjects: sortSubjects(subjects),
+                    linkedClassCount,
+                    linkedSectionCount,
+                    representative,
+                }
+            })
+            .sort((left, right) => compareAlphaNumeric(left.label, right.label))
+    }, [termMap, vm])
+
+    const pendingMergeSubjectGroups = React.useMemo(
+        () =>
+            pendingSubjectAction?.kind === "mergeSubjects"
+                ? allDuplicateSubjectGroups.filter((group) =>
+                      pendingSubjectAction.groupKeys.includes(group.key)
+                  )
+                : [],
+        [allDuplicateSubjectGroups, pendingSubjectAction]
+    )
+
+    const pendingSubjectActionBusy = pendingSubjectActionSubmitting || subjectDedupeBusy
 
     const allVisibleSelected =
         visibleSubjectIds.length > 0 &&
@@ -1070,6 +1476,188 @@ export function MasterDataSubjectsTab({ vm }: Props) {
         })
     }, [allVisibleSubjects, vm])
 
+    const mergeSubjectGroups = React.useCallback(
+        async (
+            groups: SubjectDuplicateGroup[],
+            keepByGroup: Record<string, string> = {}
+        ) => {
+            if (groups.length === 0) {
+                toast.error("No duplicate subject groups found.")
+                return
+            }
+
+            setSubjectDedupeBusy(true)
+
+            try {
+                let mergedGroups = 0
+                let deleted = 0
+                let rewiredSections = 0
+                let rewiredClasses = 0
+                const failed: string[] = []
+
+                for (const group of groups) {
+                    const selectedKeepId = String(keepByGroup[group.key] ?? "").trim()
+                    const canonical =
+                        group.subjects.find((subject) => String(subject.$id) === selectedKeepId) ??
+                        getCanonicalRecord(group.subjects)
+                    const duplicates = group.subjects.filter(
+                        (subject) => String(subject.$id) !== String(canonical.$id)
+                    )
+
+                    if (duplicates.length === 0) continue
+
+                    try {
+                        await updateDocumentIgnoringUnknownAttributes(
+                            COLLECTIONS.SUBJECTS,
+                            String(canonical.$id),
+                            buildMergedSubjectPayload(group.subjects, canonical, termMap)
+                        )
+
+                        for (const duplicate of duplicates) {
+                            const duplicateId = String(duplicate.$id)
+                            const canonicalId = String(canonical.$id)
+
+                            const referencingSections = (vm.sections as LooseSectionDoc[]).filter((section) =>
+                                resolveSectionSubjectIds(section).includes(duplicateId)
+                            )
+
+                            for (const section of referencingSections) {
+                                const nextSubjectIds = uniqueStrings(
+                                    resolveSectionSubjectIds(section).map((subjectId) =>
+                                        subjectId === duplicateId ? canonicalId : subjectId
+                                    )
+                                )
+                                const primarySubjectId = nextSubjectIds[0] ?? canonicalId
+
+                                await updateDocumentIgnoringUnknownAttributes(
+                                    COLLECTIONS.SECTIONS,
+                                    String(section.$id),
+                                    {
+                                        ...buildSectionSubjectPayload(section, primarySubjectId),
+                                        ...buildSectionSubjectIdsPayload(section, nextSubjectIds),
+                                    }
+                                )
+                                rewiredSections += 1
+                            }
+
+                            const referencingClasses = vm.classes.filter(
+                                (classDoc) => String(classDoc.subjectId ?? "").trim() === duplicateId
+                            )
+
+                            for (const classDoc of referencingClasses) {
+                                await databases.updateDocument(
+                                    DATABASE_ID,
+                                    COLLECTIONS.CLASSES,
+                                    classDoc.$id,
+                                    { subjectId: canonicalId }
+                                )
+                                rewiredClasses += 1
+                            }
+
+                            await databases.deleteDocument(
+                                DATABASE_ID,
+                                COLLECTIONS.SUBJECTS,
+                                duplicateId
+                            )
+                            deleted += 1
+                        }
+
+                        mergedGroups += 1
+                    } catch (error: any) {
+                        failed.push(
+                            `${group.label} (${String(error?.message ?? "Update failed.").trim() || "Update failed."})`
+                        )
+                    }
+                }
+
+                if (mergedGroups > 0) {
+                    await vm.refreshAll()
+                }
+
+                if (mergedGroups > 0 && failed.length === 0) {
+                    toast.success(
+                        `Merged ${mergedGroups} duplicate subject group${mergedGroups === 1 ? "" : "s"}, deleted ${deleted} duplicate record${deleted === 1 ? "" : "s"}, rewired ${rewiredSections} section reference${rewiredSections === 1 ? "" : "s"}, and rewired ${rewiredClasses} class reference${rewiredClasses === 1 ? "" : "s"}.`
+                    )
+                    return
+                }
+
+                if (mergedGroups > 0) {
+                    toast.error(
+                        `Merged ${mergedGroups} subject group${mergedGroups === 1 ? "" : "s"}, but failed for: ${failed.join(", ")}`
+                    )
+                    return
+                }
+
+                toast.error(
+                    failed.length > 0
+                        ? `Failed to merge duplicate subjects: ${failed.join(", ")}`
+                        : "No duplicate subjects were merged."
+                )
+            } finally {
+                setSubjectDedupeBusy(false)
+            }
+        },
+        [termMap, vm]
+    )
+
+    const requestMergeSubjectGroups = React.useCallback((groups: SubjectDuplicateGroup[]) => {
+        if (groups.length === 0) {
+            toast.error("No duplicate subject groups found.")
+            return
+        }
+
+        const duplicateCount = groups.reduce(
+            (count, group) => count + Math.max(group.subjects.length - 1, 0),
+            0
+        )
+
+        setSubjectMergeKeepByGroup(
+            Object.fromEntries(
+                groups.map((group) => [
+                    group.key,
+                    String(getCanonicalRecord(group.subjects)?.$id ?? ""),
+                ])
+            )
+        )
+        setPendingSubjectAction({
+            kind: "mergeSubjects",
+            groupKeys: groups.map((group) => group.key),
+            groupCount: groups.length,
+            duplicateCount,
+        })
+    }, [])
+
+    const handleConfirmPendingSubjectAction = React.useCallback(async () => {
+        if (!pendingSubjectAction || pendingSubjectActionSubmitting) return
+
+        const action = pendingSubjectAction
+        setPendingSubjectActionSubmitting(true)
+
+        try {
+            const groups = allDuplicateSubjectGroups.filter((group) =>
+                action.groupKeys.includes(group.key)
+            )
+            const normalizedKeepByGroup = Object.fromEntries(
+                groups.map((group) => {
+                    const selectedKeepId = String(subjectMergeKeepByGroup[group.key] ?? "").trim()
+                    const fallbackKeepId = String(getCanonicalRecord(group.subjects)?.$id ?? "")
+                    return [group.key, selectedKeepId || fallbackKeepId]
+                })
+            )
+            await mergeSubjectGroups(groups, normalizedKeepByGroup)
+            setSubjectMergeKeepByGroup({})
+            setPendingSubjectAction(null)
+        } finally {
+            setPendingSubjectActionSubmitting(false)
+        }
+    }, [
+        allDuplicateSubjectGroups,
+        mergeSubjectGroups,
+        pendingSubjectAction,
+        pendingSubjectActionSubmitting,
+        subjectMergeKeepByGroup,
+    ])
+
     const handleTableActionClick = React.useCallback(
         (action: () => void | Promise<unknown>) =>
             (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -1135,7 +1723,7 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                 <div>
                     <div className="font-medium">Subjects</div>
                     <div className="text-sm text-muted-foreground">
-                        Manage subject list, units, hours, semester scope, and reusable subject copies across academic terms.
+                        Manage subject list, units, hours, semester scope, reusable subject copies across academic terms, and duplicate cleanup.
                     </div>
                 </div>
 
@@ -1176,6 +1764,9 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         variant={selectedVisibleSubjects.length > 0 ? "default" : "outline"}
                     >
                         {selectedVisibleSubjects.length} selected
+                    </Badge>
+                    <Badge variant="outline">
+                        {allDuplicateSubjectGroups.length} duplicate group{allDuplicateSubjectGroups.length === 1 ? "" : "s"}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
                         Bulk delete uses the current visible list or your checkbox selection.
@@ -1228,6 +1819,26 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                         <span className="min-w-0 truncate">
                             {selectedVisibleSubjects.length > 0 ? "Transfer Selected to Another Term" : "Transfer Visible to Another Term"}
                         </span>
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={compactActionButtonClassName}
+                        onClick={() => requestMergeSubjectGroups(allDuplicateSubjectGroups)}
+                        disabled={allDuplicateSubjectGroups.length === 0 || subjectDedupeBusy}
+                    >
+                        {subjectDedupeBusy ? (
+                            <span className="inline-flex items-center gap-2">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Working...
+                            </span>
+                        ) : (
+                            <span className="min-w-0 truncate">
+                                Delete Duplicated Subjects ({allDuplicateSubjectGroups.length})
+                            </span>
+                        )}
                     </Button>
 
                     <Button
@@ -1702,6 +2313,151 @@ export function MasterDataSubjectsTab({ vm }: Props) {
                     )})}
                 </Accordion>
             )}
+
+            <AlertDialog
+                open={Boolean(pendingSubjectAction)}
+                onOpenChange={(open) => {
+                    if (!open && !pendingSubjectActionBusy) {
+                        setPendingSubjectAction(null)
+                        setSubjectMergeKeepByGroup({})
+                    }
+                }}
+            >
+                <AlertDialogContent className="max-h-[90svh] overflow-hidden sm:max-w-3xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Duplicated Subjects</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {pendingSubjectAction
+                                ? `Review each duplicate subject group below. Choose the subject record to keep, then continue. The other duplicate record${pendingSubjectAction.duplicateCount === 1 ? " will" : "s will"} be deleted and their section and class references will be moved automatically.`
+                                : ""}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    {pendingSubjectAction?.kind === "mergeSubjects" ? (
+                        <ScrollArea className="max-h-[52svh] rounded-md border">
+                            <div className="space-y-3 p-3">
+                                {pendingMergeSubjectGroups.map((group) => {
+                                    const selectedKeepId =
+                                        String(subjectMergeKeepByGroup[group.key] ?? "").trim() ||
+                                        String(getCanonicalRecord(group.subjects)?.$id ?? "")
+
+                                    return (
+                                        <div key={group.key} className="rounded-xl border bg-muted/20 p-3">
+                                            <div className="space-y-1">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <div className="text-sm font-semibold">{group.label}</div>
+                                                    <Badge variant="secondary">
+                                                        {group.subjects.length} duplicate records
+                                                    </Badge>
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    {group.scopeSummary}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Linked sections: {group.linkedSectionCount} • Linked classes: {group.linkedClassCount}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 grid gap-3">
+                                                {group.subjects.map((subject) => {
+                                                    const subjectId = String(subject.$id)
+                                                    const keepSelected = subjectId === selectedKeepId
+                                                    const termId = resolveSubjectTermId(subject)
+                                                    const termLabel = termId
+                                                        ? vm.termLabel(vm.terms, termId)
+                                                        : [
+                                                              resolveSubjectSemester(subject, termMap),
+                                                              resolveSubjectAcademicYear(subject, termMap),
+                                                          ]
+                                                              .filter(Boolean)
+                                                              .join(" • ") || "No direct term link"
+
+                                                    return (
+                                                        <div
+                                                            key={subjectId}
+                                                            className={
+                                                                keepSelected
+                                                                    ? "rounded-xl border border-primary bg-primary/5 p-3"
+                                                                    : "rounded-xl border bg-background p-3"
+                                                            }
+                                                        >
+                                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                                <div className="min-w-0 flex-1 space-y-2">
+                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                        <div className="font-medium wrap-break-word">
+                                                                            {buildSubjectDuplicateLabel(subject)}
+                                                                        </div>
+                                                                        <Badge variant={keepSelected ? "default" : "outline"}>
+                                                                            {keepSelected ? "Keep" : "Delete"}
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        College: {vm.collegeLabel(vm.colleges, (subject.departmentId as string | null) ?? null)}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        Programs: {formatProgramScopeLabels(vm.programs, resolveSubjectProgramIds(subject)).join(", ") || "—"}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        Year levels: {formatYearLevelScopeLabels(resolveSubjectYearLevels(subject)).join(", ") || "—"}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        Semester / Term: {termLabel}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground wrap-break-word">
+                                                                        Units: {subject.units} • Lec {subject.lectureHours} • Lab {subject.labHours}
+                                                                    </div>
+                                                                </div>
+
+                                                                <Button
+                                                                    type="button"
+                                                                    variant={keepSelected ? "default" : "outline"}
+                                                                    size="sm"
+                                                                    className={compactInlineButtonClassName}
+                                                                    onClick={() =>
+                                                                        setSubjectMergeKeepByGroup((current) => ({
+                                                                            ...current,
+                                                                            [group.key]: subjectId,
+                                                                        }))
+                                                                    }
+                                                                    disabled={pendingSubjectActionBusy}
+                                                                >
+                                                                    {keepSelected ? "Keeping" : "Keep This"}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </ScrollArea>
+                    ) : null}
+
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={pendingSubjectActionBusy}>
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={() => void handleConfirmPendingSubjectAction()}
+                            disabled={pendingSubjectActionBusy}
+                            className="bg-destructive text-white hover:bg-destructive/90"
+                        >
+                            {pendingSubjectActionBusy ? (
+                                <span className="inline-flex items-center gap-2 text-white">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Processing...
+                                </span>
+                            ) : pendingSubjectAction ? (
+                                `Delete Duplicates (${pendingSubjectAction.duplicateCount})`
+                            ) : (
+                                "Delete Duplicates"
+                            )}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <Dialog
                 open={Boolean(selectedSubjectDetail)}
