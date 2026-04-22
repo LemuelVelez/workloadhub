@@ -9,6 +9,7 @@ import {
     ArrowRight,
     ArrowUpDown,
     CalendarDays,
+    Download,
     Eye,
     FlaskConical,
     Loader2,
@@ -691,6 +692,8 @@ type PdfPreviewState = {
     scopeLabel?: string
 }
 
+type PlannerPdfPaperSize = "A4" | "SHORT_BOND" | "LONG_BOND"
+
 const ROOMS_AND_FACILITIES_ROUTE = "/dashboard/admin/rooms-and-facilities"
 const ENTRY_DIALOG_CONTENT_CLASS = "z-120 flex h-[calc(100svh-1rem)] max-h-[calc(100svh-1rem)] min-w-0 w-[calc(100vw-1rem)] max-w-[36rem] flex-col overflow-hidden px-3 py-4 sm:h-auto sm:max-h-[95svh] sm:w-full sm:max-w-4xl sm:px-6"
 const ENTRY_DIALOG_BODY_CLASS = "min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 sm:space-y-4"
@@ -714,6 +717,15 @@ const PLANNER_SORT_OPTIONS: Array<{ value: PlannerSortKey; label: string }> = [
 
 const LEFT_LOGO_PATH = "/logo.png"
 const RIGHT_LOGO_PATH = "/CCS.jpg"
+
+const PAPER_SIZE_OPTIONS: Array<{
+    value: PlannerPdfPaperSize
+    label: string
+}> = [
+    { value: "A4", label: "A4" },
+    { value: "SHORT_BOND", label: "Short Bond" },
+    { value: "LONG_BOND", label: "Long Bond" },
+]
 
 const HEADER_REPUBLIC = "Republic of the Philippines"
 const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"
@@ -808,6 +820,40 @@ function writePersistedSubjectMatchingFilters(
 }
 
 const assetUrlCache = new Map<string, Promise<string>>()
+
+function inchesToPoints(value: number) {
+    return value * 72
+}
+
+function paperSizeLabel(paperSize: PlannerPdfPaperSize) {
+    if (paperSize === "SHORT_BOND") return "Short Bond Paper"
+    if (paperSize === "LONG_BOND") return "Long Bond Paper"
+    return "A4"
+}
+
+function paperSizeFilenameLabel(paperSize: PlannerPdfPaperSize) {
+    if (paperSize === "SHORT_BOND") return "short-bond"
+    if (paperSize === "LONG_BOND") return "long-bond"
+    return "a4"
+}
+
+function resolvePdfPageSize(paperSize: PlannerPdfPaperSize) {
+    if (paperSize === "SHORT_BOND") {
+        return {
+            width: inchesToPoints(11),
+            height: inchesToPoints(8.5),
+        }
+    }
+
+    if (paperSize === "LONG_BOND") {
+        return {
+            width: inchesToPoints(13),
+            height: inchesToPoints(8.5),
+        }
+    }
+
+    return "A4"
+}
 
 function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob)
@@ -1291,6 +1337,7 @@ function SchedulePdfDocument({
     deptLabel,
     generatedAt,
     scopeLabel,
+    pdfPageSize,
     leftLogoSrc,
     rightLogoSrc,
 }: {
@@ -1301,6 +1348,7 @@ function SchedulePdfDocument({
     generatedAt: string
     filteredByConflict: boolean
     scopeLabel?: string
+    pdfPageSize: "A4" | { width: number; height: number }
     leftLogoSrc: string
     rightLogoSrc: string
 }) {
@@ -1314,9 +1362,14 @@ function SchedulePdfDocument({
         { key: "conflict", label: "Conflict", width: "8%", align: "center" as const },
     ]
 
+    const pdfPageProps =
+        typeof pdfPageSize === "string"
+            ? { size: pdfPageSize, orientation: "landscape" as const }
+            : { size: pdfPageSize }
+
     return (
         <Document title={`${HEADER_DOCUMENT}${scopeLabel ? ` - ${scopeLabel}` : ""}`}>
-            <Page size="A4" orientation="landscape" style={pdfStyles.page}>
+            <Page {...pdfPageProps} style={pdfStyles.page}>
                 <View style={pdfStyles.headerWrap}>
                     <View style={pdfStyles.headerRow}>
                         <View style={pdfStyles.logoWrap}>
@@ -1699,6 +1752,8 @@ export function PlannerManagementSection({
     const [plannerSortDirection, setPlannerSortDirection] = React.useState<PlannerSortDirection>("asc")
     const [pdfPreviewBusy, setPdfPreviewBusy] = React.useState(false)
     const [pdfExportBusy, setPdfExportBusy] = React.useState(false)
+    const [selectedPaperSize, setSelectedPaperSize] =
+        React.useState<PlannerPdfPaperSize>("A4")
     const [pdfPreviewUrl, setPdfPreviewUrl] = React.useState<string | null>(null)
     const pdfPreviewUrlRef = React.useRef<string | null>(null)
     const subjectMatchingFiltersHydratedRef = React.useRef(false)
@@ -2169,6 +2224,18 @@ export function PlannerManagementSection({
         () => PLANNER_SORT_OPTIONS.find((option) => option.value === plannerSortKey)?.label || "Day",
         [plannerSortKey]
     )
+    const selectedPaperSizeLabel = React.useMemo(
+        () => paperSizeLabel(selectedPaperSize),
+        [selectedPaperSize]
+    )
+    const selectedPaperSizeFileLabel = React.useMemo(
+        () => paperSizeFilenameLabel(selectedPaperSize),
+        [selectedPaperSize]
+    )
+    const pdfPageSize = React.useMemo(
+        () => resolvePdfPageSize(selectedPaperSize),
+        [selectedPaperSize]
+    )
 
     const buildPlannerStatsForRows = React.useCallback((rows: PlannerDisplayRow[]): PlannerStats => {
         const total = rows.length
@@ -2228,17 +2295,27 @@ export function PlannerManagementSection({
                     generatedAt={generatedAt}
                     filteredByConflict={showConflictsOnly}
                     scopeLabel={scopeLabel}
+                    pdfPageSize={pdfPageSize}
                     leftLogoSrc={leftLogoSrc}
                     rightLogoSrc={rightLogoSrc}
                 />
             )
 
             const blob = await pdf(documentNode).toBlob()
-            const fileName = `${fileNameBase}-${new Date().toISOString().slice(0, 10)}.pdf`
+            const fileName = `${fileNameBase}-${selectedPaperSizeFileLabel}-${new Date().toISOString().slice(0, 10)}.pdf`
 
             return { blob, fileName }
         },
-        [generatedAt, hasScheduleScope, scheduleScopeLabel, selectedDeptLabel, selectedTermLabel, showConflictsOnly]
+        [
+            generatedAt,
+            hasScheduleScope,
+            pdfPageSize,
+            scheduleScopeLabel,
+            selectedDeptLabel,
+            selectedPaperSizeFileLabel,
+            selectedTermLabel,
+            showConflictsOnly,
+        ]
     )
 
     const openPdfPreview = React.useCallback(
@@ -2384,6 +2461,7 @@ export function PlannerManagementSection({
 
     const activePdfPreviewRows = pdfPreviewState?.rows ?? displayedPlannerRows
     const activePdfPreviewStats = buildPlannerStatsForRows(activePdfPreviewRows)
+    const controlsDisabled = pdfPreviewBusy || pdfExportBusy
 
     const plannerCard = (
             <Card className="rounded-2xl">
@@ -2438,10 +2516,14 @@ export function PlannerManagementSection({
                                 variant="outline"
                                 className="w-full rounded-xl sm:w-auto"
                                 onClick={() => void downloadPdf()}
-                                disabled={!hasScheduleScope || displayedPlannerRows.length === 0}
+                                disabled={!hasScheduleScope || displayedPlannerRows.length === 0 || controlsDisabled}
                             >
-                                <Printer className="mr-2 size-4" />
-                                Export PDF
+                                {pdfExportBusy ? (
+                                    <Loader2 className="mr-2 size-4 animate-spin" />
+                                ) : (
+                                    <Download className="mr-2 size-4" />
+                                )}
+                                {pdfExportBusy ? "Exporting..." : "Export PDF"}
                             </Button>
 
                             <Button
@@ -3071,46 +3153,68 @@ export function PlannerManagementSection({
                     if (!open) closePdfPreview()
                 }}
             >
-                <DialogContent className="z-120 min-w-0 h-[95svh] overflow-auto sm:max-w-6xl">
+                <DialogContent className="z-120 h-[95svh] min-w-0 overflow-auto sm:max-w-7xl">
                     <DialogHeader>
-                        <DialogTitle>{pdfPreviewState?.title || "Schedule PDF Preview"}</DialogTitle>
+                        <DialogTitle>
+                            PDF Preview — {pdfPreviewState?.title || "Schedule Planner"}
+                        </DialogTitle>
                     </DialogHeader>
 
-                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-                        <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{scheduleScopeLabel || "No schedule scope"}</Badge>
-                        <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{selectedTermLabel || "No term"}</Badge>
-                        <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{selectedDeptLabel || "No college"}</Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary">{scheduleScopeLabel || "No schedule scope"}</Badge>
+                        <Badge variant="secondary">{selectedTermLabel || "No term"}</Badge>
+                        <Badge variant="secondary">{selectedDeptLabel || "No college"}</Badge>
                         {pdfPreviewState?.scopeLabel ? (
-                            <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">{pdfPreviewState.scopeLabel}</Badge>
+                            <Badge variant="outline">{pdfPreviewState.scopeLabel}</Badge>
                         ) : null}
-                        <Badge variant="outline" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                        <Badge variant="outline">
                             {activePdfPreviewRows.length} grouped entr{activePdfPreviewRows.length === 1 ? "y" : "ies"}
                         </Badge>
-                        <Badge variant="outline" className="max-w-full whitespace-normal wrap-anywhere text-center sm:text-left">
+                        <Badge variant="outline">
                             {activePdfPreviewStats.conflicts} conflict{activePdfPreviewStats.conflicts === 1 ? "" : "s"}
                         </Badge>
+                        <Badge variant="outline">
+                            {activePdfPreviewStats.labs} lab{activePdfPreviewStats.labs === 1 ? "" : "s"}
+                        </Badge>
+                        <Badge variant="outline">{selectedPaperSizeLabel}</Badge>
                     </div>
 
-                    <div className="mt-3 rounded-md border min-w-0 max-w-full overflow-hidden">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground">Paper Size:</span>
+                        {PAPER_SIZE_OPTIONS.map((option) => (
+                            <Button
+                                key={`planner-preview-${option.value}`}
+                                type="button"
+                                size="sm"
+                                variant={selectedPaperSize === option.value ? "default" : "outline"}
+                                onClick={() => setSelectedPaperSize(option.value)}
+                                disabled={controlsDisabled}
+                            >
+                                {option.label}
+                            </Button>
+                        ))}
+                    </div>
+
+                    <div className="mt-3 min-w-0 max-w-full overflow-hidden rounded-md border bg-background">
                         {pdfPreviewBusy ? (
-                            <div className="p-4 space-y-3">
+                            <div className="space-y-3 p-4">
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Generating PDF preview...
                                 </div>
                                 <Skeleton className="h-8 w-full" />
-                                <Skeleton className="h-[60vh] w-full" />
+                                <Skeleton className="h-[75vh] w-full" />
                             </div>
                         ) : pdfPreviewUrl ? (
-                            <iframe title="Schedule PDF Preview" src={pdfPreviewUrl} className="h-[60vh] w-full" />
+                            <iframe title="Schedule PDF Preview" src={pdfPreviewUrl} className="block h-[75vh] w-full bg-background" />
                         ) : (
                             <div className="p-4 text-sm text-muted-foreground">
-                                PDF preview is not ready. Click “Preview PDF” again or export PDF.
+                                PDF preview is not ready yet.
                             </div>
                         )}
                     </div>
 
-                    <DialogFooter className="shrink-0 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-end">
+                    <DialogFooter className="shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
                         <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={closePdfPreview}>
                                 Close
@@ -3125,12 +3229,12 @@ export function PlannerManagementSection({
                                           })
                                         : undefined
                                 }
-                                disabled={!hasScheduleScope || activePdfPreviewRows.length === 0 || pdfExportBusy}
+                                disabled={!hasScheduleScope || activePdfPreviewRows.length === 0 || controlsDisabled}
                             >
                                 {pdfExportBusy ? (
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 ) : (
-                                    <Printer className="mr-2 h-4 w-4" />
+                                    <Download className="mr-2 h-4 w-4" />
                                 )}
                                 {pdfExportBusy ? "Exporting..." : "Download PDF"}
                             </Button>
@@ -3553,3 +3657,5 @@ export function PlannerManagementSection({
         </>
     )
 }
+
+export default PlannerManagementSection
