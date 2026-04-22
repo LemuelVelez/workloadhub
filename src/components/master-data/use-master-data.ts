@@ -1529,75 +1529,12 @@ export function useMasterDataManagement() {
             .sort((a, b) => `${a.code} ${a.name}`.localeCompare(`${b.code} ${b.name}`))
     }, [programs, sectionCollegeId])
 
-    const sectionReferenceTerm = React.useMemo(() => {
-        const referenceTermId = str(sectionSubjectFilterTermId)
-        if (!referenceTermId) return null
-
-        return terms.find((term) => str(term.$id) === referenceTermId) ?? null
-    }, [sectionSubjectFilterTermId, terms])
 
     const sectionSubjectsForSelectedScope = React.useMemo(() => {
-        const collegeId = str(sectionCollegeId)
-        const programId = str(sectionProgramId) === "__none__" ? "" : str(sectionProgramId)
-        const termId = str(sectionSubjectFilterTermId)
-        const selectedSubjectIds = new Set(sectionSubjectIds.map((subjectId) => str(subjectId)).filter(Boolean))
-        const semester = normalizeSemesterLabel(
-            str(sectionSemester) || str(sectionReferenceTerm?.semester)
-        )
-        const yearNumber = extractSectionYearNumber(sectionYear)
-
         return subjects
-            .filter((subject) => {
-                const subjectId = str(subject.$id)
-                const isCurrentlySelected = selectedSubjectIds.has(subjectId)
-
-                const subjectDepartmentId = str(subject.departmentId)
-                if (collegeId && subjectDepartmentId && subjectDepartmentId !== collegeId) {
-                    return isCurrentlySelected
-                }
-
-                const subjectTermId = str(subject.termId)
-                if (termId) {
-                    if (!subjectTermId) return isCurrentlySelected
-                    if (subjectTermId !== termId) return isCurrentlySelected
-                }
-
-                const subjectProgramIds = resolveSubjectProgramIds(subject)
-                if (programId && subjectProgramIds.length > 0 && !subjectProgramIds.includes(programId)) {
-                    return isCurrentlySelected
-                }
-
-                const subjectYearLevels = resolveSubjectYearLevels(subject)
-                if (yearNumber && subjectYearLevels.length > 0 && !subjectYearLevels.includes(yearNumber)) {
-                    return isCurrentlySelected
-                }
-
-                if (!termId) {
-                    const subjectSemester = normalizeSemesterLabel(
-                        str(subject.semester) ||
-                        str(terms.find((term) => str(term.$id) === subjectTermId)?.semester)
-                    )
-
-                    if (semester && subjectSemester && subjectSemester !== semester) {
-                        return isCurrentlySelected
-                    }
-                }
-
-                return true
-            })
             .slice()
             .sort((a, b) => `${a.code} ${a.title}`.localeCompare(`${b.code} ${b.title}`))
-    }, [sectionCollegeId, sectionProgramId, sectionSubjectFilterTermId, sectionSubjectIds, sectionSemester, sectionYear, sectionReferenceTerm, subjects, terms])
-
-    React.useEffect(() => {
-        if (sectionSubjectIds.length === 0) return
-
-        const allowedIds = new Set(sectionSubjectsForSelectedScope.map((subject) => subject.$id))
-        setSectionSubjectIds((current) => {
-            const filtered = current.filter((subjectId) => allowedIds.has(subjectId))
-            return filtered.length === current.length ? current : filtered
-        })
-    }, [sectionSubjectIds.length, sectionSubjectsForSelectedScope])
+    }, [subjects])
 
     async function saveSection() {
         const referenceTermId = str(sectionTermId)
@@ -1919,17 +1856,10 @@ export function useMasterDataManagement() {
     }, [programs, q])
 
     const filteredSubjects = React.useMemo(() => {
-        const activeTermId = str(selectedTermId)
-
         return subjects.filter((s: any) => {
-            const linkedTermText = readFirstStringValue(s, SUBJECT_TERM_KEYS)
-
-            if (activeTermId && linkedTermText !== activeTermId) {
-                return false
-            }
-
             if (!q) return true
 
+            const linkedTermText = readFirstStringValue(s, SUBJECT_TERM_KEYS)
             const subjectProgramText = resolveSubjectProgramIds(s)
                 .map((programId) => programLabel(programs, programId || null))
                 .join(" ")
@@ -1937,7 +1867,7 @@ export function useMasterDataManagement() {
             const subjectSemesterText = readFirstStringValue(s, SUBJECT_SEMESTER_KEYS)
             return `${s.code} ${s.title} ${linkedTermText} ${subjectProgramText} ${subjectYearLevelText} ${subjectSemesterText}`.toLowerCase().includes(q)
         })
-    }, [subjects, q, programs, selectedTermId])
+    }, [subjects, q, programs])
 
     const filteredFaculty = React.useMemo(() => {
         if (!q) return facultyProfiles
@@ -1948,26 +1878,7 @@ export function useMasterDataManagement() {
         })
     }, [facultyProfiles, q, facultyUserMap])
 
-    const visibleSectionsByTerm = React.useMemo(() => {
-        const activeTermId = str(selectedTermId)
-        if (!activeTermId) return sections
-
-        return sections.filter((section) => {
-            if (str(section.termId) === activeTermId) {
-                return true
-            }
-
-            const linkedSubjectIds = resolveSectionSubjectIds(section as any)
-            if (linkedSubjectIds.length === 0) {
-                return false
-            }
-
-            return linkedSubjectIds.some((subjectId) => {
-                const linkedSubject = subjectMap.get(str(subjectId))
-                return str(linkedSubject?.termId) === activeTermId
-            })
-        })
-    }, [sections, selectedTermId, subjectMap])
+    const visibleSectionsByTerm = React.useMemo(() => sections, [sections])
 
     const filteredSections = React.useMemo(() => {
         const base = visibleSectionsByTerm

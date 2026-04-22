@@ -28,12 +28,6 @@ export default function Hero() {
                                         Stay audit-ready.
                                     </span>
                                 </h1>
-
-                                <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
-                                    WorkloadHub helps admins, department heads, and faculty
-                                    coordinate class schedules, workloads, availability,
-                                    approvals, and change requests—without spreadsheets chaos.
-                                </p>
                             </div>
                         </div>
 

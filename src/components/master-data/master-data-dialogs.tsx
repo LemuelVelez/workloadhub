@@ -638,7 +638,7 @@ export function MasterDataDialogs({ vm }: Props) {
 
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <Label>Academic Term Filter</Label>
+                            <Label>Academic Term View</Label>
                             <Select
                                 value={vm.sectionSubjectFilterTermId || "__all__"}
                                 onValueChange={(value) => {
@@ -699,7 +699,7 @@ export function MasterDataDialogs({ vm }: Props) {
                             </div>
 
                             <div className="grid gap-2">
-                                <Label>Subject Filter Semester</Label>
+                                <Label>Academic Term Semester View</Label>
                                 <Input value={vm.sectionSemester || "All Semesters"} disabled />
                             </div>
                         </div>
@@ -743,13 +743,13 @@ export function MasterDataDialogs({ vm }: Props) {
 
                         <div className="grid gap-2">
                             <div className="flex items-center justify-between gap-2">
-                                <Label>Linked Subjects</Label>
+                                <Label>Subjects</Label>
                             </div>
                             <ScrollArea className="h-44 rounded-md border">
                                 <div className="space-y-2 p-3">
                                     {sectionSubjectGroups.length === 0 ? (
                                         <div className="text-sm text-muted-foreground">
-                                            No matching subjects found for the selected reusable section scope.
+                                            No subjects found.
                                         </div>
                                     ) : (
                                         sectionSubjectGroups.map(([groupLabel, groupedSubjects]) => (

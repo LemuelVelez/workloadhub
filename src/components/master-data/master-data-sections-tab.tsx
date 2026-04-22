@@ -910,7 +910,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
 
   const [subjectViewerOpen, setSubjectViewerOpen] = React.useState(false);
   const [subjectViewerTitle, setSubjectViewerTitle] =
-    React.useState("Linked Subjects");
+    React.useState("Subjects");
   const [, setSubjectViewerDescription] = React.useState("");
   const [subjectViewerSubjects, setSubjectViewerSubjects] = React.useState<
     any[]
@@ -1989,7 +1989,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
       const cols = isIndividual
         ? ([
             { key: "academicTermCoverage", label: "Academic Term Coverage", w: "18%" },
-            { key: "linkedSubjects", label: "Linked Subjects", w: "42%" },
+            { key: "linkedSubjects", label: "Subjects", w: "42%" },
             { key: "studentCount", label: "Students", w: "10%" },
             { key: "status", label: "Status", w: "10%" },
             { key: "scopeSummary", label: "Scope", w: "20%" },
@@ -1998,7 +1998,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
             { key: "sectionLabel", label: "Section", w: "18%" },
             { key: "scopeSummary", label: "Scope", w: "17%" },
             { key: "academicTermCoverage", label: "Academic Term Coverage", w: "16%" },
-            { key: "linkedSubjects", label: "Linked Subjects", w: "31%" },
+            { key: "linkedSubjects", label: "Subjects", w: "31%" },
             { key: "studentCount", label: "Students", w: "8%" },
             { key: "status", label: "Status", w: "10%" },
           ] as const);
@@ -3143,7 +3143,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 </div>
                 <div className="grid gap-1">
                   <div className="text-xs font-medium text-muted-foreground">
-                    Linked Subjects
+                    Subjects
                   </div>
                   <div>{selectedSectionDetail.linkedSubjects.length}</div>
                 </div>
@@ -3169,7 +3169,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                               {resolveSectionReferenceTermLabel(vm, section)}
                             </div>
                             <div className="text-xs text-muted-foreground wrap-break-word">
-                              Linked subjects:{" "}
+                              Subjects:{" "}
                               {buildSectionSubjectSummary(vm, section)}
                             </div>
                           </div>
@@ -3276,7 +3276,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
                 openSubjectViewer({
                   title: `Subjects • ${selectedSectionDetail.label}`,
                   description:
-                    "All linked subjects for this reusable section group.",
+                    "All subjects currently associated with this reusable section group.",
                   subjects: selectedSectionDetail.linkedSubjects,
                 });
               }}
@@ -3424,7 +3424,7 @@ export function MasterDataSectionsTab({ vm }: Props) {
             <div className="space-y-2 p-3">
               {subjectViewerSubjects.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
-                  No linked subjects found.
+                  No subjects found.
                 </div>
               ) : (
                 subjectViewerSubjects.map((subject) => (
