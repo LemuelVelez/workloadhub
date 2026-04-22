@@ -300,6 +300,113 @@ function hasLinkedSubjectMetadata(subject?: SubjectDoc | null) {
 }
 
 
+const ADMIN_SCHEDULE_FILTERS_STORAGE_KEY = "workloadhub:admin-schedules-filters"
+
+type PersistedAdminScheduleFilters = {
+    showConflictsOnly: boolean
+    subjectCollegeFilter: string
+    subjectProgramFilters: string[]
+    subjectSectionFilters: string[]
+    subjectYearLevelFilters: string[]
+    subjectAcademicTermFilter: string
+}
+
+function buildAdminScheduleFiltersStorageKey(scopeKey?: string | null) {
+    const normalizedScopeKey = String(scopeKey || "").trim()
+    return normalizedScopeKey
+        ? `${ADMIN_SCHEDULE_FILTERS_STORAGE_KEY}:${normalizedScopeKey}`
+        : ADMIN_SCHEDULE_FILTERS_STORAGE_KEY
+}
+
+function createDefaultPersistedAdminScheduleFilters(): PersistedAdminScheduleFilters {
+    return {
+        showConflictsOnly: false,
+        subjectCollegeFilter: SUBJECT_FILTER_ALL_VALUE,
+        subjectProgramFilters: [],
+        subjectSectionFilters: [],
+        subjectYearLevelFilters: [],
+        subjectAcademicTermFilter: SUBJECT_FILTER_ALL_VALUE,
+    }
+}
+
+function normalizePersistedAdminScheduleFilterArray(value: unknown) {
+    if (!Array.isArray(value)) return []
+
+    return Array.from(
+        new Set(
+            value
+                .map((item) => String(item || "").trim())
+                .filter(Boolean)
+        )
+    )
+}
+
+function normalizePersistedAdminScheduleFilters(
+    value?: Partial<PersistedAdminScheduleFilters> | null
+): PersistedAdminScheduleFilters {
+    return {
+        showConflictsOnly: Boolean(value?.showConflictsOnly),
+        subjectCollegeFilter:
+            String(value?.subjectCollegeFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+        subjectProgramFilters: normalizePersistedAdminScheduleFilterArray(value?.subjectProgramFilters),
+        subjectSectionFilters: normalizePersistedAdminScheduleFilterArray(value?.subjectSectionFilters),
+        subjectYearLevelFilters: normalizePersistedAdminScheduleFilterArray(value?.subjectYearLevelFilters),
+        subjectAcademicTermFilter:
+            String(value?.subjectAcademicTermFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+    }
+}
+
+function arePersistedAdminScheduleFilterArraysEqual(current: string[], next: string[]) {
+    if (current.length !== next.length) return false
+
+    return current.every((value, index) => value === next[index])
+}
+
+function arePersistedAdminScheduleFiltersEqual(
+    current: PersistedAdminScheduleFilters,
+    next: PersistedAdminScheduleFilters
+) {
+    return (
+        current.showConflictsOnly === next.showConflictsOnly &&
+        current.subjectCollegeFilter === next.subjectCollegeFilter &&
+        current.subjectAcademicTermFilter === next.subjectAcademicTermFilter &&
+        arePersistedAdminScheduleFilterArraysEqual(current.subjectProgramFilters, next.subjectProgramFilters) &&
+        arePersistedAdminScheduleFilterArraysEqual(current.subjectSectionFilters, next.subjectSectionFilters) &&
+        arePersistedAdminScheduleFilterArraysEqual(current.subjectYearLevelFilters, next.subjectYearLevelFilters)
+    )
+}
+
+function readPersistedAdminScheduleFilters(storageKey: string): PersistedAdminScheduleFilters {
+    const fallback = createDefaultPersistedAdminScheduleFilters()
+
+    if (typeof window === "undefined") return fallback
+
+    try {
+        const rawValue = window.localStorage.getItem(storageKey)
+        if (!rawValue) return fallback
+
+        return normalizePersistedAdminScheduleFilters(
+            JSON.parse(rawValue) as Partial<PersistedAdminScheduleFilters> | null
+        )
+    } catch {
+        return fallback
+    }
+}
+
+function writePersistedAdminScheduleFilters(
+    storageKey: string,
+    value: PersistedAdminScheduleFilters
+) {
+    if (typeof window === "undefined") return
+
+    window.localStorage.setItem(
+        storageKey,
+        JSON.stringify(normalizePersistedAdminScheduleFilters(value))
+    )
+}
+
+
+
 
 type ExtraSmallScheduleCardShellProps = {
     value: string
@@ -456,6 +563,96 @@ export default function AdminSchedulesPage() {
         [activeAcademicTermIds]
     )
 
+    const scheduleFiltersHydratedRef = React.useRef(false)
+    const pendingPersistedScheduleFiltersRef = React.useRef<PersistedAdminScheduleFilters | null>(null)
+    const [scheduleFiltersHydrated, setScheduleFiltersHydrated] = React.useState(false)
+
+    const adminScheduleFiltersStorageKey = React.useMemo(
+        () => buildAdminScheduleFiltersStorageKey(activeScheduleScopeKey),
+        [activeScheduleScopeKey]
+    )
+
+    const currentPersistedAdminScheduleFilters = React.useMemo(
+        () =>
+            normalizePersistedAdminScheduleFilters({
+                showConflictsOnly,
+                subjectCollegeFilter,
+                subjectProgramFilters,
+                subjectSectionFilters,
+                subjectYearLevelFilters,
+                subjectAcademicTermFilter,
+            }),
+        [
+            showConflictsOnly,
+            subjectAcademicTermFilter,
+            subjectCollegeFilter,
+            subjectProgramFilters,
+            subjectSectionFilters,
+            subjectYearLevelFilters,
+        ]
+    )
+
+    React.useEffect(() => {
+        scheduleFiltersHydratedRef.current = false
+        setScheduleFiltersHydrated(false)
+
+        const persistedFilters = readPersistedAdminScheduleFilters(adminScheduleFiltersStorageKey)
+        pendingPersistedScheduleFiltersRef.current = persistedFilters
+
+        if (showConflictsOnly !== persistedFilters.showConflictsOnly) {
+            setShowConflictsOnly(persistedFilters.showConflictsOnly)
+        }
+
+        if (subjectCollegeFilter !== persistedFilters.subjectCollegeFilter) {
+            setSubjectCollegeFilter(persistedFilters.subjectCollegeFilter)
+        }
+
+        if (!arePersistedAdminScheduleFilterArraysEqual(subjectProgramFilters, persistedFilters.subjectProgramFilters)) {
+            setSubjectProgramFilters(persistedFilters.subjectProgramFilters)
+        }
+
+        if (!arePersistedAdminScheduleFilterArraysEqual(subjectSectionFilters, persistedFilters.subjectSectionFilters)) {
+            setSubjectSectionFilters(persistedFilters.subjectSectionFilters)
+        }
+
+        if (!arePersistedAdminScheduleFilterArraysEqual(subjectYearLevelFilters, persistedFilters.subjectYearLevelFilters)) {
+            setSubjectYearLevelFilters(persistedFilters.subjectYearLevelFilters)
+        }
+
+        if (subjectAcademicTermFilter !== persistedFilters.subjectAcademicTermFilter) {
+            setSubjectAcademicTermFilter(persistedFilters.subjectAcademicTermFilter)
+        }
+    }, [adminScheduleFiltersStorageKey])
+
+    React.useEffect(() => {
+        const pendingPersistedScheduleFilters = pendingPersistedScheduleFiltersRef.current
+
+        if (!pendingPersistedScheduleFilters) {
+            if (!scheduleFiltersHydratedRef.current) {
+                scheduleFiltersHydratedRef.current = true
+                setScheduleFiltersHydrated(true)
+            }
+            return
+        }
+
+        if (!arePersistedAdminScheduleFiltersEqual(currentPersistedAdminScheduleFilters, pendingPersistedScheduleFilters)) {
+            return
+        }
+
+        pendingPersistedScheduleFiltersRef.current = null
+        scheduleFiltersHydratedRef.current = true
+        setScheduleFiltersHydrated(true)
+    }, [currentPersistedAdminScheduleFilters])
+
+    React.useEffect(() => {
+        if (!scheduleFiltersHydratedRef.current) return
+        if (pendingPersistedScheduleFiltersRef.current) return
+
+        writePersistedAdminScheduleFilters(
+            adminScheduleFiltersStorageKey,
+            currentPersistedAdminScheduleFilters
+        )
+    }, [adminScheduleFiltersStorageKey, currentPersistedAdminScheduleFilters])
 
     React.useEffect(() => {
         setTermScopeSelection(activeAcademicTermIds)
@@ -1137,6 +1334,8 @@ export default function AdminSchedulesPage() {
     ])
 
     React.useEffect(() => {
+        if (!scheduleFiltersHydrated || loading || entriesLoading) return
+
         if (subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectCollegeOptions.includes(subjectCollegeFilter)) {
             setSubjectCollegeFilter(SUBJECT_FILTER_ALL_VALUE)
             return
@@ -1192,6 +1391,9 @@ export default function AdminSchedulesPage() {
             setSubjectSectionFilters(nextSectionFilters)
         }
     }, [
+        entriesLoading,
+        loading,
+        scheduleFiltersHydrated,
         subjectAcademicTermFilter,
         subjectAcademicTermOptions,
         subjectCollegeFilter,
