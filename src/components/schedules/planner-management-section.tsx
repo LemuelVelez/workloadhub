@@ -819,6 +819,31 @@ function writePersistedSubjectMatchingFilters(
     window.localStorage.setItem(storageKey, JSON.stringify(normalizedValue))
 }
 
+function normalizePersistedSubjectMatchingFilters(
+    value: PersistedSubjectMatchingFilters
+): PersistedSubjectMatchingFilters {
+    return {
+        subjectCollegeFilter: String(value.subjectCollegeFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+        subjectProgramFilters: normalizePersistedSubjectFilterArray(value.subjectProgramFilters),
+        subjectSectionFilters: normalizePersistedSubjectFilterArray(value.subjectSectionFilters),
+        subjectYearLevelFilters: normalizePersistedSubjectFilterArray(value.subjectYearLevelFilters),
+        subjectAcademicTermFilter: String(value.subjectAcademicTermFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+    }
+}
+
+function arePersistedSubjectMatchingFiltersEqual(
+    current: PersistedSubjectMatchingFilters,
+    next: PersistedSubjectMatchingFilters
+) {
+    return (
+        current.subjectCollegeFilter === next.subjectCollegeFilter &&
+        current.subjectAcademicTermFilter === next.subjectAcademicTermFilter &&
+        arePersistedSubjectFilterArraysEqual(current.subjectProgramFilters, next.subjectProgramFilters) &&
+        arePersistedSubjectFilterArraysEqual(current.subjectSectionFilters, next.subjectSectionFilters) &&
+        arePersistedSubjectFilterArraysEqual(current.subjectYearLevelFilters, next.subjectYearLevelFilters)
+    )
+}
+
 const assetUrlCache = new Map<string, Promise<string>>()
 
 function inchesToPoints(value: number) {
@@ -1757,16 +1782,38 @@ export function PlannerManagementSection({
     const [pdfPreviewUrl, setPdfPreviewUrl] = React.useState<string | null>(null)
     const pdfPreviewUrlRef = React.useRef<string | null>(null)
     const subjectMatchingFiltersHydratedRef = React.useRef(false)
+    const pendingPersistedSubjectMatchingFiltersRef = React.useRef<PersistedSubjectMatchingFilters | null>(null)
 
     const subjectMatchingFiltersStorageKey = React.useMemo(
         () => buildSubjectMatchingFiltersStorageKey(scheduleScopeKey),
         [scheduleScopeKey]
     )
 
+    const currentPersistedSubjectMatchingFilters = React.useMemo(
+        () =>
+            normalizePersistedSubjectMatchingFilters({
+                subjectCollegeFilter,
+                subjectProgramFilters,
+                subjectSectionFilters,
+                subjectYearLevelFilters,
+                subjectAcademicTermFilter,
+            }),
+        [
+            subjectAcademicTermFilter,
+            subjectCollegeFilter,
+            subjectProgramFilters,
+            subjectSectionFilters,
+            subjectYearLevelFilters,
+        ]
+    )
+
     React.useEffect(() => {
         subjectMatchingFiltersHydratedRef.current = false
 
-        const persistedFilters = readPersistedSubjectMatchingFilters(subjectMatchingFiltersStorageKey)
+        const persistedFilters = normalizePersistedSubjectMatchingFilters(
+            readPersistedSubjectMatchingFilters(subjectMatchingFiltersStorageKey)
+        )
+        pendingPersistedSubjectMatchingFiltersRef.current = persistedFilters
 
         if (subjectCollegeFilter !== persistedFilters.subjectCollegeFilter) {
             setSubjectCollegeFilter(persistedFilters.subjectCollegeFilter)
@@ -1790,28 +1837,39 @@ export function PlannerManagementSection({
         if (subjectAcademicTermFilter !== persistedFilters.subjectAcademicTermFilter) {
             setSubjectAcademicTermFilter(persistedFilters.subjectAcademicTermFilter)
         }
-
-        subjectMatchingFiltersHydratedRef.current = true
     }, [subjectMatchingFiltersStorageKey])
 
     React.useEffect(() => {
-        if (!subjectMatchingFiltersHydratedRef.current) return
+        const pendingPersistedSubjectMatchingFilters = pendingPersistedSubjectMatchingFiltersRef.current
+        if (!pendingPersistedSubjectMatchingFilters) {
+            if (!subjectMatchingFiltersHydratedRef.current) {
+                subjectMatchingFiltersHydratedRef.current = true
+            }
+            return
+        }
 
-        writePersistedSubjectMatchingFilters(subjectMatchingFiltersStorageKey, {
-            subjectCollegeFilter,
-            subjectProgramFilters,
-            subjectSectionFilters,
-            subjectYearLevelFilters,
-            subjectAcademicTermFilter,
-        })
-    }, [
-        subjectAcademicTermFilter,
-        subjectCollegeFilter,
-        subjectMatchingFiltersStorageKey,
-        subjectProgramFilters,
-        subjectSectionFilters,
-        subjectYearLevelFilters,
-    ])
+        if (
+            !arePersistedSubjectMatchingFiltersEqual(
+                currentPersistedSubjectMatchingFilters,
+                pendingPersistedSubjectMatchingFilters
+            )
+        ) {
+            return
+        }
+
+        pendingPersistedSubjectMatchingFiltersRef.current = null
+        subjectMatchingFiltersHydratedRef.current = true
+    }, [currentPersistedSubjectMatchingFilters])
+
+    React.useEffect(() => {
+        if (!subjectMatchingFiltersHydratedRef.current) return
+        if (pendingPersistedSubjectMatchingFiltersRef.current) return
+
+        writePersistedSubjectMatchingFilters(
+            subjectMatchingFiltersStorageKey,
+            currentPersistedSubjectMatchingFilters
+        )
+    }, [currentPersistedSubjectMatchingFilters, subjectMatchingFiltersStorageKey])
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
