@@ -1969,7 +1969,7 @@ export function RoomSchedulePrintSheet({
                     if (!open) cleanupPreviewUrl()
                 }}
             >
-                <DialogContent className="h-[95svh] sm:max-w-7xl">
+                <DialogContent className="max-h-[95svh] overflow-auto sm:max-w-7xl">
                     <DialogHeader>
                         <DialogTitle>
                             PDF Preview — {roomLabel} ({selectedScheduleLabel})

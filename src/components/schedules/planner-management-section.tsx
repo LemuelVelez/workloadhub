@@ -130,6 +130,7 @@ type Props = {
     subjectProgramFilters: string[]
     setSubjectProgramFilters: React.Dispatch<React.SetStateAction<string[]>>
     subjectSectionFilters: string[]
+    setSubjectSectionFilters?: React.Dispatch<React.SetStateAction<string[]>>
     subjectYearLevelFilters: string[]
     setSubjectYearLevelFilters: React.Dispatch<React.SetStateAction<string[]>>
     subjectAcademicTermFilter: string
@@ -719,6 +720,92 @@ const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"
 const HEADER_SUBTITLE = "The Premier University in Zamboanga del Norte"
 const HEADER_COLLEGE = "COLLEGE OF COMPUTING STUDIES"
 const HEADER_DOCUMENT = "SCHEDULE PLANNER REPORT"
+
+const SUBJECT_MATCHING_FILTERS_STORAGE_KEY = "workloadhub:subject-matching-filters"
+
+type PersistedSubjectMatchingFilters = {
+    subjectCollegeFilter: string
+    subjectProgramFilters: string[]
+    subjectSectionFilters: string[]
+    subjectYearLevelFilters: string[]
+    subjectAcademicTermFilter: string
+}
+
+function buildSubjectMatchingFiltersStorageKey(scopeKey?: string | null) {
+    const normalizedScopeKey = String(scopeKey || "").trim()
+    return normalizedScopeKey
+        ? `${SUBJECT_MATCHING_FILTERS_STORAGE_KEY}:${normalizedScopeKey}`
+        : SUBJECT_MATCHING_FILTERS_STORAGE_KEY
+}
+
+function createDefaultPersistedSubjectMatchingFilters(): PersistedSubjectMatchingFilters {
+    return {
+        subjectCollegeFilter: SUBJECT_FILTER_ALL_VALUE,
+        subjectProgramFilters: [],
+        subjectSectionFilters: [],
+        subjectYearLevelFilters: [],
+        subjectAcademicTermFilter: SUBJECT_FILTER_ALL_VALUE,
+    }
+}
+
+function normalizePersistedSubjectFilterArray(value: unknown) {
+    if (!Array.isArray(value)) return []
+
+    return Array.from(
+        new Set(
+            value
+                .map((item) => String(item || "").trim())
+                .filter(Boolean)
+        )
+    )
+}
+
+function arePersistedSubjectFilterArraysEqual(current: string[], next: string[]) {
+    if (current.length !== next.length) return false
+
+    return current.every((value, index) => value === next[index])
+}
+
+function readPersistedSubjectMatchingFilters(storageKey: string): PersistedSubjectMatchingFilters {
+    const fallback = createDefaultPersistedSubjectMatchingFilters()
+
+    if (typeof window === "undefined") return fallback
+
+    try {
+        const rawValue = window.localStorage.getItem(storageKey)
+        if (!rawValue) return fallback
+
+        const parsedValue = JSON.parse(rawValue) as Partial<PersistedSubjectMatchingFilters> | null
+        return {
+            subjectCollegeFilter:
+                String(parsedValue?.subjectCollegeFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+            subjectProgramFilters: normalizePersistedSubjectFilterArray(parsedValue?.subjectProgramFilters),
+            subjectSectionFilters: normalizePersistedSubjectFilterArray(parsedValue?.subjectSectionFilters),
+            subjectYearLevelFilters: normalizePersistedSubjectFilterArray(parsedValue?.subjectYearLevelFilters),
+            subjectAcademicTermFilter:
+                String(parsedValue?.subjectAcademicTermFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+        }
+    } catch {
+        return fallback
+    }
+}
+
+function writePersistedSubjectMatchingFilters(
+    storageKey: string,
+    value: PersistedSubjectMatchingFilters
+) {
+    if (typeof window === "undefined") return
+
+    const normalizedValue = {
+        subjectCollegeFilter: String(value.subjectCollegeFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+        subjectProgramFilters: normalizePersistedSubjectFilterArray(value.subjectProgramFilters),
+        subjectSectionFilters: normalizePersistedSubjectFilterArray(value.subjectSectionFilters),
+        subjectYearLevelFilters: normalizePersistedSubjectFilterArray(value.subjectYearLevelFilters),
+        subjectAcademicTermFilter: String(value.subjectAcademicTermFilter || "").trim() || SUBJECT_FILTER_ALL_VALUE,
+    } satisfies PersistedSubjectMatchingFilters
+
+    window.localStorage.setItem(storageKey, JSON.stringify(normalizedValue))
+}
 
 const assetUrlCache = new Map<string, Promise<string>>()
 
@@ -1565,10 +1652,15 @@ export function PlannerManagementSection({
     formSubjectIds,
     setFormSubjectIds,
     subjectCollegeFilter,
+    setSubjectCollegeFilter,
     subjectProgramFilters,
+    setSubjectProgramFilters,
     subjectSectionFilters,
+    setSubjectSectionFilters,
     subjectYearLevelFilters,
+    setSubjectYearLevelFilters,
     subjectAcademicTermFilter,
+    setSubjectAcademicTermFilter,
     formFacultyChoice,
     setFormFacultyChoice,
     formManualFaculty,
@@ -1609,6 +1701,62 @@ export function PlannerManagementSection({
     const [pdfExportBusy, setPdfExportBusy] = React.useState(false)
     const [pdfPreviewUrl, setPdfPreviewUrl] = React.useState<string | null>(null)
     const pdfPreviewUrlRef = React.useRef<string | null>(null)
+    const subjectMatchingFiltersHydratedRef = React.useRef(false)
+
+    const subjectMatchingFiltersStorageKey = React.useMemo(
+        () => buildSubjectMatchingFiltersStorageKey(scheduleScopeKey),
+        [scheduleScopeKey]
+    )
+
+    React.useEffect(() => {
+        subjectMatchingFiltersHydratedRef.current = false
+
+        const persistedFilters = readPersistedSubjectMatchingFilters(subjectMatchingFiltersStorageKey)
+
+        if (subjectCollegeFilter !== persistedFilters.subjectCollegeFilter) {
+            setSubjectCollegeFilter(persistedFilters.subjectCollegeFilter)
+        }
+
+        if (!arePersistedSubjectFilterArraysEqual(subjectProgramFilters, persistedFilters.subjectProgramFilters)) {
+            setSubjectProgramFilters(persistedFilters.subjectProgramFilters)
+        }
+
+        if (
+            setSubjectSectionFilters &&
+            !arePersistedSubjectFilterArraysEqual(subjectSectionFilters, persistedFilters.subjectSectionFilters)
+        ) {
+            setSubjectSectionFilters(persistedFilters.subjectSectionFilters)
+        }
+
+        if (!arePersistedSubjectFilterArraysEqual(subjectYearLevelFilters, persistedFilters.subjectYearLevelFilters)) {
+            setSubjectYearLevelFilters(persistedFilters.subjectYearLevelFilters)
+        }
+
+        if (subjectAcademicTermFilter !== persistedFilters.subjectAcademicTermFilter) {
+            setSubjectAcademicTermFilter(persistedFilters.subjectAcademicTermFilter)
+        }
+
+        subjectMatchingFiltersHydratedRef.current = true
+    }, [subjectMatchingFiltersStorageKey])
+
+    React.useEffect(() => {
+        if (!subjectMatchingFiltersHydratedRef.current) return
+
+        writePersistedSubjectMatchingFilters(subjectMatchingFiltersStorageKey, {
+            subjectCollegeFilter,
+            subjectProgramFilters,
+            subjectSectionFilters,
+            subjectYearLevelFilters,
+            subjectAcademicTermFilter,
+        })
+    }, [
+        subjectAcademicTermFilter,
+        subjectCollegeFilter,
+        subjectMatchingFiltersStorageKey,
+        subjectProgramFilters,
+        subjectSectionFilters,
+        subjectYearLevelFilters,
+    ])
 
     const sectionDisplayLookup = React.useMemo(() => buildSectionDisplayLookup(sections), [sections])
 
