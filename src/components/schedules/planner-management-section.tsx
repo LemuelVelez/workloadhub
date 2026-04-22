@@ -732,6 +732,19 @@ const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"
 const HEADER_SUBTITLE = "The Premier University in Zamboanga del Norte"
 const HEADER_COLLEGE = "COLLEGE OF COMPUTING STUDIES"
 const HEADER_DOCUMENT = "SCHEDULE PLANNER REPORT"
+const PDF_TABLE_BORDER_COLOR = "#6B7280"
+const PDF_TABLE_HEADER_FILL = "#F8FAFC"
+const PDF_TABLE_HEADER_TEXT = "#111827"
+const PDF_TABLE_BODY_TEXT = "#0F172A"
+const PDF_TABLE_CONFLICT_FILL = "#FEE2E2"
+const PDF_PASTEL_ROW_FILLS = [
+    "#F5DEB8",
+    "#F4CBD7",
+    "#DCE7FB",
+    "#DCECAB",
+    "#E8DDF8",
+    "#FBE4CB",
+] as const
 
 const SUBJECT_MATCHING_FILTERS_STORAGE_KEY = "workloadhub:subject-matching-filters"
 
@@ -969,15 +982,51 @@ function getAssetAsDataUrl(path: string) {
     return assetUrlCache.get(path)!
 }
 
+function stablePdfRowHash(value: string) {
+    let hash = 0
+    for (let index = 0; index < value.length; index += 1) {
+        hash = (hash << 5) - hash + value.charCodeAt(index)
+        hash |= 0
+    }
+    return Math.abs(hash)
+}
+
+function resolvePlannerPdfRowBackground(row: PlannerDisplayRow) {
+    const seed = [
+        row.sectionDisplay,
+        row.subjectCodeDisplay,
+        row.meetingTypeDisplay,
+        row.roomDisplay,
+    ]
+        .map((value) => String(value || "").trim())
+        .join("|")
+
+    const paletteIndex = stablePdfRowHash(seed || row.key) % PDF_PASTEL_ROW_FILLS.length
+    return PDF_PASTEL_ROW_FILLS[paletteIndex]
+}
+
 const pdfStyles = StyleSheet.create({
     page: {
         paddingTop: 18,
         paddingRight: 22,
-        paddingBottom: 36,
+        paddingBottom: 18,
         paddingLeft: 22,
         fontFamily: "Helvetica",
         color: "#1F2937",
-        fontSize: 8.5,
+        fontSize: 8.25,
+    },
+    sheetWrap: {
+        width: "100%",
+        minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
+    },
+    contentWrap: {
+        width: "100%",
+    },
+    bottomWrap: {
+        width: "100%",
+        marginTop: "auto",
     },
     headerWrap: {
         width: "100%",
@@ -1035,7 +1084,7 @@ const pdfStyles = StyleSheet.create({
         textAlign: "center",
         color: "#4B5563",
         marginTop: 8,
-        marginBottom: 2,
+        marginBottom: 3,
     },
     metaCenter: {
         fontSize: 8.1,
@@ -1044,53 +1093,46 @@ const pdfStyles = StyleSheet.create({
         marginBottom: 1,
     },
     table: {
+        width: "100%",
         marginTop: 10,
         borderWidth: 1,
-        borderColor: "#CBD5E1",
+        borderColor: PDF_TABLE_BORDER_COLOR,
     },
     headerRowTable: {
         flexDirection: "row",
-        backgroundColor: "#0F172A",
+        width: "100%",
     },
     headerCell: {
-        padding: 6,
-        color: "#FFFFFF",
+        paddingTop: 6,
+        paddingRight: 6,
+        paddingBottom: 6,
+        paddingLeft: 6,
+        color: PDF_TABLE_HEADER_TEXT,
         fontWeight: "bold",
-        borderRightWidth: 1,
-        borderRightColor: "#CBD5E1",
+        fontSize: 8.1,
+        backgroundColor: PDF_TABLE_HEADER_FILL,
+        borderBottomWidth: 1,
+        borderBottomColor: PDF_TABLE_BORDER_COLOR,
     },
     row: {
         flexDirection: "row",
     },
-    cell: {
-        padding: 6,
-        borderTopWidth: 1,
-        borderTopColor: "#CBD5E1",
-        borderRightWidth: 1,
-        borderRightColor: "#CBD5E1",
-        color: "#0F172A",
-    },
-    zebra: {
-        backgroundColor: "#F8FAFC",
-    },
     conflictRow: {
-        backgroundColor: "#FEE2E2",
+        backgroundColor: PDF_TABLE_CONFLICT_FILL,
     },
-    footerText: {
-        position: "absolute",
-        bottom: 12,
-        left: 22,
-        right: 22,
-        flexDirection: "row",
-        justifyContent: "space-between",
-        fontSize: 8,
-        color: "#64748B",
+    cell: {
+        paddingTop: 5,
+        paddingRight: 6,
+        paddingBottom: 5,
+        paddingLeft: 6,
+        borderTopWidth: 1,
+        borderTopColor: PDF_TABLE_BORDER_COLOR,
+        color: PDF_TABLE_BODY_TEXT,
+        fontSize: 7.35,
     },
     footerRuleWrap: {
-        position: "absolute",
-        bottom: 24,
-        left: 22,
-        right: 22,
+        width: "100%",
+        marginTop: 18,
     },
     blueRule: {
         height: 2,
@@ -1102,6 +1144,13 @@ const pdfStyles = StyleSheet.create({
         backgroundColor: "#E9C76B",
         width: "100%",
         marginTop: 2,
+    },
+    footerText: {
+        marginTop: 8,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        fontSize: 8,
+        color: "#64748B",
     },
 })
 
@@ -1378,12 +1427,12 @@ function SchedulePdfDocument({
     rightLogoSrc: string
 }) {
     const columns = [
-        { key: "day", label: "Day", width: "10%", align: "left" as const },
-        { key: "time", label: "Time", width: "14%", align: "left" as const },
-        { key: "subject", label: "Subject", width: "27%", align: "left" as const },
+        { key: "day", label: "Day", width: "11%", align: "left" as const },
+        { key: "time", label: "Time", width: "15%", align: "left" as const },
+        { key: "subject", label: "Subject", width: "25%", align: "left" as const },
         { key: "section", label: "Section", width: "14%", align: "left" as const },
-        { key: "faculty", label: "Instructor", width: "18%", align: "left" as const },
-        { key: "room", label: "Room", width: "9%", align: "left" as const },
+        { key: "faculty", label: "Instructor", width: "17%", align: "left" as const },
+        { key: "room", label: "Room", width: "10%", align: "left" as const },
         { key: "conflict", label: "Conflict", width: "8%", align: "center" as const },
     ]
 
@@ -1395,89 +1444,38 @@ function SchedulePdfDocument({
     return (
         <Document title={`${HEADER_DOCUMENT}${scopeLabel ? ` - ${scopeLabel}` : ""}`}>
             <Page {...pdfPageProps} style={pdfStyles.page}>
-                <View style={pdfStyles.headerWrap}>
-                    <View style={pdfStyles.headerRow}>
-                        <View style={pdfStyles.logoWrap}>
-                            <Image src={leftLogoSrc} style={pdfStyles.logo} />
-                        </View>
-
-                        <View style={pdfStyles.centerHeader}>
-                            <Text style={pdfStyles.republic}>{HEADER_REPUBLIC}</Text>
-                            <Text style={pdfStyles.school}>{HEADER_INSTITUTION}</Text>
-                            <Text style={pdfStyles.campusLine}>{HEADER_SUBTITLE}</Text>
-                            <Text style={pdfStyles.college}>{HEADER_COLLEGE}</Text>
-                        </View>
-
-                        <View style={pdfStyles.logoWrap}>
-                            <Image src={rightLogoSrc} style={pdfStyles.logo} />
-                        </View>
-                    </View>
-                </View>
-
-                <Text style={pdfStyles.documentTitle}>{HEADER_DOCUMENT}</Text>
-                <Text style={pdfStyles.metaCenter}>
-                    Schedule Scope: {scheduleScopeLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
-                </Text>
-                <Text style={pdfStyles.metaCenter}>
-                    {scopeLabel ? `${scopeLabel}` : ""}
-                </Text>
-                <Text style={pdfStyles.metaCenter}>Generated at: {generatedAt}</Text>
-
-                <View style={pdfStyles.table}>
-                    <View style={pdfStyles.headerRowTable} wrap={false}>
-                        {columns.map((column, index) => {
-                            const isLast = index === columns.length - 1
-
-                            return (
-                                <View
-                                    key={column.key}
-                                    style={{
-                                        width: column.width,
-                                        borderRightWidth: isLast ? 0 : 1,
-                                        borderRightColor: "#CBD5E1",
-                                    }}
-                                >
-                                    <Text
-                                        style={[
-                                            pdfStyles.headerCell,
-                                            {
-                                                borderRightWidth: 0,
-                                                textAlign: column.align,
-                                            },
-                                        ]}
-                                    >
-                                        {column.label}
-                                    </Text>
+                <View style={pdfStyles.sheetWrap}>
+                    <View style={pdfStyles.contentWrap}>
+                        <View style={pdfStyles.headerWrap}>
+                            <View style={pdfStyles.headerRow}>
+                                <View style={pdfStyles.logoWrap}>
+                                    <Image src={leftLogoSrc} style={pdfStyles.logo} />
                                 </View>
-                            )
-                        })}
-                    </View>
 
-                    {rows.map((row, index) => {
-                        const rowStyles = [
-                            pdfStyles.row,
-                            ...(row.hasConflict ? [pdfStyles.conflictRow] : []),
-                            ...(row.hasConflict || index % 2 !== 1 ? [] : [pdfStyles.zebra]),
-                        ]
-                        const subjectDisplay = row.descriptiveTitleDisplay && row.descriptiveTitleDisplay !== "—"
-                            ? `${row.subjectCodeDisplay} • ${row.descriptiveTitleDisplay}`
-                            : row.subjectCodeDisplay || "—"
+                                <View style={pdfStyles.centerHeader}>
+                                    <Text style={pdfStyles.republic}>{HEADER_REPUBLIC}</Text>
+                                    <Text style={pdfStyles.school}>{HEADER_INSTITUTION}</Text>
+                                    <Text style={pdfStyles.campusLine}>{HEADER_SUBTITLE}</Text>
+                                    <Text style={pdfStyles.college}>{HEADER_COLLEGE}</Text>
+                                </View>
 
-                        const values: Record<string, string> = {
-                            day: row.dayDisplay || "—",
-                            time: row.timeDisplay || "—",
-                            subject: subjectDisplay || "—",
-                            section: row.sectionDisplay || "—",
-                            faculty: row.facultyDisplay || "—",
-                            room: row.roomDisplay || "—",
-                            conflict: row.hasConflict ? "Conflict" : "Clear",
-                        }
+                                <View style={pdfStyles.logoWrap}>
+                                    <Image src={rightLogoSrc} style={pdfStyles.logo} />
+                                </View>
+                            </View>
+                        </View>
 
-                        return (
-                            <View key={row.key} style={rowStyles} wrap={false}>
-                                {columns.map((column, columnIndex) => {
-                                    const isLast = columnIndex === columns.length - 1
-                                    const value = values[column.key] || "—"
+                        <Text style={pdfStyles.documentTitle}>{HEADER_DOCUMENT}</Text>
+                        <Text style={pdfStyles.metaCenter}>
+                            Schedule Scope: {scheduleScopeLabel || "—"} • Term: {termLabel || "—"} • College: {deptLabel || "—"}
+                        </Text>
+                        {scopeLabel ? <Text style={pdfStyles.metaCenter}>{scopeLabel}</Text> : null}
+                        <Text style={pdfStyles.metaCenter}>Generated at: {generatedAt}</Text>
+
+                        <View style={pdfStyles.table}>
+                            <View style={pdfStyles.headerRowTable} wrap={false}>
+                                {columns.map((column, index) => {
+                                    const isLast = index === columns.length - 1
 
                                     return (
                                         <View
@@ -1485,50 +1483,109 @@ function SchedulePdfDocument({
                                             style={{
                                                 width: column.width,
                                                 borderRightWidth: isLast ? 0 : 1,
-                                                borderRightColor: "#CBD5E1",
+                                                borderRightColor: PDF_TABLE_BORDER_COLOR,
                                             }}
                                         >
                                             <Text
                                                 style={[
-                                                    pdfStyles.cell,
+                                                    pdfStyles.headerCell,
                                                     {
-                                                        borderRightWidth: 0,
                                                         textAlign: column.align,
-                                                        fontWeight: column.key === "conflict" ? "bold" : "normal",
-                                                        color:
-                                                            column.key === "conflict"
-                                                                ? row.hasConflict
-                                                                    ? "#7F1D1D"
-                                                                    : "#065F46"
-                                                                : "#0F172A",
                                                     },
                                                 ]}
                                             >
-                                                {value}
+                                                {column.label}
                                             </Text>
                                         </View>
                                     )
                                 })}
                             </View>
-                        )
-                    })}
-                </View>
 
-                <View style={pdfStyles.footerRuleWrap} fixed>
-                    <View style={pdfStyles.blueRule} />
-                    <View style={pdfStyles.goldRule} />
-                </View>
+                            {rows.map((row) => {
+                                const rowStyles = [
+                                    pdfStyles.row,
+                                    row.hasConflict
+                                        ? pdfStyles.conflictRow
+                                        : { backgroundColor: resolvePlannerPdfRowBackground(row) },
+                                ]
+                                const subjectDisplay =
+                                    row.descriptiveTitleDisplay && row.descriptiveTitleDisplay !== "—"
+                                        ? `${row.subjectCodeDisplay} • ${row.descriptiveTitleDisplay}`
+                                        : row.subjectCodeDisplay || "—"
 
-                <View style={pdfStyles.footerText} fixed>
-                    <Text>
-                        {rows.length} grouped entr{rows.length === 1 ? "y" : "ies"}
-                    </Text>
-                    <Text>WorkloadHub</Text>
+                                const values: Record<string, string> = {
+                                    day: row.dayDisplay || "—",
+                                    time: row.timeDisplay || "—",
+                                    subject: subjectDisplay || "—",
+                                    section: row.sectionDisplay || "—",
+                                    faculty: row.facultyDisplay || "—",
+                                    room: row.roomDisplay || "—",
+                                    conflict: row.hasConflict ? "Conflict" : "Clear",
+                                }
+
+                                return (
+                                    <View key={row.key} style={rowStyles} wrap={false}>
+                                        {columns.map((column, columnIndex) => {
+                                            const isLast = columnIndex === columns.length - 1
+                                            const value = values[column.key] || "—"
+
+                                            return (
+                                                <View
+                                                    key={column.key}
+                                                    style={{
+                                                        width: column.width,
+                                                        borderRightWidth: isLast ? 0 : 1,
+                                                        borderRightColor: PDF_TABLE_BORDER_COLOR,
+                                                    }}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            pdfStyles.cell,
+                                                            {
+                                                                textAlign: column.align,
+                                                                fontWeight:
+                                                                    column.key === "subject" || column.key === "conflict"
+                                                                        ? "bold"
+                                                                        : "normal",
+                                                                color:
+                                                                    column.key === "conflict"
+                                                                        ? row.hasConflict
+                                                                            ? "#7F1D1D"
+                                                                            : "#166534"
+                                                                        : PDF_TABLE_BODY_TEXT,
+                                                            },
+                                                        ]}
+                                                    >
+                                                        {value}
+                                                    </Text>
+                                                </View>
+                                            )
+                                        })}
+                                    </View>
+                                )
+                            })}
+                        </View>
+                    </View>
+
+                    <View style={pdfStyles.bottomWrap}>
+                        <View style={pdfStyles.footerRuleWrap}>
+                            <View style={pdfStyles.blueRule} />
+                            <View style={pdfStyles.goldRule} />
+                        </View>
+
+                        <View style={pdfStyles.footerText}>
+                            <Text>
+                                {rows.length} grouped entr{rows.length === 1 ? "y" : "ies"}
+                            </Text>
+                            <Text>WorkloadHub</Text>
+                        </View>
+                    </View>
                 </View>
             </Page>
         </Document>
     )
 }
+
 
 
 type ExtraSmallPlannerCardShellProps = {
