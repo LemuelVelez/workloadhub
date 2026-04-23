@@ -888,9 +888,9 @@ export default function AdminSchedulesPage() {
     )
 
     const hasSelectedCollege = subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE
-    const hasSelectedSemester = hasSelectedCollege && subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE
-    const hasSelectedPrograms = hasSelectedSemester && subjectProgramFilters.length > 0
-    const hasSelectedYearLevels = hasSelectedPrograms && subjectYearLevelFilters.length > 0
+    const hasSelectedSemester = subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE
+    const hasSelectedPrograms = subjectProgramFilters.length > 0
+    const hasSelectedYearLevels = subjectYearLevelFilters.length > 0
 
     const sectionsMatchingCollege = React.useMemo(
         () =>
@@ -1179,8 +1179,6 @@ export default function AdminSchedulesPage() {
     )
 
     const subjectProgramOptions = React.useMemo(() => {
-        if (!hasSelectedSemester) return []
-
         const semesterScopedSubjects = subjects.filter((subject) => {
             const subjectCollegeValues = getSubjectCollegeNameValues(subject)
             const subjectAcademicTermValues = getSubjectAcademicTermNameValues(subject)
@@ -1197,8 +1195,12 @@ export default function AdminSchedulesPage() {
             return matchesSelectedSubjectFilter(subjectCollegeFilter, [departmentName])
         })
 
+        const scopedSections = hasSelectedSemester
+            ? sectionsMatchingCollegeAndSemester
+            : sectionsMatchingCollege
+
         return buildSubjectFilterOptions([
-            ...sectionsMatchingCollegeAndSemester.map((section) => getSectionProgramDisplayName(section)),
+            ...scopedSections.map((section) => getSectionProgramDisplayName(section)),
             ...scopedPrograms.map((program) => normalizeDisplayValue(program.name)),
             ...semesterScopedSubjects.flatMap((subject) => getSubjectProgramNameValues(subject)),
         ])
@@ -1212,6 +1214,7 @@ export default function AdminSchedulesPage() {
         matchesSelectedSubjectFilter,
         normalizeDisplayValue,
         programs,
+        sectionsMatchingCollege,
         sectionsMatchingCollegeAndSemester,
         subjectAcademicTermFilter,
         subjectCollegeFilter,
@@ -1247,14 +1250,16 @@ export default function AdminSchedulesPage() {
 
 
     const subjectAcademicTermOptions = React.useMemo(() => {
-        if (!hasSelectedCollege) return []
+        const collegeScopedSubjects = hasSelectedCollege
+            ? subjects.filter((subject) =>
+                matchesSelectedSubjectFilter(subjectCollegeFilter, getSubjectCollegeNameValues(subject))
+            )
+            : subjects
 
-        const collegeScopedSubjects = subjects.filter((subject) =>
-            matchesSelectedSubjectFilter(subjectCollegeFilter, getSubjectCollegeNameValues(subject))
-        )
+        const scopedSections = hasSelectedCollege ? sectionsMatchingCollege : sections
 
         return buildSubjectFilterOptions([
-            ...sectionsMatchingCollege.map((section) => getSectionAcademicTermDisplay(section)),
+            ...scopedSections.map((section) => getSectionAcademicTermDisplay(section)),
             ...activeAcademicTerms.map((term) => buildAcademicTermOptionLabel(term)),
             ...collegeScopedSubjects.flatMap((subject) => getSubjectAcademicTermNameValues(subject)),
         ])
@@ -1266,6 +1271,7 @@ export default function AdminSchedulesPage() {
         getSubjectCollegeNameValues,
         hasSelectedCollege,
         matchesSelectedSubjectFilter,
+        sections,
         sectionsMatchingCollege,
         subjectCollegeFilter,
         subjects,
@@ -1282,28 +1288,18 @@ export default function AdminSchedulesPage() {
 
     const setSubjectCollegeFilterCascade = React.useCallback((value: string) => {
         setSubjectCollegeFilter(value)
-        setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
-        setSubjectProgramFilters([])
-        setSubjectYearLevelFilters([])
-        setSubjectSectionFilters([])
     }, [])
 
     const setSubjectAcademicTermFilterCascade = React.useCallback((value: string) => {
         setSubjectAcademicTermFilter(value)
-        setSubjectProgramFilters([])
-        setSubjectYearLevelFilters([])
-        setSubjectSectionFilters([])
     }, [])
 
     const setSubjectProgramFiltersCascade = React.useCallback((value: React.SetStateAction<string[]>) => {
         setSubjectProgramFilters((current) => (typeof value === "function" ? value(current) : value))
-        setSubjectYearLevelFilters([])
-        setSubjectSectionFilters([])
     }, [])
 
     const setSubjectYearLevelFiltersCascade = React.useCallback((value: React.SetStateAction<string[]>) => {
         setSubjectYearLevelFilters((current) => (typeof value === "function" ? value(current) : value))
-        setSubjectSectionFilters([])
     }, [])
 
 
@@ -1374,47 +1370,25 @@ export default function AdminSchedulesPage() {
             return
         }
 
-        if (subjectCollegeFilter === SUBJECT_FILTER_ALL_VALUE) {
-            if (subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE) setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
-            if (subjectProgramFilters.length > 0) setSubjectProgramFilters([])
-            if (subjectYearLevelFilters.length > 0) setSubjectYearLevelFilters([])
-            if (subjectSectionFilters.length > 0) setSubjectSectionFilters([])
-            return
-        }
-
         if (subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectAcademicTermOptions.includes(subjectAcademicTermFilter)) {
             setSubjectAcademicTermFilter(SUBJECT_FILTER_ALL_VALUE)
             return
         }
 
-        if (subjectAcademicTermFilter === SUBJECT_FILTER_ALL_VALUE) {
-            if (subjectProgramFilters.length > 0) setSubjectProgramFilters([])
-            if (subjectYearLevelFilters.length > 0) setSubjectYearLevelFilters([])
-            if (subjectSectionFilters.length > 0) setSubjectSectionFilters([])
-            return
+        if (subjectProgramFilters.length > 0) {
+            const nextProgramFilters = subjectProgramFilters.filter((value) => subjectProgramOptions.includes(value))
+            if (nextProgramFilters.length !== subjectProgramFilters.length) {
+                setSubjectProgramFilters(nextProgramFilters)
+                return
+            }
         }
 
-        const nextProgramFilters = subjectProgramFilters.filter((value) => subjectProgramOptions.includes(value))
-        if (nextProgramFilters.length !== subjectProgramFilters.length) {
-            setSubjectProgramFilters(nextProgramFilters)
-            return
-        }
-
-        if (subjectProgramFilters.length === 0) {
-            if (subjectYearLevelFilters.length > 0) setSubjectYearLevelFilters([])
-            if (subjectSectionFilters.length > 0) setSubjectSectionFilters([])
-            return
-        }
-
-        const nextYearLevelFilters = subjectYearLevelFilters.filter((value) => subjectYearLevelOptions.includes(value))
-        if (nextYearLevelFilters.length !== subjectYearLevelFilters.length) {
-            setSubjectYearLevelFilters(nextYearLevelFilters)
-            return
-        }
-
-        if (subjectYearLevelFilters.length === 0) {
-            if (subjectSectionFilters.length > 0) setSubjectSectionFilters([])
-            return
+        if (subjectYearLevelFilters.length > 0) {
+            const nextYearLevelFilters = subjectYearLevelFilters.filter((value) => subjectYearLevelOptions.includes(value))
+            if (nextYearLevelFilters.length !== subjectYearLevelFilters.length) {
+                setSubjectYearLevelFilters(nextYearLevelFilters)
+                return
+            }
         }
 
         const nextSectionFilters = subjectSectionFilters.filter((value) =>

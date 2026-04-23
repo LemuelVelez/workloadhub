@@ -266,9 +266,9 @@ export function SubjectMatchingFiltersCard({
     )
 
     const hasSelectedCollege = subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE
-    const hasSelectedSemester = hasSelectedCollege && subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE
-    const hasSelectedPrograms = hasSelectedSemester && subjectProgramFilters.length > 0
-    const hasSelectedYearLevels = hasSelectedPrograms && subjectYearLevelFilters.length > 0
+    const hasSelectedSemester = subjectAcademicTermFilter !== SUBJECT_FILTER_ALL_VALUE
+    const hasSelectedPrograms = subjectProgramFilters.length > 0
+    const hasSelectedYearLevels = subjectYearLevelFilters.length > 0
 
     const handleCreateYearLevel = React.useCallback(async () => {
         const nextValue = String(yearLevelDraft || "").trim()
