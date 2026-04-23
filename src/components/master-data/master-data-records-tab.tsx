@@ -169,7 +169,7 @@ export function MasterDataRecordsTab({
         <TabsContent value="records" className="space-y-4">
             <div className="space-y-3">
                 <div>
-                    <div className="font-medium">List of Records</div>
+                    <div className="font-medium">Teaching Load</div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">

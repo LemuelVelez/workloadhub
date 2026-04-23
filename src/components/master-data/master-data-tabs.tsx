@@ -41,7 +41,7 @@ export function MasterDataTabs({ vm }: Props) {
             { value: "subjects", label: "Subjects" },
             { value: "faculty", label: "Faculty" },
             { value: "sections", label: "Sections" },
-            { value: "records", label: "List of Records" },
+            { value: "records", label: "Teaching Load" },
         ],
         []
     )
@@ -132,7 +132,7 @@ export function MasterDataTabs({ vm }: Props) {
                         value="records"
                         className="data-[state=active]:bg-primary! data-[state=active]:text-primary-foreground!"
                     >
-                        List of Records
+                        Teaching Load
                     </TabsTrigger>
                 </TabsList>
 

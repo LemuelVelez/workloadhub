@@ -41,7 +41,7 @@ const HEADER_REPUBLIC = "Republic of the Philippines"
 const HEADER_INSTITUTION = "JOSE RIZAL MEMORIAL STATE UNIVERSITY"
 const HEADER_SUBTITLE = "The Premier University in Zamboanga del Norte"
 const HEADER_COLLEGE = "COLLEGE OF COMPUTING STUDIES"
-const HEADER_DOCUMENT = "LIST OF RECORDS"
+const HEADER_DOCUMENT = "Teaching Load"
 
 const assetUrlCache = new Map<string, Promise<string>>()
 
@@ -377,7 +377,7 @@ export function RecordsExcelActions({
             workbook.created = generatedAt
             workbook.modified = generatedAt
 
-            const worksheet = workbook.addWorksheet("List of Records", {
+            const worksheet = workbook.addWorksheet("Teaching Load", {
                 views: [{ state: "frozen", ySplit: 10 }],
             })
 
@@ -742,7 +742,7 @@ export function RecordsExcelActions({
                 <DialogContent className="sm:max-w-6xl min-w-0 overflow-auto h-[95vh]">
                     <DialogHeader>
                         <DialogTitle>
-                            Excel Preview — List of Records
+                            Excel Preview — Teaching Load
                             {singleFacultyLabel ? ` — ${singleFacultyLabel}` : ""}
                         </DialogTitle>
                     </DialogHeader>

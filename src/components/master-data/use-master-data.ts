@@ -1915,7 +1915,7 @@ export function useMasterDataManagement() {
     )
 
     // -----------------------------
-    // List of Records + conflict detection (room/day/time only)
+    // Teaching Load + conflict detection (room/day/time only)
     // -----------------------------
     const [recordSubjectFilter, setRecordSubjectFilter] = React.useState("__all__")
     const [recordUnitFilter, setRecordUnitFilter] = React.useState("__all__")
@@ -2254,7 +2254,7 @@ export function useMasterDataManagement() {
         deleteActionLabel,
         confirmDelete,
 
-        // list of records
+        // Teaching Load
         recordSubjectFilter,
         setRecordSubjectFilter,
         recordUnitFilter,
