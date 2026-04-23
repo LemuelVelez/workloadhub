@@ -2343,6 +2343,46 @@ export function PlannerManagementSection({
         () => paperSizeLabel(selectedPaperSize),
         [selectedPaperSize]
     )
+    const previewTermBadges = React.useMemo(() => {
+        const normalizedTermLabel = String(selectedTermLabel || "").trim()
+        if (!normalizedTermLabel) {
+            return {
+                schoolYear: "",
+                semester: "",
+                combinedLabel: "",
+            }
+        }
+
+        const segments = normalizedTermLabel
+            .split("•")
+            .map((segment) => String(segment || "").trim())
+            .filter(Boolean)
+
+        if (segments.length < 2) {
+            return {
+                schoolYear: "",
+                semester: "",
+                combinedLabel: normalizedTermLabel,
+            }
+        }
+
+        const schoolYearSegment = segments.find((segment) => /\b\d{4}\s*-\s*\d{4}\b/.test(segment)) || ""
+        const semesterSegment = segments.find((segment) => segment !== schoolYearSegment) || segments[0] || ""
+
+        if (!schoolYearSegment || !semesterSegment) {
+            return {
+                schoolYear: "",
+                semester: "",
+                combinedLabel: normalizedTermLabel,
+            }
+        }
+
+        return {
+            schoolYear: schoolYearSegment,
+            semester: semesterSegment,
+            combinedLabel: "",
+        }
+    }, [selectedTermLabel])
     const selectedPaperSizeFileLabel = React.useMemo(
         () => paperSizeFilenameLabel(selectedPaperSize),
         [selectedPaperSize]
@@ -2575,6 +2615,8 @@ export function PlannerManagementSection({
     )
 
     const activePdfPreviewRows = pdfPreviewState?.rows ?? displayedPlannerRows
+    const activePdfPreviewTitle = String(pdfPreviewState?.title || "").trim() || "Schedule Planner"
+    const activePdfPreviewScopeLabel = String(pdfPreviewState?.scopeLabel || "").trim()
     const activePdfPreviewStats = buildPlannerStatsForRows(activePdfPreviewRows)
     const controlsDisabled = pdfPreviewBusy || pdfExportBusy
 
@@ -2616,7 +2658,7 @@ export function PlannerManagementSection({
                                 className="w-full rounded-xl sm:w-auto"
                                 onClick={() =>
                                     openPdfPreview({
-                                        title: "Schedule PDF Preview",
+                                        title: "Schedule Planner",
                                         rows: displayedPlannerRows,
                                         fileNameBase: `schedule-report-${sanitizeFileNamePart(scheduleScopeKey || scheduleScopeLabel || selectedTermLabel || "active-scope")}`,
                                     })
@@ -2899,7 +2941,7 @@ export function PlannerManagementSection({
                                 {plannerCourseAccordionGroups.map((courseGroup, courseIndex) => {
                                     const courseGroupFileNameBase = `course-group-${sanitizeFileNamePart(courseGroup.label)}`
                                     const courseGroupPreviewState: PdfPreviewState = {
-                                        title: `${courseGroup.label} PDF Preview`,
+                                        title: courseGroup.label,
                                         rows: courseGroup.rows,
                                         fileNameBase: courseGroupFileNameBase,
                                         scopeLabel: courseGroup.label,
@@ -3268,20 +3310,29 @@ export function PlannerManagementSection({
                     if (!open) closePdfPreview()
                 }}
             >
-                <DialogContent className="z-120 h-[95svh] min-w-0 overflow-auto sm:max-w-7xl">
+                <DialogContent className="max-h-[95svh] overflow-auto sm:max-w-7xl">
                     <DialogHeader>
                         <DialogTitle>
-                            PDF Preview — {pdfPreviewState?.title || "Schedule Planner"}
+                            PDF Preview — {activePdfPreviewTitle}
                         </DialogTitle>
                     </DialogHeader>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary">{scheduleScopeLabel || "No schedule scope"}</Badge>
-                        <Badge variant="secondary">{selectedTermLabel || "No term"}</Badge>
-                        <Badge variant="secondary">{selectedDeptLabel || "No college"}</Badge>
-                        {pdfPreviewState?.scopeLabel ? (
-                            <Badge variant="outline">{pdfPreviewState.scopeLabel}</Badge>
+                        {previewTermBadges.semester ? (
+                            <Badge variant="secondary">{previewTermBadges.semester}</Badge>
+                        ) : previewTermBadges.combinedLabel ? (
+                            <Badge variant="secondary">{previewTermBadges.combinedLabel}</Badge>
                         ) : null}
+                        {previewTermBadges.schoolYear ? (
+                            <Badge variant="secondary">SY {previewTermBadges.schoolYear}</Badge>
+                        ) : null}
+                        {selectedDeptLabel && selectedDeptLabel !== "—" ? (
+                            <Badge variant="outline">{selectedDeptLabel}</Badge>
+                        ) : null}
+                        {activePdfPreviewScopeLabel ? (
+                            <Badge variant="outline">{activePdfPreviewScopeLabel}</Badge>
+                        ) : null}
+                        <Badge variant="outline">{selectedPaperSizeLabel}</Badge>
                         <Badge variant="outline">
                             {activePdfPreviewRows.length} grouped entr{activePdfPreviewRows.length === 1 ? "y" : "ies"}
                         </Badge>
@@ -3291,7 +3342,6 @@ export function PlannerManagementSection({
                         <Badge variant="outline">
                             {activePdfPreviewStats.labs} lab{activePdfPreviewStats.labs === 1 ? "" : "s"}
                         </Badge>
-                        <Badge variant="outline">{selectedPaperSizeLabel}</Badge>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -3310,18 +3360,23 @@ export function PlannerManagementSection({
                         ))}
                     </div>
 
-                    <div className="mt-3 min-w-0 max-w-full overflow-hidden rounded-md border bg-background">
+                    <div className="mt-3 overflow-hidden rounded-md border bg-background">
                         {pdfPreviewBusy ? (
                             <div className="space-y-3 p-4">
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                     <Loader2 className="h-4 w-4 animate-spin" />
-                                    Generating PDF preview...
+                                    Generating schedule PDF preview...
                                 </div>
                                 <Skeleton className="h-8 w-full" />
-                                <Skeleton className="h-[75vh] w-full" />
+                                <Skeleton className="h-[70vh] w-full" />
                             </div>
                         ) : pdfPreviewUrl ? (
-                            <iframe title="Schedule PDF Preview" src={pdfPreviewUrl} className="block h-[75vh] w-full bg-background" />
+                            <iframe
+                                key={pdfPreviewUrl}
+                                title={`Schedule PDF preview - ${activePdfPreviewTitle} - ${selectedPaperSizeLabel}`}
+                                src={pdfPreviewUrl}
+                                className="block h-[75vh] w-full bg-background"
+                            />
                         ) : (
                             <div className="p-4 text-sm text-muted-foreground">
                                 PDF preview is not ready yet.
@@ -3329,7 +3384,7 @@ export function PlannerManagementSection({
                         )}
                     </div>
 
-                    <DialogFooter className="shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
                         <div className="flex items-center gap-2">
                             <Button variant="outline" onClick={closePdfPreview}>
                                 Close

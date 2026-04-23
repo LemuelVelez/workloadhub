@@ -376,33 +376,52 @@ function arePersistedAdminScheduleFiltersEqual(
     )
 }
 
-function readPersistedAdminScheduleFilters(storageKey: string): PersistedAdminScheduleFilters {
+function normalizeAdminScheduleFilterStorageKeys(storageKeys: string | string[]) {
+    const values = Array.isArray(storageKeys) ? storageKeys : [storageKeys]
+
+    return Array.from(
+        new Set(
+            values
+                .map((value) => String(value || "").trim())
+                .filter(Boolean)
+        )
+    )
+}
+
+function readPersistedAdminScheduleFilters(storageKeys: string | string[]): PersistedAdminScheduleFilters {
     const fallback = createDefaultPersistedAdminScheduleFilters()
 
     if (typeof window === "undefined") return fallback
 
-    try {
-        const rawValue = window.localStorage.getItem(storageKey)
-        if (!rawValue) return fallback
+    const normalizedStorageKeys = normalizeAdminScheduleFilterStorageKeys(storageKeys)
 
-        return normalizePersistedAdminScheduleFilters(
-            JSON.parse(rawValue) as Partial<PersistedAdminScheduleFilters> | null
-        )
-    } catch {
-        return fallback
+    for (const storageKey of normalizedStorageKeys) {
+        try {
+            const rawValue = window.localStorage.getItem(storageKey)
+            if (!rawValue) continue
+
+            return normalizePersistedAdminScheduleFilters(
+                JSON.parse(rawValue) as Partial<PersistedAdminScheduleFilters> | null
+            )
+        } catch {
+            continue
+        }
     }
+
+    return fallback
 }
 
 function writePersistedAdminScheduleFilters(
-    storageKey: string,
+    storageKeys: string | string[],
     value: PersistedAdminScheduleFilters
 ) {
     if (typeof window === "undefined") return
 
-    window.localStorage.setItem(
-        storageKey,
-        JSON.stringify(normalizePersistedAdminScheduleFilters(value))
-    )
+    const serializedValue = JSON.stringify(normalizePersistedAdminScheduleFilters(value))
+
+    normalizeAdminScheduleFilterStorageKeys(storageKeys).forEach((storageKey) => {
+        window.localStorage.setItem(storageKey, serializedValue)
+    })
 }
 
 
@@ -566,6 +585,7 @@ export default function AdminSchedulesPage() {
     const scheduleFiltersHydratedRef = React.useRef(false)
     const pendingPersistedScheduleFiltersRef = React.useRef<PersistedAdminScheduleFilters | null>(null)
     const [scheduleFiltersHydrated, setScheduleFiltersHydrated] = React.useState(false)
+    const [scheduleContextHydratedScopeKey, setScheduleContextHydratedScopeKey] = React.useState("")
 
     const adminScheduleFiltersStorageKey = React.useMemo(
         () => buildAdminScheduleFiltersStorageKey(activeScheduleScopeKey),
@@ -596,7 +616,10 @@ export default function AdminSchedulesPage() {
         scheduleFiltersHydratedRef.current = false
         setScheduleFiltersHydrated(false)
 
-        const persistedFilters = readPersistedAdminScheduleFilters(adminScheduleFiltersStorageKey)
+        const persistedFilters = readPersistedAdminScheduleFilters([
+            adminScheduleFiltersStorageKey,
+            ADMIN_SCHEDULE_FILTERS_STORAGE_KEY,
+        ])
         pendingPersistedScheduleFiltersRef.current = persistedFilters
 
         if (showConflictsOnly !== persistedFilters.showConflictsOnly) {
@@ -649,7 +672,10 @@ export default function AdminSchedulesPage() {
         if (pendingPersistedScheduleFiltersRef.current) return
 
         writePersistedAdminScheduleFilters(
-            adminScheduleFiltersStorageKey,
+            [
+                adminScheduleFiltersStorageKey,
+                ADMIN_SCHEDULE_FILTERS_STORAGE_KEY,
+            ],
             currentPersistedAdminScheduleFilters
         )
     }, [adminScheduleFiltersStorageKey, currentPersistedAdminScheduleFilters])
@@ -1334,7 +1360,14 @@ export default function AdminSchedulesPage() {
     ])
 
     React.useEffect(() => {
-        if (!scheduleFiltersHydrated || loading || entriesLoading) return
+        if (
+            !scheduleFiltersHydrated ||
+            loading ||
+            entriesLoading ||
+            scheduleContextHydratedScopeKey !== activeScheduleScopeKey
+        ) {
+            return
+        }
 
         if (subjectCollegeFilter !== SUBJECT_FILTER_ALL_VALUE && !subjectCollegeOptions.includes(subjectCollegeFilter)) {
             setSubjectCollegeFilter(SUBJECT_FILTER_ALL_VALUE)
@@ -1391,8 +1424,10 @@ export default function AdminSchedulesPage() {
             setSubjectSectionFilters(nextSectionFilters)
         }
     }, [
+        activeScheduleScopeKey,
         entriesLoading,
         loading,
+        scheduleContextHydratedScopeKey,
         scheduleFiltersHydrated,
         subjectAcademicTermFilter,
         subjectAcademicTermOptions,
@@ -1515,6 +1550,9 @@ export default function AdminSchedulesPage() {
 
 
     const fetchScheduleContext = React.useCallback(async () => {
+        const requestScopeKey = activeScheduleScopeKey
+        setScheduleContextHydratedScopeKey("")
+
         if (activeAcademicTermIds.length === 0) {
             setSubjects([])
             setRooms([])
@@ -1523,6 +1561,7 @@ export default function AdminSchedulesPage() {
             setClasses([])
             setMeetings([])
             setEntriesError(null)
+            setScheduleContextHydratedScopeKey(requestScopeKey)
             return
         }
 
@@ -1635,8 +1674,9 @@ export default function AdminSchedulesPage() {
             setEntriesError(e?.message || "Failed to load schedule entries.")
         } finally {
             setEntriesLoading(false)
+            setScheduleContextHydratedScopeKey(requestScopeKey)
         }
-    }, [activeAcademicTermIds, activeAcademicTerms])
+    }, [activeAcademicTermIds, activeAcademicTerms, activeScheduleScopeKey, buildAcademicTermOptionLabel, getDepartmentNameById, programs, termMap])
 
     React.useEffect(() => {
         void fetchScheduleContext()
