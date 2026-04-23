@@ -735,8 +735,6 @@ const HEADER_DOCUMENT = "SCHEDULE PLANNER REPORT"
 const PDF_TABLE_BORDER_COLOR = "#6B7280"
 const PDF_TABLE_HEADER_FILL = "#F8FAFC"
 const PDF_TABLE_HEADER_TEXT = "#111827"
-const PDF_TABLE_BODY_TEXT = "#0F172A"
-const PDF_TABLE_CONFLICT_FILL = "#FEE2E2"
 const PDF_PASTEL_ROW_FILLS = [
     "#F5DEB8",
     "#F4CBD7",
@@ -745,6 +743,86 @@ const PDF_PASTEL_ROW_FILLS = [
     "#E8DDF8",
     "#FBE4CB",
 ] as const
+
+
+const PLANNER_PDF_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
+const PLANNER_PDF_NOON_BREAK_SLOT = "12:00-1:00"
+const PLANNER_PDF_MINUTES_PER_HALF_DAY = 12 * 60
+const PLANNER_PDF_MINUTES_PER_DAY = 24 * 60
+const PLANNER_PDF_MORNING_END_MINUTES = 12 * 60
+const PLANNER_PDF_AFTERNOON_START_MINUTES = 13 * 60
+const PLANNER_PDF_SLOT_EDGE_TOLERANCE_MINUTES = 1
+
+const PLANNER_PDF_PAGE_PADDING_TOP = 18
+const PLANNER_PDF_PAGE_PADDING_RIGHT = 22
+const PLANNER_PDF_PAGE_PADDING_BOTTOM = 18
+const PLANNER_PDF_PAGE_PADDING_LEFT = 22
+
+const PLANNER_PDF_TIME_COL_WIDTH = 84
+const PLANNER_PDF_DAY_COL_WIDTH = 124
+const PLANNER_PDF_ROW_HEIGHT = 30
+const PLANNER_PDF_HEADER_ROW_HEIGHT = 24
+const PLANNER_PDF_GRID_WIDTH =
+    PLANNER_PDF_TIME_COL_WIDTH + PLANNER_PDF_DAYS.length * PLANNER_PDF_DAY_COL_WIDTH
+
+const PLANNER_PDF_BLOCK_PADDING_X = 3
+const PLANNER_PDF_BLOCK_PADDING_Y = 2
+const PLANNER_PDF_BLOCK_MIN_FONT_SIZE = 4.1
+const PLANNER_PDF_BLOCK_MAX_FONT_SIZE = 7.2
+const PLANNER_PDF_BLOCK_FONT_STEP = 0.2
+const PLANNER_PDF_BLOCK_LINE_HEIGHT_RATIO = 1.08
+
+const PLANNER_PDF_BASE_TIME_SLOTS = [
+    "7:00-8:00",
+    "8:00-9:00",
+    "9:00-10:00",
+    "10:00-11:00",
+    "11:00-12:00",
+    "12:00-1:00",
+    "1:00-2:00",
+    "2:00-3:00",
+    "3:00-4:00",
+    "4:00-5:00",
+    "5:00-6:00",
+    "6:00-7:00",
+    "7:00-8:00",
+    "8:00-9:00",
+] as const
+
+type PlannerPdfSlotDescriptor = {
+    label: string
+    start: number
+    end: number
+    isNoonBreak: boolean
+}
+
+type PlannerPdfSlotLayoutDescriptor = PlannerPdfSlotDescriptor & {
+    rowIndex: number
+    top: number
+    bottom: number
+}
+
+type PlannerPdfLayoutMetrics = {
+    tableScale: number
+    rowHeight: number
+    headerRowHeight: number
+    bodyGridHeight: number
+    dayHeaderFontSize: number
+    timeFontSize: number
+    noonFontSize: number
+    blockScale: number
+}
+
+type PlannerPdfMeetingBlockSource = {
+    id: string
+    dayOfWeek: string
+    startTime: string
+    endTime: string
+    lines: string[]
+    color: string
+    textColor: string
+    hasConflict: boolean
+}
 
 const assetUrlCache = new Map<string, Promise<string>>()
 
@@ -872,6 +950,7 @@ function getAssetAsDataUrl(path: string) {
     return assetUrlCache.get(path)!
 }
 
+
 function stablePdfRowHash(value: string) {
     let hash = 0
     for (let index = 0; index < value.length; index += 1) {
@@ -881,45 +960,868 @@ function stablePdfRowHash(value: string) {
     return Math.abs(hash)
 }
 
-function resolvePlannerPdfRowBackground(row: PlannerDisplayRow) {
+function normalizePlannerPdfText(value: unknown) {
+    return String(value ?? "").trim()
+}
+
+function parsePlannerPdfClockMinutes(value: string) {
+    const raw = normalizePlannerPdfText(value)
+    if (!raw) return null
+
+    const ampm = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+    if (ampm) {
+        let hh = Number(ampm[1])
+        const mm = Number(ampm[2])
+        const suffix = ampm[3].toUpperCase()
+
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
+        if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null
+
+        if (suffix === "AM" && hh === 12) hh = 0
+        if (suffix === "PM" && hh !== 12) hh += 12
+
+        return hh * 60 + mm
+    }
+
+    const timeMatch = raw.match(/(\d{1,2}):(\d{2})(?::\d{2})?/)
+    if (!timeMatch) return null
+
+    const hh = Number(timeMatch[1])
+    const mm = Number(timeMatch[2])
+
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
+
+    return hh * 60 + mm
+}
+
+function formatPlannerPdfMinutesToSlotClock(totalMinutes: number) {
+    const normalized =
+        ((totalMinutes % PLANNER_PDF_MINUTES_PER_DAY) + PLANNER_PDF_MINUTES_PER_DAY) %
+        PLANNER_PDF_MINUTES_PER_DAY
+    const hh24 = Math.floor(normalized / 60)
+    const mm = normalized % 60
+    const hh12 = hh24 % 12 || 12
+    return `${hh12}:${String(mm).padStart(2, "0")}`
+}
+
+function parsePlannerPdfSlotRange(slotLabel: string) {
+    const [startRaw, endRaw] = String(slotLabel).split("-")
+    const start = parsePlannerPdfClockMinutes(startRaw ?? "")
+    const end = parsePlannerPdfClockMinutes(endRaw ?? "")
+
+    if (start == null || end == null) return null
+    return { start, end }
+}
+
+function isPlannerPdfNoonBreakRange(start: number, end: number) {
+    return (
+        start === PLANNER_PDF_MORNING_END_MINUTES &&
+        end === PLANNER_PDF_AFTERNOON_START_MINUTES
+    )
+}
+
+function isPlannerPdfNoonBreakSlot(slotLabel: string) {
+    const parsed = parsePlannerPdfSlotRange(slotLabel)
+    if (!parsed) return normalizePlannerPdfText(slotLabel) === PLANNER_PDF_NOON_BREAK_SLOT
+
+    const normalizedEnd =
+        parsed.end <= parsed.start
+            ? parsed.end + PLANNER_PDF_MINUTES_PER_HALF_DAY
+            : parsed.end
+
+    return isPlannerPdfNoonBreakRange(parsed.start, normalizedEnd)
+}
+
+function plannerPdfRangesOverlap(
+    aStart: number,
+    aEnd: number,
+    bStart: number,
+    bEnd: number,
+    toleranceMinutes = 0
+) {
+    const normalizedAEnd = aEnd <= aStart ? aStart + 1 : aEnd
+    const normalizedBEnd = bEnd <= bStart ? bStart + 1 : bEnd
+
+    return (
+        aStart < normalizedBEnd + toleranceMinutes &&
+        bStart < normalizedAEnd + toleranceMinutes
+    )
+}
+
+function parseOrderedPlannerPdfSlotDescriptors(timeSlots: string[]) {
+    let previousEnd = -1
+
+    return timeSlots
+        .map((slot) => {
+            const parsed = parsePlannerPdfSlotRange(slot)
+            if (!parsed) return null
+
+            let start = parsed.start
+            let end = parsed.end
+
+            while (previousEnd >= 0 && start < previousEnd) {
+                start += PLANNER_PDF_MINUTES_PER_HALF_DAY
+                end += PLANNER_PDF_MINUTES_PER_HALF_DAY
+            }
+
+            while (end <= start) {
+                end += PLANNER_PDF_MINUTES_PER_HALF_DAY
+            }
+
+            previousEnd = end
+
+            return {
+                label: slot,
+                start,
+                end,
+                isNoonBreak: isPlannerPdfNoonBreakRange(start, end),
+            } as PlannerPdfSlotDescriptor
+        })
+        .filter(Boolean) as PlannerPdfSlotDescriptor[]
+}
+
+function resolvePlannerPdfPageDimensions(pdfPageSize: "A4" | { width: number; height: number }) {
+    if (typeof pdfPageSize === "string") {
+        return {
+            width: 841.89,
+            height: 595.28,
+        }
+    }
+
+    return pdfPageSize
+}
+
+function computePlannerPdfLayoutMetrics(
+    rowCount: number,
+    pdfPageSize: "A4" | { width: number; height: number }
+): PlannerPdfLayoutMetrics {
+    const { height: pageHeight } = resolvePlannerPdfPageDimensions(pdfPageSize)
+    const usablePageHeight =
+        pageHeight - PLANNER_PDF_PAGE_PADDING_TOP - PLANNER_PDF_PAGE_PADDING_BOTTOM
+
+    const reservedHeaderHeight = 92
+    const reservedTitleHeight = 44
+    const reservedBottomHeight = 42
+    const reservedGapHeight = 16
+
+    const maxTableHeight = Math.max(
+        150,
+        usablePageHeight -
+            reservedHeaderHeight -
+            reservedTitleHeight -
+            reservedBottomHeight -
+            reservedGapHeight
+    )
+
+    const baseTableHeight =
+        PLANNER_PDF_HEADER_ROW_HEIGHT + rowCount * PLANNER_PDF_ROW_HEIGHT
+    const tableScale =
+        baseTableHeight > 0 ? Math.min(1, maxTableHeight / baseTableHeight) : 1
+
+    const rowHeight = Number((PLANNER_PDF_ROW_HEIGHT * tableScale).toFixed(2))
+    const headerRowHeight = Number(
+        (PLANNER_PDF_HEADER_ROW_HEIGHT * tableScale).toFixed(2)
+    )
+    const bodyGridHeight = Number((rowCount * rowHeight).toFixed(2))
+
+    return {
+        tableScale,
+        rowHeight,
+        headerRowHeight,
+        bodyGridHeight,
+        dayHeaderFontSize: Math.max(5.2, Number((8.2 * tableScale).toFixed(2))),
+        timeFontSize: Math.max(4.2, Number((7 * tableScale).toFixed(2))),
+        noonFontSize: Math.max(4.2, Number((7.2 * tableScale).toFixed(2))),
+        blockScale: Math.max(0.45, tableScale),
+    }
+}
+
+function resolvePlannerPdfTimeRangeFromTimes(
+    startTime: string,
+    endTime: string,
+    slotMeta: PlannerPdfSlotDescriptor[] = []
+) {
+    const parsedStart = parsePlannerPdfClockMinutes(startTime)
+    const parsedEnd = parsePlannerPdfClockMinutes(endTime)
+
+    if (parsedStart == null || parsedEnd == null) return null
+
+
+    const normalizeRange = (baseStart: number, baseEnd: number) => {
+        let start = baseStart
+        let end = baseEnd
+
+        while (end <= start) {
+            end += PLANNER_PDF_MINUTES_PER_HALF_DAY
+        }
+
+        return { start, end }
+    }
+
+    const candidates: Array<{ start: number; end: number }> = []
+
+    const pushCandidate = (start: number, end: number) => {
+        const normalized = normalizeRange(start, end)
+        if (
+            !candidates.some(
+                (candidate) =>
+                    candidate.start === normalized.start &&
+                    candidate.end === normalized.end
+            )
+        ) {
+            candidates.push(normalized)
+        }
+    }
+
+    pushCandidate(parsedStart, parsedEnd)
+    pushCandidate(
+        parsedStart + PLANNER_PDF_MINUTES_PER_HALF_DAY,
+        parsedEnd + PLANNER_PDF_MINUTES_PER_HALF_DAY
+    )
+
+    const matchesAnySlot = (range: { start: number; end: number }) =>
+        slotMeta.some(
+            (slot) =>
+                !slot.isNoonBreak &&
+                plannerPdfRangesOverlap(
+                    range.start,
+                    range.end,
+                    slot.start,
+                    slot.end,
+                    PLANNER_PDF_SLOT_EDGE_TOLERANCE_MINUTES
+                )
+        )
+
+    if (slotMeta.length > 0) {
+        const matchedCandidate = candidates.find(matchesAnySlot)
+        if (matchedCandidate) return matchedCandidate
+    }
+
+    return candidates[0] ?? null
+}
+
+function resolvePlannerPdfRowTimeRange(
+    row: Pick<ScheduleRow, "startTime" | "endTime">,
+    slotMeta: PlannerPdfSlotDescriptor[] = []
+) {
+    return resolvePlannerPdfTimeRangeFromTimes(row.startTime, row.endTime, slotMeta)
+}
+
+function inferPreferredPlannerPdfSlotDuration(
+    rows: ScheduleRow[],
+    slotMeta: PlannerPdfSlotDescriptor[]
+) {
+    const counts = new Map<number, number>()
+
+    const addDuration = (value: number | null) => {
+        if (value == null || value <= 0) return
+        counts.set(value, (counts.get(value) ?? 0) + 1)
+    }
+
+    for (const slot of slotMeta) {
+        if (slot.isNoonBreak) continue
+        addDuration(slot.end - slot.start)
+    }
+
+    for (const row of rows) {
+        const range = resolvePlannerPdfRowTimeRange(row)
+        if (!range) continue
+        addDuration(range.end - range.start)
+    }
+
+    const ranked = Array.from(counts.entries()).sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1]
+        return b[0] - a[0]
+    })
+
+    return ranked[0]?.[0] ?? null
+}
+
+function buildPlannerPdfLabelsFromBoundaries(
+    boundaries: number[],
+    preferredDuration: number | null
+) {
+    const uniqueSorted = Array.from(
+        new Set(boundaries.filter((value) => Number.isFinite(value)))
+    ).sort((a, b) => a - b)
+
+    if (uniqueSorted.length < 2) return [] as string[]
+
+    const labels: string[] = []
+
+    for (let index = 0; index < uniqueSorted.length - 1; index += 1) {
+        const start = uniqueSorted[index]
+        const end = uniqueSorted[index + 1]
+
+        if (end <= start) continue
+
+        if (!preferredDuration || preferredDuration <= 0) {
+            labels.push(
+                `${formatPlannerPdfMinutesToSlotClock(
+                    start
+                )}-${formatPlannerPdfMinutesToSlotClock(end)}`
+            )
+            continue
+        }
+
+        let cursor = start
+        while (cursor + preferredDuration < end) {
+            const next = cursor + preferredDuration
+            labels.push(
+                `${formatPlannerPdfMinutesToSlotClock(
+                    cursor
+                )}-${formatPlannerPdfMinutesToSlotClock(next)}`
+            )
+            cursor = next
+        }
+
+        labels.push(
+            `${formatPlannerPdfMinutesToSlotClock(
+                cursor
+            )}-${formatPlannerPdfMinutesToSlotClock(end)}`
+        )
+    }
+
+    return labels
+}
+
+function formatPlannerPdfSlotDescriptorLabel(slot: PlannerPdfSlotDescriptor) {
+    if (slot.isNoonBreak) return PLANNER_PDF_NOON_BREAK_SLOT
+    return `${formatPlannerPdfMinutesToSlotClock(
+        slot.start
+    )}-${formatPlannerPdfMinutesToSlotClock(slot.end)}`
+}
+
+function splitPlannerPdfSlotDescriptorAtBoundaries(
+    slot: PlannerPdfSlotDescriptor,
+    boundaries: number[]
+) {
+    if (slot.isNoonBreak) {
+        return [
+            {
+                ...slot,
+                label: formatPlannerPdfSlotDescriptorLabel(slot),
+            },
+        ] as PlannerPdfSlotDescriptor[]
+    }
+
+    const relevantBoundaries = Array.from(
+        new Set(
+            boundaries.filter((boundary) => boundary > slot.start && boundary < slot.end)
+        )
+    ).sort((a, b) => a - b)
+
+    if (relevantBoundaries.length === 0) {
+        return [
+            {
+                ...slot,
+                label: formatPlannerPdfSlotDescriptorLabel(slot),
+            },
+        ] as PlannerPdfSlotDescriptor[]
+    }
+
+    const edges = [slot.start, ...relevantBoundaries, slot.end]
+    const segments: PlannerPdfSlotDescriptor[] = []
+
+    for (let index = 0; index < edges.length - 1; index += 1) {
+        const start = edges[index]
+        const end = edges[index + 1]
+
+        if (end <= start) continue
+
+        segments.push({
+            label: `${formatPlannerPdfMinutesToSlotClock(
+                start
+            )}-${formatPlannerPdfMinutesToSlotClock(end)}`,
+            start,
+            end,
+            isNoonBreak: isPlannerPdfNoonBreakRange(start, end),
+        })
+    }
+
+    return segments
+}
+
+function resolvePlannerPdfTimeSlots(rows: PlannerDisplayRow[]) {
+    const sourceRows = rows.flatMap((row) => row.sourceRows)
+    const explicitSlots = parseOrderedPlannerPdfSlotDescriptors([
+        ...PLANNER_PDF_BASE_TIME_SLOTS,
+    ])
+    const preferredDuration = inferPreferredPlannerPdfSlotDuration(sourceRows, explicitSlots)
+
+    const rowRanges = sourceRows
+        .map((row) => resolvePlannerPdfRowTimeRange(row))
+        .filter(Boolean) as Array<{ start: number; end: number }>
+
+    if (rowRanges.length === 0) {
+        return explicitSlots.map((slot) => slot.label)
+    }
+
+    const rowBoundaries = Array.from(
+        new Set(rowRanges.flatMap((range) => [range.start, range.end]))
+    ).sort((a, b) => a - b)
+
+    const descriptors = explicitSlots.flatMap((slot) =>
+        splitPlannerPdfSlotDescriptorAtBoundaries(slot, rowBoundaries)
+    )
+
+    const minRowStart = Math.min(...rowRanges.map((range) => range.start))
+    const maxRowEnd = Math.max(...rowRanges.map((range) => range.end))
+
+    if (preferredDuration && preferredDuration > 0) {
+        let firstStart = descriptors[0]?.start ?? minRowStart
+        const prepended: PlannerPdfSlotDescriptor[] = []
+
+        while (minRowStart < firstStart) {
+            const nextStart = Math.max(minRowStart, firstStart - preferredDuration)
+            const slot: PlannerPdfSlotDescriptor = {
+                label: `${formatPlannerPdfMinutesToSlotClock(
+                    nextStart
+                )}-${formatPlannerPdfMinutesToSlotClock(firstStart)}`,
+                start: nextStart,
+                end: firstStart,
+                isNoonBreak: isPlannerPdfNoonBreakRange(nextStart, firstStart),
+            }
+
+            prepended.unshift({
+                ...slot,
+                label: formatPlannerPdfSlotDescriptorLabel(slot),
+            })
+
+            if (nextStart === firstStart) break
+            firstStart = nextStart
+        }
+
+        let lastEnd = descriptors[descriptors.length - 1]?.end ?? maxRowEnd
+        const appended: PlannerPdfSlotDescriptor[] = []
+
+        while (maxRowEnd > lastEnd) {
+            const nextEnd = Math.min(maxRowEnd, lastEnd + preferredDuration)
+            const slot: PlannerPdfSlotDescriptor = {
+                label: `${formatPlannerPdfMinutesToSlotClock(
+                    lastEnd
+                )}-${formatPlannerPdfMinutesToSlotClock(nextEnd)}`,
+                start: lastEnd,
+                end: nextEnd,
+                isNoonBreak: isPlannerPdfNoonBreakRange(lastEnd, nextEnd),
+            }
+
+            appended.push({
+                ...slot,
+                label: formatPlannerPdfSlotDescriptorLabel(slot),
+            })
+
+            if (nextEnd === lastEnd) break
+            lastEnd = nextEnd
+        }
+
+        return [...prepended, ...descriptors, ...appended].map((slot) => slot.label)
+    }
+
+    const boundaries = [...descriptors.flatMap((slot) => [slot.start, slot.end])]
+    for (const range of rowRanges) {
+        boundaries.push(range.start, range.end)
+    }
+
+    return buildPlannerPdfLabelsFromBoundaries(boundaries, preferredDuration)
+}
+
+function buildPlannerPdfSlotLayoutDescriptors(
+    timeSlots: string[],
+    rowHeight: number
+) {
+    const slotMeta = parseOrderedPlannerPdfSlotDescriptors(timeSlots)
+    let currentTop = 0
+
+    return slotMeta.map((slot, rowIndex) => {
+        const top = currentTop
+        const bottom = top + rowHeight
+        currentTop = bottom
+
+        return {
+            ...slot,
+            rowIndex,
+            top,
+            bottom,
+        } as PlannerPdfSlotLayoutDescriptor
+    })
+}
+
+function resolvePlannerPdfMinutePositionWithinSlot(
+    slot: PlannerPdfSlotLayoutDescriptor,
+    minute: number
+) {
+    const duration = Math.max(slot.end - slot.start, 1)
+    let normalizedMinute = minute
+
+    if (
+        Math.abs(normalizedMinute - slot.start) <=
+        PLANNER_PDF_SLOT_EDGE_TOLERANCE_MINUTES
+    ) {
+        normalizedMinute = slot.start
+    } else if (
+        Math.abs(normalizedMinute - slot.end) <=
+        PLANNER_PDF_SLOT_EDGE_TOLERANCE_MINUTES
+    ) {
+        normalizedMinute = slot.end
+    }
+
+    const clampedMinute = Math.min(
+        Math.max(normalizedMinute, slot.start),
+        slot.end
+    )
+    const ratio = (clampedMinute - slot.start) / duration
+
+    return slot.top + ratio * (slot.bottom - slot.top)
+}
+
+function collapsePlannerPdfLineText(value: string) {
+    return normalizePlannerPdfText(value).replace(/\s+/g, " ")
+}
+
+function buildPlannerPdfWrappedLayout(
+    lines: string[],
+    width: number,
+    height: number,
+    fontSize: number,
+    paddingX: number,
+    paddingY: number
+) {
+    const usableWidth = Math.max(width - paddingX * 2 - 2, 28)
+    const usableHeight = Math.max(height - paddingY * 2 - 2, fontSize)
+
+    const maxCharsPerLine = Math.max(
+        5,
+        Math.floor(usableWidth / Math.max(fontSize * 0.6, 1))
+    )
+
+    const wrapped = lines.flatMap((line) =>
+        wrapPlannerPdfLineText(line, maxCharsPerLine)
+    )
+    const maxLines = Math.max(
+        1,
+        Math.floor(
+            usableHeight /
+                Math.max(fontSize * PLANNER_PDF_BLOCK_LINE_HEIGHT_RATIO, 1)
+        )
+    )
+
+    return {
+        wrapped,
+        maxCharsPerLine,
+        maxLines,
+    }
+}
+
+function wrapPlannerPdfLineText(value: string, maxCharsPerLine: number) {
+    const text = collapsePlannerPdfLineText(value)
+    if (!text) return [] as string[]
+    if (text.length <= maxCharsPerLine) return [text]
+
+    const words = text.split(" ").filter(Boolean)
+    const lines: string[] = []
+    let current = ""
+
+    for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word
+
+        if (candidate.length <= maxCharsPerLine) {
+            current = candidate
+            continue
+        }
+
+        if (current) {
+            lines.push(current)
+            current = ""
+        }
+
+        if (word.length <= maxCharsPerLine) {
+            current = word
+            continue
+        }
+
+        let remaining = word
+        while (remaining.length > maxCharsPerLine) {
+            lines.push(
+                `${remaining.slice(0, Math.max(1, maxCharsPerLine - 1))}-`
+            )
+            remaining = remaining.slice(Math.max(1, maxCharsPerLine - 1))
+        }
+        current = remaining
+    }
+
+    if (current) {
+        lines.push(current)
+    }
+
+    return lines
+}
+
+function clampPlannerPdfLineText(value: string, maxLength: number) {
+    const text = collapsePlannerPdfLineText(value)
+    if (text.length <= maxLength) return text
+    return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+function resolvePlannerPdfScaledBlockContent(
+    lines: string[],
+    width: number,
+    height: number,
+    scale = 1
+) {
+    const baseLines = lines
+        .map(collapsePlannerPdfLineText)
+        .filter(Boolean)
+        .slice(0, 4)
+
+    const paddingX = Math.max(
+        1,
+        Number((PLANNER_PDF_BLOCK_PADDING_X * scale).toFixed(2))
+    )
+    const paddingY = Math.max(
+        0.8,
+        Number((PLANNER_PDF_BLOCK_PADDING_Y * scale).toFixed(2))
+    )
+    const minFontSize = Math.max(
+        2.6,
+        Number((PLANNER_PDF_BLOCK_MIN_FONT_SIZE * scale).toFixed(2))
+    )
+    const maxFontSize = Math.max(
+        minFontSize,
+        Number((PLANNER_PDF_BLOCK_MAX_FONT_SIZE * scale).toFixed(2))
+    )
+    const fontStep = Math.max(
+        0.1,
+        Number((PLANNER_PDF_BLOCK_FONT_STEP * scale).toFixed(2))
+    )
+
+    if (baseLines.length === 0) {
+        return {
+            lines: [] as string[],
+            fontSize: minFontSize,
+            paddingX,
+            paddingY,
+        }
+    }
+
+    for (
+        let fontSize = maxFontSize;
+        fontSize >= minFontSize;
+        fontSize = Number((fontSize - fontStep).toFixed(2))
+    ) {
+        const layout = buildPlannerPdfWrappedLayout(
+            baseLines,
+            width,
+            height,
+            fontSize,
+            paddingX,
+            paddingY
+        )
+        if (layout.wrapped.length <= layout.maxLines) {
+            return {
+                lines: layout.wrapped,
+                fontSize,
+                paddingX,
+                paddingY,
+            }
+        }
+    }
+
+    const fallbackLayout = buildPlannerPdfWrappedLayout(
+        baseLines,
+        width,
+        height,
+        minFontSize,
+        paddingX,
+        paddingY
+    )
+    const clipped = fallbackLayout.wrapped.slice(0, fallbackLayout.maxLines)
+
+    if (clipped.length > 0) {
+        clipped[clipped.length - 1] = clampPlannerPdfLineText(
+            clipped[clipped.length - 1],
+            Math.max(5, fallbackLayout.maxCharsPerLine - 1)
+        )
+
+        if (!clipped[clipped.length - 1].endsWith("…")) {
+            clipped[clipped.length - 1] = `${clipped[
+                clipped.length - 1
+            ].replace(/[.…]+$/g, "")}…`
+        }
+    }
+
+    return {
+        lines: clipped,
+        fontSize: minFontSize,
+        paddingX,
+        paddingY,
+    }
+}
+
+function resolvePlannerPdfBlockColor(row: PlannerDisplayRow) {
     const seed = [
         row.sectionDisplay,
         row.subjectCodeDisplay,
-        row.meetingTypeDisplay,
+        row.descriptiveTitleDisplay,
         row.roomDisplay,
     ]
-        .map((value) => String(value || "").trim())
+        .map((value) => normalizePlannerPdfText(value))
         .join("|")
 
     const paletteIndex = stablePdfRowHash(seed || row.key) % PDF_PASTEL_ROW_FILLS.length
     return PDF_PASTEL_ROW_FILLS[paletteIndex]
 }
 
+function buildPlannerPdfMeetingSources(rows: PlannerDisplayRow[]) {
+    return rows.flatMap((row) =>
+        row.sourceRows.map((sourceRow) => {
+            const lines = [
+                row.sectionDisplay,
+                row.subjectCodeDisplay,
+                row.descriptiveTitleDisplay,
+            ]
+                .map((value) => normalizePlannerPdfText(value))
+                .filter((value) => value && value !== "—")
+                .slice(0, 4)
+
+            return {
+                id: `${row.key}::${sourceRow.meetingId}`,
+                dayOfWeek: sourceRow.dayOfWeek,
+                startTime: sourceRow.startTime,
+                endTime: sourceRow.endTime,
+                lines,
+                color: resolvePlannerPdfBlockColor(row),
+                textColor: "#334155",
+                hasConflict: row.hasConflict,
+            } as PlannerPdfMeetingBlockSource
+        })
+    )
+}
+
+function buildPlannerPdfMeetingBlocks(
+    rows: PlannerDisplayRow[],
+    timeSlots: string[],
+    rowHeight: number,
+    blockScale: number
+) {
+    const slotLayouts = buildPlannerPdfSlotLayoutDescriptors(timeSlots, rowHeight)
+    const sources = buildPlannerPdfMeetingSources(rows)
+
+    const blocks: Array<{
+        id: string
+        dayIndex: number
+        rowIndex: number
+        top: number
+        left: number
+        width: number
+        height: number
+        color: string
+        textColor: string
+        hasConflict: boolean
+        lines: string[]
+        fontSize: number
+        paddingX: number
+        paddingY: number
+    }> = []
+
+    for (const source of sources) {
+        const normalizedDay = normalizePlannerPdfText(source.dayOfWeek).toLowerCase()
+        const dayIndex = PLANNER_PDF_DAYS.findIndex((day) =>
+            normalizedDay.startsWith(day.toLowerCase().slice(0, 3))
+        )
+        if (dayIndex < 0) continue
+
+        const range = resolvePlannerPdfTimeRangeFromTimes(
+            source.startTime,
+            source.endTime,
+            slotLayouts
+        )
+        if (!range) continue
+
+        const matchedSlots = slotLayouts.filter(
+            (slot) =>
+                !slot.isNoonBreak &&
+                plannerPdfRangesOverlap(
+                    range.start,
+                    range.end,
+                    slot.start,
+                    slot.end,
+                    PLANNER_PDF_SLOT_EDGE_TOLERANCE_MINUTES
+                )
+        )
+
+        if (matchedSlots.length === 0) continue
+
+        const firstSlot = matchedSlots[0]
+        const lastSlot = matchedSlots[matchedSlots.length - 1]
+
+        const top = resolvePlannerPdfMinutePositionWithinSlot(firstSlot, range.start)
+        const bottom = resolvePlannerPdfMinutePositionWithinSlot(lastSlot, range.end)
+        const left = dayIndex * PLANNER_PDF_DAY_COL_WIDTH
+        const width = PLANNER_PDF_DAY_COL_WIDTH
+        const height = Math.max(bottom - top, 1)
+        const blockContent = resolvePlannerPdfScaledBlockContent(
+            source.lines,
+            width,
+            height,
+            blockScale
+        )
+
+        blocks.push({
+            id: source.id,
+            dayIndex,
+            rowIndex: firstSlot.rowIndex,
+            top,
+            left,
+            width,
+            height,
+            color: source.color,
+            textColor: source.textColor,
+            hasConflict: source.hasConflict,
+            lines: blockContent.lines,
+            fontSize: blockContent.fontSize,
+            paddingX: blockContent.paddingX,
+            paddingY: blockContent.paddingY,
+        })
+    }
+
+    return blocks.sort((a, b) => {
+        if (a.dayIndex !== b.dayIndex) return a.dayIndex - b.dayIndex
+        if (a.rowIndex !== b.rowIndex) return a.rowIndex - b.rowIndex
+        return a.id.localeCompare(b.id)
+    })
+}
+
 const pdfStyles = StyleSheet.create({
     page: {
-        paddingTop: 18,
-        paddingRight: 22,
-        paddingBottom: 18,
-        paddingLeft: 22,
+        paddingTop: PLANNER_PDF_PAGE_PADDING_TOP,
+        paddingRight: PLANNER_PDF_PAGE_PADDING_RIGHT,
+        paddingBottom: PLANNER_PDF_PAGE_PADDING_BOTTOM,
+        paddingLeft: PLANNER_PDF_PAGE_PADDING_LEFT,
         fontFamily: "Helvetica",
         color: "#1F2937",
         fontSize: 8.25,
     },
     sheetWrap: {
-        width: "100%",
+        width: PLANNER_PDF_GRID_WIDTH,
         minHeight: "100%",
+        alignSelf: "center",
         display: "flex",
         flexDirection: "column",
     },
     contentWrap: {
-        width: "100%",
+        width: PLANNER_PDF_GRID_WIDTH,
+        alignSelf: "center",
     },
     bottomWrap: {
-        width: "100%",
+        width: PLANNER_PDF_GRID_WIDTH,
         marginTop: "auto",
+        alignSelf: "center",
     },
     headerWrap: {
-        width: "100%",
+        width: PLANNER_PDF_GRID_WIDTH,
+        alignSelf: "center",
     },
     headerRow: {
         flexDirection: "row",
@@ -982,43 +1884,88 @@ const pdfStyles = StyleSheet.create({
         color: "#475569",
         marginBottom: 1,
     },
-    table: {
-        width: "100%",
+    gridTable: {
+        width: PLANNER_PDF_GRID_WIDTH,
         marginTop: 10,
+        alignSelf: "center",
         borderWidth: 1,
         borderColor: PDF_TABLE_BORDER_COLOR,
     },
-    headerRowTable: {
+    gridHeaderRow: {
         flexDirection: "row",
-        width: "100%",
+        width: PLANNER_PDF_GRID_WIDTH,
     },
-    headerCell: {
-        paddingTop: 6,
-        paddingRight: 6,
-        paddingBottom: 6,
-        paddingLeft: 6,
-        color: PDF_TABLE_HEADER_TEXT,
-        fontWeight: "bold",
-        fontSize: 8.1,
-        backgroundColor: PDF_TABLE_HEADER_FILL,
+    timeHeadCell: {
+        width: PLANNER_PDF_TIME_COL_WIDTH,
+        borderRightWidth: 1,
         borderBottomWidth: 1,
-        borderBottomColor: PDF_TABLE_BORDER_COLOR,
+        borderColor: PDF_TABLE_BORDER_COLOR,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: PDF_TABLE_HEADER_FILL,
+        paddingHorizontal: 2,
     },
-    row: {
+    dayHeadCell: {
+        width: PLANNER_PDF_DAY_COL_WIDTH,
+        borderRightWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: PDF_TABLE_BORDER_COLOR,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: PDF_TABLE_HEADER_FILL,
+        paddingHorizontal: 2,
+    },
+    bodyGrid: {
+        position: "relative",
+        width: PLANNER_PDF_GRID_WIDTH,
+    },
+    bodyRow: {
         flexDirection: "row",
     },
-    conflictRow: {
-        backgroundColor: PDF_TABLE_CONFLICT_FILL,
+    timeCell: {
+        width: PLANNER_PDF_TIME_COL_WIDTH,
+        borderRightWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: PDF_TABLE_BORDER_COLOR,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 3,
     },
-    cell: {
-        paddingTop: 5,
-        paddingRight: 6,
-        paddingBottom: 5,
-        paddingLeft: 6,
-        borderTopWidth: 1,
-        borderTopColor: PDF_TABLE_BORDER_COLOR,
-        color: PDF_TABLE_BODY_TEXT,
-        fontSize: 7.35,
+    blankDayCell: {
+        width: PLANNER_PDF_DAY_COL_WIDTH,
+        borderRightWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: PDF_TABLE_BORDER_COLOR,
+    },
+    noonCell: {
+        width:
+            PLANNER_PDF_GRID_WIDTH - PLANNER_PDF_TIME_COL_WIDTH,
+        borderBottomWidth: 1,
+        borderColor: PDF_TABLE_BORDER_COLOR,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#FAFAFA",
+    },
+    overlayArea: {
+        position: "absolute",
+        top: 0,
+        left: PLANNER_PDF_TIME_COL_WIDTH,
+        width: PLANNER_PDF_GRID_WIDTH - PLANNER_PDF_TIME_COL_WIDTH,
+    },
+    meetingBlock: {
+        position: "absolute",
+        borderWidth: 0.8,
+        borderColor: "#94A3B8",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    meetingConflictBlock: {
+        borderColor: "#DC2626",
+        borderWidth: 1,
+    },
+    meetingText: {
+        lineHeight: PLANNER_PDF_BLOCK_LINE_HEIGHT_RATIO,
+        textAlign: "center",
     },
     footerRuleWrap: {
         width: "100%",
@@ -1043,6 +1990,7 @@ const pdfStyles = StyleSheet.create({
         color: "#64748B",
     },
 })
+
 
 function comparePlannerText(a?: string | number | null, b?: string | number | null) {
     return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
@@ -1294,6 +2242,7 @@ function buildPlannerDisplayRows({
     })
 }
 
+
 function SchedulePdfDocument({
     rows,
     scheduleScopeLabel,
@@ -1316,15 +2265,19 @@ function SchedulePdfDocument({
     leftLogoSrc: string
     rightLogoSrc: string
 }) {
-    const columns = [
-        { key: "day", label: "Day", width: "11%", align: "left" as const },
-        { key: "time", label: "Time", width: "15%", align: "left" as const },
-        { key: "subject", label: "Subject", width: "25%", align: "left" as const },
-        { key: "section", label: "Section", width: "14%", align: "left" as const },
-        { key: "faculty", label: "Instructor", width: "17%", align: "left" as const },
-        { key: "room", label: "Room", width: "10%", align: "left" as const },
-        { key: "conflict", label: "Conflict", width: "8%", align: "center" as const },
-    ]
+    const timeSlots = resolvePlannerPdfTimeSlots(rows)
+    const tableLayout = computePlannerPdfLayoutMetrics(timeSlots.length, pdfPageSize)
+    const meetingBlocks = buildPlannerPdfMeetingBlocks(
+        rows,
+        timeSlots,
+        tableLayout.rowHeight,
+        tableLayout.blockScale
+    )
+    const entryCount = rows.reduce(
+        (total, row) => total + Math.max(1, row.sourceRows.length),
+        0
+    )
+    const conflictCount = rows.filter((row) => row.hasConflict).length
 
     const pdfPageProps =
         typeof pdfPageSize === "string"
@@ -1362,98 +2315,169 @@ function SchedulePdfDocument({
                         {scopeLabel ? <Text style={pdfStyles.metaCenter}>{scopeLabel}</Text> : null}
                         <Text style={pdfStyles.metaCenter}>Generated at: {generatedAt}</Text>
 
-                        <View style={pdfStyles.table}>
-                            <View style={pdfStyles.headerRowTable} wrap={false}>
-                                {columns.map((column, index) => {
-                                    const isLast = index === columns.length - 1
+                        <View style={pdfStyles.gridTable}>
+                            <View style={pdfStyles.gridHeaderRow}>
+                                <View
+                                    style={[
+                                        pdfStyles.timeHeadCell,
+                                        { height: tableLayout.headerRowHeight },
+                                    ]}
+                                >
+                                    <Text
+                                        style={{
+                                            fontSize: tableLayout.dayHeaderFontSize,
+                                            fontWeight: "bold",
+                                            color: PDF_TABLE_HEADER_TEXT,
+                                        }}
+                                    >
+                                        Time
+                                    </Text>
+                                </View>
+
+                                {PLANNER_PDF_DAYS.map((day, index) => (
+                                    <View
+                                        key={day}
+                                        style={[
+                                            pdfStyles.dayHeadCell,
+                                            {
+                                                height: tableLayout.headerRowHeight,
+                                                borderRightWidth:
+                                                    index === PLANNER_PDF_DAYS.length - 1 ? 0 : 1,
+                                            },
+                                        ]}
+                                    >
+                                        <Text
+                                            style={{
+                                                fontSize: tableLayout.dayHeaderFontSize,
+                                                fontWeight: "bold",
+                                                color: PDF_TABLE_HEADER_TEXT,
+                                            }}
+                                        >
+                                            {day}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+
+                            <View
+                                style={[
+                                    pdfStyles.bodyGrid,
+                                    { height: tableLayout.bodyGridHeight },
+                                ]}
+                            >
+                                {timeSlots.map((slotLabel) => {
+                                    const isNoonBreak = isPlannerPdfNoonBreakSlot(slotLabel)
 
                                     return (
                                         <View
-                                            key={column.key}
-                                            style={{
-                                                width: column.width,
-                                                borderRightWidth: isLast ? 0 : 1,
-                                                borderRightColor: PDF_TABLE_BORDER_COLOR,
-                                            }}
+                                            key={slotLabel}
+                                            style={[
+                                                pdfStyles.bodyRow,
+                                                { height: tableLayout.rowHeight },
+                                            ]}
                                         >
-                                            <Text
+                                            <View
                                                 style={[
-                                                    pdfStyles.headerCell,
-                                                    {
-                                                        textAlign: column.align,
-                                                    },
+                                                    pdfStyles.timeCell,
+                                                    { height: tableLayout.rowHeight },
                                                 ]}
                                             >
-                                                {column.label}
-                                            </Text>
+                                                <Text
+                                                    style={{
+                                                        fontSize: tableLayout.timeFontSize,
+                                                    }}
+                                                >
+                                                    {slotLabel}
+                                                </Text>
+                                            </View>
+
+                                            {isNoonBreak ? (
+                                                <View
+                                                    style={[
+                                                        pdfStyles.noonCell,
+                                                        { height: tableLayout.rowHeight },
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={{
+                                                            fontSize: tableLayout.noonFontSize,
+                                                            color: "#4B5563",
+                                                        }}
+                                                    >
+                                                        Noon Break
+                                                    </Text>
+                                                </View>
+                                            ) : (
+                                                <>
+                                                    {PLANNER_PDF_DAYS.map((day, index) => (
+                                                        <View
+                                                            key={`${slotLabel}-${day}`}
+                                                            style={[
+                                                                pdfStyles.blankDayCell,
+                                                                {
+                                                                    height: tableLayout.rowHeight,
+                                                                    borderRightWidth:
+                                                                        index ===
+                                                                        PLANNER_PDF_DAYS.length - 1
+                                                                            ? 0
+                                                                            : 1,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ))}
+                                                </>
+                                            )}
                                         </View>
                                     )
                                 })}
-                            </View>
 
-                            {rows.map((row) => {
-                                const rowStyles = [
-                                    pdfStyles.row,
-                                    row.hasConflict
-                                        ? pdfStyles.conflictRow
-                                        : { backgroundColor: resolvePlannerPdfRowBackground(row) },
-                                ]
-                                const subjectDisplay =
-                                    row.descriptiveTitleDisplay && row.descriptiveTitleDisplay !== "—"
-                                        ? `${row.subjectCodeDisplay} • ${row.descriptiveTitleDisplay}`
-                                        : row.subjectCodeDisplay || "—"
-
-                                const values: Record<string, string> = {
-                                    day: row.dayDisplay || "—",
-                                    time: row.timeDisplay || "—",
-                                    subject: subjectDisplay || "—",
-                                    section: row.sectionDisplay || "—",
-                                    faculty: row.facultyDisplay || "—",
-                                    room: row.roomDisplay || "—",
-                                    conflict: row.hasConflict ? "Conflict" : "Clear",
-                                }
-
-                                return (
-                                    <View key={row.key} style={rowStyles} wrap={false}>
-                                        {columns.map((column, columnIndex) => {
-                                            const isLast = columnIndex === columns.length - 1
-                                            const value = values[column.key] || "—"
-
-                                            return (
-                                                <View
-                                                    key={column.key}
-                                                    style={{
-                                                        width: column.width,
-                                                        borderRightWidth: isLast ? 0 : 1,
-                                                        borderRightColor: PDF_TABLE_BORDER_COLOR,
-                                                    }}
+                                <View
+                                    style={[
+                                        pdfStyles.overlayArea,
+                                        { height: tableLayout.bodyGridHeight },
+                                    ]}
+                                >
+                                    {meetingBlocks.map((block) => (
+                                        <View
+                                            key={block.id}
+                                            style={[
+                                                pdfStyles.meetingBlock,
+                                                ...(block.hasConflict
+                                                    ? [pdfStyles.meetingConflictBlock]
+                                                    : []),
+                                                {
+                                                    top: block.top,
+                                                    left: block.left,
+                                                    width: block.width,
+                                                    height: block.height,
+                                                    backgroundColor: block.color,
+                                                    paddingHorizontal: block.paddingX,
+                                                    paddingVertical: block.paddingY,
+                                                },
+                                            ]}
+                                        >
+                                            {block.lines.map((line, lineIndex) => (
+                                                <Text
+                                                    key={`${block.id}-${lineIndex}`}
+                                                    style={[
+                                                        pdfStyles.meetingText,
+                                                        {
+                                                            color: block.textColor,
+                                                            fontSize: block.fontSize,
+                                                            fontWeight:
+                                                                lineIndex === 0
+                                                                    ? "bold"
+                                                                    : "normal",
+                                                        },
+                                                    ]}
                                                 >
-                                                    <Text
-                                                        style={[
-                                                            pdfStyles.cell,
-                                                            {
-                                                                textAlign: column.align,
-                                                                fontWeight:
-                                                                    column.key === "subject" || column.key === "conflict"
-                                                                        ? "bold"
-                                                                        : "normal",
-                                                                color:
-                                                                    column.key === "conflict"
-                                                                        ? row.hasConflict
-                                                                            ? "#7F1D1D"
-                                                                            : "#166534"
-                                                                        : PDF_TABLE_BODY_TEXT,
-                                                            },
-                                                        ]}
-                                                    >
-                                                        {value}
-                                                    </Text>
-                                                </View>
-                                            )
-                                        })}
-                                    </View>
-                                )
-                            })}
+                                                    {line}
+                                                </Text>
+                                            ))}
+                                        </View>
+                                    ))}
+                                </View>
+                            </View>
                         </View>
                     </View>
 
@@ -1465,7 +2489,8 @@ function SchedulePdfDocument({
 
                         <View style={pdfStyles.footerText}>
                             <Text>
-                                {rows.length} grouped entr{rows.length === 1 ? "y" : "ies"}
+                                {entryCount} scheduled entr{entryCount === 1 ? "y" : "ies"}
+                                {conflictCount > 0 ? ` • ${conflictCount} conflicted group${conflictCount === 1 ? "" : "s"}` : ""}
                             </Text>
                             <Text>WorkloadHub</Text>
                         </View>
@@ -1475,7 +2500,6 @@ function SchedulePdfDocument({
         </Document>
     )
 }
-
 
 
 type ExtraSmallPlannerCardShellProps = {
