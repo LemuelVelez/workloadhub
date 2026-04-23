@@ -630,20 +630,20 @@ export default function AdminSchedulesPage() {
             setSubjectCollegeFilter(persistedFilters.subjectCollegeFilter)
         }
 
-        if (!arePersistedAdminScheduleFilterArraysEqual(subjectProgramFilters, persistedFilters.subjectProgramFilters)) {
-            setSubjectProgramFilters(persistedFilters.subjectProgramFilters)
+        if (subjectAcademicTermFilter !== persistedFilters.subjectAcademicTermFilter) {
+            setSubjectAcademicTermFilter(persistedFilters.subjectAcademicTermFilter)
         }
 
-        if (!arePersistedAdminScheduleFilterArraysEqual(subjectSectionFilters, persistedFilters.subjectSectionFilters)) {
-            setSubjectSectionFilters(persistedFilters.subjectSectionFilters)
+        if (!arePersistedAdminScheduleFilterArraysEqual(subjectProgramFilters, persistedFilters.subjectProgramFilters)) {
+            setSubjectProgramFilters(persistedFilters.subjectProgramFilters)
         }
 
         if (!arePersistedAdminScheduleFilterArraysEqual(subjectYearLevelFilters, persistedFilters.subjectYearLevelFilters)) {
             setSubjectYearLevelFilters(persistedFilters.subjectYearLevelFilters)
         }
 
-        if (subjectAcademicTermFilter !== persistedFilters.subjectAcademicTermFilter) {
-            setSubjectAcademicTermFilter(persistedFilters.subjectAcademicTermFilter)
+        if (!arePersistedAdminScheduleFilterArraysEqual(subjectSectionFilters, persistedFilters.subjectSectionFilters)) {
+            setSubjectSectionFilters(persistedFilters.subjectSectionFilters)
         }
     }, [adminScheduleFiltersStorageKey])
 
