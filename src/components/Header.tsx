@@ -13,7 +13,6 @@ import {
 
 import { useSession } from "@/hooks/use-session"
 
-
 export default function Header() {
     const { isAuthenticated } = useSession()
 
@@ -21,10 +20,10 @@ export default function Header() {
     const actionLabel = isAuthenticated ? "Dashboard" : "Sign in"
 
     return (
-        <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/70 backdrop-blur">
+        <header className="fixed inset-x-0 top-0 z-50 w-full border-b border-white/15 bg-slate-950/35 text-white shadow-sm backdrop-blur-md">
             <div className="mx-auto flex h-16 items-center justify-between px-4">
                 <div className="flex items-center gap-3">
-                    <Link to="/" className="flex items-center gap-2">
+                    <Link to="/" className="flex items-center gap-2 text-white">
                         <img
                             src="/logo.svg"
                             alt="WorkloadHub"
@@ -34,7 +33,7 @@ export default function Header() {
                         <span className="text-base font-semibold">WorkloadHub</span>
                     </Link>
 
-                    <Separator orientation="vertical" className="hidden h-6 md:block" />
+                    <Separator orientation="vertical" className="hidden h-6 bg-white/20 md:block" />
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -42,7 +41,6 @@ export default function Header() {
                         <Link to={actionHref}>{actionLabel}</Link>
                     </Button>
 
-                    {/* Mobile */}
                     <div className="md:hidden">
                         <Sheet>
                             <SheetTrigger asChild>
@@ -51,9 +49,9 @@ export default function Header() {
                                 </Button>
                             </SheetTrigger>
 
-                            <SheetContent side="right" className="w-80">
+                            <SheetContent side="right" className="w-80 border-white/15 bg-slate-950/95 text-white">
                                 <SheetHeader>
-                                    <SheetTitle className="flex items-center gap-2">
+                                    <SheetTitle className="flex items-center gap-2 text-white">
                                         <img
                                             src="/logo.svg"
                                             alt="WorkloadHub"
@@ -65,8 +63,7 @@ export default function Header() {
                                 </SheetHeader>
 
                                 <div className="mt-6 grid gap-3">
-
-                                    <Separator className="my-2" />
+                                    <Separator className="my-2 bg-white/20" />
 
                                     <Button asChild variant="default">
                                         <Link to={actionHref}>{actionLabel}</Link>
