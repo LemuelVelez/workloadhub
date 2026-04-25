@@ -8,6 +8,7 @@ import { toast } from "sonner"
 
 import { authApi } from "@/api/auth"
 import { useSession } from "@/hooks/use-session"
+import backgroundImage from "@/assets/background.png"
 
 // ✅ NEW
 import { needsFirstLoginPasswordChange } from "@/lib/first-login"
@@ -421,9 +422,18 @@ export default function LoginPage() {
     }
 
     return (
-        <div className="min-h-screen w-full bg-background">
-            <div className="mx-auto flex min-h-screen max-w-md items-center px-4 py-10">
-                <Card className="w-full">
+        <div className="relative min-h-screen w-full overflow-x-hidden bg-background">
+            <img
+                src={backgroundImage}
+                alt=""
+                aria-hidden="true"
+                className="pointer-events-none fixed inset-0 z-0 h-screen w-screen object-cover"
+                draggable={false}
+            />
+            <div className="pointer-events-none fixed inset-0 z-0 bg-black/45" />
+
+            <div className="relative z-10 mx-auto flex min-h-screen max-w-md items-center px-4 py-10">
+                <Card className="w-full border-white/20 bg-background/95 shadow-2xl backdrop-blur">
                     <CardHeader className="space-y-2">
                         <CardTitle className="text-2xl">Sign in</CardTitle>
                         <CardDescription>Enter your email and password to continue.</CardDescription>
