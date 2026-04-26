@@ -233,7 +233,7 @@ export default function NavMain({ className }: { className?: string }) {
             icon: Scale,
             roles: ["admin"],
         },
-        { title: "Users", href: "/dashboard/admin/users", icon: Users, roles: ["admin"] },
+        { title: "Faculty", href: "/dashboard/admin/users", icon: Users, roles: ["admin"] },
         {
             title: "Audit Logs",
             href: "/dashboard/admin/audit-logs",
