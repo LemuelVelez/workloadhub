@@ -787,6 +787,7 @@ const PLANNER_PDF_BASE_TIME_SLOTS = [
     "6:00-7:00",
     "7:00-8:00",
     "8:00-9:00",
+    "9:00-10:00",
 ] as const
 
 type PlannerPdfSlotDescriptor = {

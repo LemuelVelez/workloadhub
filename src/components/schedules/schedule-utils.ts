@@ -1074,24 +1074,26 @@ export function meetingTypeLabel(v: string) {
     return "OTHER"
 }
 
-function buildTimeOptions(stepMinutes = 30) {
+function buildTimeOptions(stepMinutes = 30, startHour = 7, endHour = 22) {
     const out: Array<{ value: string; label: string }> = []
+    const startMinutes = startHour * 60
+    const endMinutes = endHour * 60
 
-    for (let h = 0; h < 24; h += 1) {
-        for (let m = 0; m < 60; m += stepMinutes) {
-            const hh = String(h).padStart(2, "0")
-            const mm = String(m).padStart(2, "0")
-            const value = `${hh}:${mm}`
+    for (let totalMinutes = startMinutes; totalMinutes <= endMinutes; totalMinutes += stepMinutes) {
+        const h = Math.floor(totalMinutes / 60)
+        const m = totalMinutes % 60
+        const hh = String(h).padStart(2, "0")
+        const mm = String(m).padStart(2, "0")
+        const value = `${hh}:${mm}`
 
-            const h12 = ((h + 11) % 12) + 1
-            const period = h >= 12 ? "pm" : "am"
-            const label = `${h12}:${mm} ${period}`
+        const h12 = ((h + 11) % 12) + 1
+        const period = h >= 12 ? "pm" : "am"
+        const label = `${h12}:${mm} ${period}`
 
-            out.push({ value, label })
-        }
+        out.push({ value, label })
     }
 
     return out
 }
 
-export const TIME_OPTIONS = buildTimeOptions(30)
+export const TIME_OPTIONS = buildTimeOptions(30, 7, 22)
