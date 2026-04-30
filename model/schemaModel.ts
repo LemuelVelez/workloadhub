@@ -11,7 +11,7 @@
  * - No SDK calls
  */
 
-export const SCHEMA_MIGRATION_ID = "018_finalize_reusable_section_term_scope" as const;
+export const SCHEMA_MIGRATION_ID = "020_persist_subject_matching_filters" as const;
 
 /**
  * ✅ Section hardcoded options (A-Z) + Others (last)

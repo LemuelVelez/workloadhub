@@ -300,7 +300,9 @@ function hasLinkedSubjectMetadata(subject?: SubjectDoc | null) {
 }
 
 
-const ADMIN_SCHEDULE_FILTERS_STORAGE_KEY = "workloadhub:admin-schedules-filters"
+const ADMIN_SCHEDULE_FILTERS_SETTING_KEY = "admin_schedules.subject_matching_filters"
+const ADMIN_SCHEDULE_FILTERS_SETTING_DESCRIPTION = "Saved Subject Matching Filters for the admin schedule planner."
+const ADMIN_SCHEDULE_FILTERS_SAVE_DEBOUNCE_MS = 400
 
 type PersistedAdminScheduleFilters = {
     showConflictsOnly: boolean
@@ -311,11 +313,20 @@ type PersistedAdminScheduleFilters = {
     subjectAcademicTermFilter: string
 }
 
-function buildAdminScheduleFiltersStorageKey(scopeKey?: string | null) {
-    const normalizedScopeKey = String(scopeKey || "").trim()
+type PersistedAdminScheduleFiltersSettingDoc = {
+    $id: string
+    key?: string | null
+    value?: string | null
+}
+
+function buildAdminScheduleFiltersSettingKey(scopeKey?: string | null) {
+    const normalizedScopeKey = String(scopeKey || "")
+        .trim()
+        .replace(/\s+/g, " ")
+
     return normalizedScopeKey
-        ? `${ADMIN_SCHEDULE_FILTERS_STORAGE_KEY}:${normalizedScopeKey}`
-        : ADMIN_SCHEDULE_FILTERS_STORAGE_KEY
+        ? `${ADMIN_SCHEDULE_FILTERS_SETTING_KEY}:${normalizedScopeKey}`
+        : ADMIN_SCHEDULE_FILTERS_SETTING_KEY
 }
 
 function createDefaultPersistedAdminScheduleFilters(): PersistedAdminScheduleFilters {
@@ -356,6 +367,19 @@ function normalizePersistedAdminScheduleFilters(
     }
 }
 
+function parsePersistedAdminScheduleFilters(value?: string | null) {
+    const rawValue = String(value || "").trim()
+    if (!rawValue) return null
+
+    try {
+        return normalizePersistedAdminScheduleFilters(
+            JSON.parse(rawValue) as Partial<PersistedAdminScheduleFilters> | null
+        )
+    } catch {
+        return null
+    }
+}
+
 function arePersistedAdminScheduleFilterArraysEqual(current: string[], next: string[]) {
     if (current.length !== next.length) return false
 
@@ -376,8 +400,8 @@ function arePersistedAdminScheduleFiltersEqual(
     )
 }
 
-function normalizeAdminScheduleFilterStorageKeys(storageKeys: string | string[]) {
-    const values = Array.isArray(storageKeys) ? storageKeys : [storageKeys]
+function normalizeAdminScheduleFilterSettingKeys(settingKeys: string | string[]) {
+    const values = Array.isArray(settingKeys) ? settingKeys : [settingKeys]
 
     return Array.from(
         new Set(
@@ -388,40 +412,81 @@ function normalizeAdminScheduleFilterStorageKeys(storageKeys: string | string[])
     )
 }
 
-function readPersistedAdminScheduleFilters(storageKeys: string | string[]): PersistedAdminScheduleFilters {
+function isDuplicateDocumentError(error: unknown) {
+    return Number((error as any)?.code) === 409
+}
+
+function logAdminScheduleFiltersPersistenceError(error: unknown) {
+    if (typeof import.meta !== "undefined" && (import.meta as any)?.env?.DEV) {
+        console.warn("[SubjectMatchingFilters] Failed to persist filters:", error)
+    }
+}
+
+async function findPersistedAdminScheduleFiltersSetting(settingKey: string) {
+    const response = await databases.listDocuments(DATABASE_ID, COLLECTIONS.SETTINGS, [
+        Query.equal("key", settingKey),
+        Query.limit(1),
+    ])
+
+    return (response.documents?.[0] || null) as PersistedAdminScheduleFiltersSettingDoc | null
+}
+
+async function readPersistedAdminScheduleFilters(settingKeys: string | string[]): Promise<PersistedAdminScheduleFilters> {
     const fallback = createDefaultPersistedAdminScheduleFilters()
+    const normalizedSettingKeys = normalizeAdminScheduleFilterSettingKeys(settingKeys)
 
-    if (typeof window === "undefined") return fallback
-
-    const normalizedStorageKeys = normalizeAdminScheduleFilterStorageKeys(storageKeys)
-
-    for (const storageKey of normalizedStorageKeys) {
+    for (const settingKey of normalizedSettingKeys) {
         try {
-            const rawValue = window.localStorage.getItem(storageKey)
-            if (!rawValue) continue
-
-            return normalizePersistedAdminScheduleFilters(
-                JSON.parse(rawValue) as Partial<PersistedAdminScheduleFilters> | null
-            )
-        } catch {
-            continue
+            const setting = await findPersistedAdminScheduleFiltersSetting(settingKey)
+            const parsedFilters = parsePersistedAdminScheduleFilters(setting?.value)
+            if (parsedFilters) return parsedFilters
+        } catch (error) {
+            logAdminScheduleFiltersPersistenceError(error)
         }
     }
 
     return fallback
 }
 
-function writePersistedAdminScheduleFilters(
-    storageKeys: string | string[],
+async function writePersistedAdminScheduleFilters(
+    settingKeys: string | string[],
     value: PersistedAdminScheduleFilters
 ) {
-    if (typeof window === "undefined") return
+    const [settingKey] = normalizeAdminScheduleFilterSettingKeys(settingKeys)
+    if (!settingKey) return
 
-    const serializedValue = JSON.stringify(normalizePersistedAdminScheduleFilters(value))
+    const normalizedValue = normalizePersistedAdminScheduleFilters(value)
+    const payload = {
+        key: settingKey,
+        value: JSON.stringify(normalizedValue),
+        description: ADMIN_SCHEDULE_FILTERS_SETTING_DESCRIPTION,
+        updatedAt: new Date().toISOString(),
+    }
 
-    normalizeAdminScheduleFilterStorageKeys(storageKeys).forEach((storageKey) => {
-        window.localStorage.setItem(storageKey, serializedValue)
-    })
+    try {
+        const existingSetting = await findPersistedAdminScheduleFiltersSetting(settingKey)
+
+        if (existingSetting?.$id) {
+            await databases.updateDocument(DATABASE_ID, COLLECTIONS.SETTINGS, existingSetting.$id, payload)
+            return
+        }
+
+        await databases.createDocument(DATABASE_ID, COLLECTIONS.SETTINGS, ID.unique(), payload)
+    } catch (error) {
+        if (!isDuplicateDocumentError(error)) {
+            logAdminScheduleFiltersPersistenceError(error)
+            return
+        }
+
+        try {
+            const existingSetting = await findPersistedAdminScheduleFiltersSetting(settingKey)
+            if (existingSetting?.$id) {
+                await databases.updateDocument(DATABASE_ID, COLLECTIONS.SETTINGS, existingSetting.$id, payload)
+            }
+        } catch (retryError) {
+            logAdminScheduleFiltersPersistenceError(retryError)
+        }
+    }
 }
 
 
@@ -587,8 +652,11 @@ export default function AdminSchedulesPage() {
     const [scheduleFiltersHydrated, setScheduleFiltersHydrated] = React.useState(false)
     const [scheduleContextHydratedScopeKey, setScheduleContextHydratedScopeKey] = React.useState("")
 
-    const adminScheduleFiltersStorageKey = React.useMemo(
-        () => buildAdminScheduleFiltersStorageKey(activeScheduleScopeKey),
+    const adminScheduleFiltersSettingKeys = React.useMemo(
+        () => [
+            buildAdminScheduleFiltersSettingKey(activeScheduleScopeKey),
+            buildAdminScheduleFiltersSettingKey(),
+        ],
         [activeScheduleScopeKey]
     )
 
@@ -613,39 +681,55 @@ export default function AdminSchedulesPage() {
     )
 
     React.useEffect(() => {
+        let cancelled = false
+
         scheduleFiltersHydratedRef.current = false
+        pendingPersistedScheduleFiltersRef.current = null
         setScheduleFiltersHydrated(false)
 
-        const persistedFilters = readPersistedAdminScheduleFilters([
-            adminScheduleFiltersStorageKey,
-            ADMIN_SCHEDULE_FILTERS_STORAGE_KEY,
-        ])
-        pendingPersistedScheduleFiltersRef.current = persistedFilters
+        const currentFiltersBeforeHydration = currentPersistedAdminScheduleFilters
 
-        if (showConflictsOnly !== persistedFilters.showConflictsOnly) {
-            setShowConflictsOnly(persistedFilters.showConflictsOnly)
-        }
+        void (async () => {
+            const persistedFilters = await readPersistedAdminScheduleFilters(adminScheduleFiltersSettingKeys)
+            if (cancelled) return
 
-        if (subjectCollegeFilter !== persistedFilters.subjectCollegeFilter) {
-            setSubjectCollegeFilter(persistedFilters.subjectCollegeFilter)
-        }
+            pendingPersistedScheduleFiltersRef.current = persistedFilters
 
-        if (subjectAcademicTermFilter !== persistedFilters.subjectAcademicTermFilter) {
-            setSubjectAcademicTermFilter(persistedFilters.subjectAcademicTermFilter)
-        }
+            if (showConflictsOnly !== persistedFilters.showConflictsOnly) {
+                setShowConflictsOnly(persistedFilters.showConflictsOnly)
+            }
 
-        if (!arePersistedAdminScheduleFilterArraysEqual(subjectProgramFilters, persistedFilters.subjectProgramFilters)) {
-            setSubjectProgramFilters(persistedFilters.subjectProgramFilters)
-        }
+            if (subjectCollegeFilter !== persistedFilters.subjectCollegeFilter) {
+                setSubjectCollegeFilter(persistedFilters.subjectCollegeFilter)
+            }
 
-        if (!arePersistedAdminScheduleFilterArraysEqual(subjectYearLevelFilters, persistedFilters.subjectYearLevelFilters)) {
-            setSubjectYearLevelFilters(persistedFilters.subjectYearLevelFilters)
-        }
+            if (subjectAcademicTermFilter !== persistedFilters.subjectAcademicTermFilter) {
+                setSubjectAcademicTermFilter(persistedFilters.subjectAcademicTermFilter)
+            }
 
-        if (!arePersistedAdminScheduleFilterArraysEqual(subjectSectionFilters, persistedFilters.subjectSectionFilters)) {
-            setSubjectSectionFilters(persistedFilters.subjectSectionFilters)
+            if (!arePersistedAdminScheduleFilterArraysEqual(subjectProgramFilters, persistedFilters.subjectProgramFilters)) {
+                setSubjectProgramFilters(persistedFilters.subjectProgramFilters)
+            }
+
+            if (!arePersistedAdminScheduleFilterArraysEqual(subjectYearLevelFilters, persistedFilters.subjectYearLevelFilters)) {
+                setSubjectYearLevelFilters(persistedFilters.subjectYearLevelFilters)
+            }
+
+            if (!arePersistedAdminScheduleFilterArraysEqual(subjectSectionFilters, persistedFilters.subjectSectionFilters)) {
+                setSubjectSectionFilters(persistedFilters.subjectSectionFilters)
+            }
+
+            if (arePersistedAdminScheduleFiltersEqual(currentFiltersBeforeHydration, persistedFilters)) {
+                pendingPersistedScheduleFiltersRef.current = null
+                scheduleFiltersHydratedRef.current = true
+                setScheduleFiltersHydrated(true)
+            }
+        })()
+
+        return () => {
+            cancelled = true
         }
-    }, [adminScheduleFiltersStorageKey])
+    }, [adminScheduleFiltersSettingKeys])
 
     React.useEffect(() => {
         const pendingPersistedScheduleFilters = pendingPersistedScheduleFiltersRef.current
@@ -670,15 +754,17 @@ export default function AdminSchedulesPage() {
     React.useEffect(() => {
         if (!scheduleFiltersHydratedRef.current) return
         if (pendingPersistedScheduleFiltersRef.current) return
+        if (typeof window === "undefined") return
 
-        writePersistedAdminScheduleFilters(
-            [
-                adminScheduleFiltersStorageKey,
-                ADMIN_SCHEDULE_FILTERS_STORAGE_KEY,
-            ],
-            currentPersistedAdminScheduleFilters
-        )
-    }, [adminScheduleFiltersStorageKey, currentPersistedAdminScheduleFilters])
+        const timeoutId = window.setTimeout(() => {
+            void writePersistedAdminScheduleFilters(
+                adminScheduleFiltersSettingKeys,
+                currentPersistedAdminScheduleFilters
+            )
+        }, ADMIN_SCHEDULE_FILTERS_SAVE_DEBOUNCE_MS)
+
+        return () => window.clearTimeout(timeoutId)
+    }, [adminScheduleFiltersSettingKeys, currentPersistedAdminScheduleFilters])
 
     React.useEffect(() => {
         setTermScopeSelection(activeAcademicTermIds)
